@@ -159,8 +159,6 @@ TimelineScreen, DiscoverScreen, NotificationsScreen, MessagesScreen, SettingsScr
 .chat-message.received {
     background: #2a2a3a;
     color: #e0e0e0;
-    align: left top;
-    margin-right: 15;
 }
 
 .chat-message.sent {

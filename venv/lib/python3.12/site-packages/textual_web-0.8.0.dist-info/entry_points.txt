@@ -1,0 +1,3 @@
+[console_scripts]
+textual-web=textual_web.cli:app
+

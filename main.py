@@ -361,7 +361,7 @@ class SettingsScreen(Container):
 
 # ==================== MAIN APP ====================
 
-class SocialVimApp(App):
+class Proj101App(App):
     """A vim-style social network TUI application."""
     
     CSS_PATH = "main.tcss"
@@ -381,7 +381,7 @@ class SocialVimApp(App):
     current_screen_name = reactive("timeline")
     
     def compose(self) -> ComposeResult:
-        yield Static("social.vim [timeline] @yourname", id="app-header")
+        yield Static("proj101 [timeline] @yourname", id="app-header")
         yield TimelineScreen(id="screen-container")
         yield Static(":↑↓ Navigate [n] New Post [f] Follow [/] Search [?] Help", id="app-footer")
     
@@ -456,5 +456,5 @@ class SocialVimApp(App):
 
 
 if __name__ == "__main__":
-    app = SocialVimApp()
+    app = Proj101App()
     app.run()
