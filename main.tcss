@@ -1,0 +1,306 @@
+/* Global Styles */
+Screen {
+    background: #1a1a1a;
+    color: #e0e0e0;
+}
+
+/* App Header */
+#app-header {
+    dock: top;
+    height: 1;
+    background: #2d2d2d;
+    color: #ffffff;
+    padding: 0 2;
+    content-align: left middle;
+    text-style: bold;
+}
+
+/* App Footer */
+#app-footer {
+    dock: bottom;
+    height: 1;
+    background: #2d2d2d;
+    color: #888888;
+    padding: 0 2;
+    content-align: left middle;
+}
+
+/* Main Layout Containers */
+TimelineScreen, DiscoverScreen, NotificationsScreen, MessagesScreen, SettingsScreen {
+    layout: horizontal;
+    height: 1fr;
+}
+
+/* Sidebar */
+#sidebar {
+    width: 25;
+    background: #1e1e1e;
+    border-right: solid #333333;
+    padding: 1 2;
+    height: 100%;
+}
+
+.section-header {
+    color: #666666;
+    text-style: bold;
+    margin-top: 1;
+    margin-bottom: 1;
+}
+
+.nav-item {
+    color: #888888;
+    margin-bottom: 1;
+    padding-left: 1;
+}
+
+.nav-item.active {
+    color: #ffffff;
+    text-style: bold;
+}
+
+.command-item {
+    color: #666666;
+    margin-bottom: 1;
+    padding-left: 1;
+}
+
+.stat-item {
+    color: #888888;
+    margin-bottom: 1;
+    padding-left: 1;
+}
+
+/* Timeline Feed */
+#timeline-feed {
+    width: 1fr;
+    background: #1a1a1a;
+    padding: 0;
+    height: 100%;
+}
+
+/* Discover Feed */
+#discover-feed {
+    width: 1fr;
+    background: #1a1a1a;
+    padding: 0;
+    height: 100%;
+}
+
+/* Notifications Feed */
+#notifications-feed {
+    width: 1fr;
+    background: #1a1a1a;
+    padding: 0;
+    height: 100%;
+}
+
+.notification-item {
+    background: #1e1e1e;
+    color: #aaaaaa;
+    padding: 2 3;
+    margin: 1 2;
+    border: solid #333333;
+    height: auto;
+}
+
+.notification-item.unread {
+    background: #252535;
+    border: solid #4a4a5a;
+}
+
+.notification-item:hover {
+    border: solid #555555;
+}
+
+/* Conversations List */
+#conversations {
+    width: 35;
+    background: #1a1a1a;
+    border-right: solid #333333;
+    padding: 0;
+    height: 100%;
+}
+
+.panel-header {
+    background: #252525;
+    color: #cccccc;
+    padding: 1 2;
+    text-style: bold;
+    border-bottom: solid #333333;
+}
+
+.conversation-item {
+    background: #1e1e1e;
+    color: #aaaaaa;
+    padding: 1 2;
+    border-bottom: solid #2a2a2a;
+    height: auto;
+}
+
+.conversation-item:hover {
+    background: #252525;
+}
+
+/* Chat View */
+#chat {
+    width: 1fr;
+    background: #1a1a1a;
+    padding: 1 2;
+    height: 100%;
+}
+
+.chat-message {
+    width: 60%;
+    height: auto;
+    margin: 1 0;
+    padding: 1 2;
+}
+
+.chat-message.received {
+    background: #2a2a3a;
+    color: #e0e0e0;
+    align: left top;
+    margin-right: 15;
+}
+
+.chat-message.sent {
+    background: #2a3a2a;
+    color: #e0e0e0;
+    align: right top;
+    margin-left: 15;
+}
+
+.mode-indicator {
+    color: #888888;
+    margin-top: 2;
+    margin-bottom: 1;
+    text-align: center;
+}
+
+.message-input {
+    width: 100%;
+    height: 3;
+    background: #252525;
+    border: solid #444444;
+    padding: 0 1;
+    margin-top: 1;
+}
+
+/* Post Items */
+.post-item {
+    background: #1e1e1e;
+    color: #cccccc;
+    padding: 2 3;
+    margin: 1 2;
+    border: solid #333333;
+    height: auto;
+}
+
+.post-item:hover {
+    border: solid #555555;
+}
+
+/* Search Input */
+.search-input {
+    background: #252525;
+    color: #666666;
+    padding: 1 2;
+    border-bottom: solid #333333;
+}
+
+/* Suggested User */
+.suggested-user {
+    background: #1e1e1e;
+    color: #aaaaaa;
+    padding: 2 3;
+    margin: 1 2;
+    border: solid #333333;
+    height: auto;
+}
+
+/* Settings Panel */
+#settings-panel {
+    width: 1fr;
+    background: #1a1a1a;
+    padding: 2 4;
+    height: 100%;
+}
+
+.settings-section-header {
+    color: #cccccc;
+    text-style: bold;
+    margin-top: 2;
+    margin-bottom: 1;
+}
+
+.settings-help {
+    color: #666666;
+    margin-left: 4;
+    margin-bottom: 1;
+}
+
+.ascii-avatar {
+    color: #aaaaaa;
+    margin-left: 2;
+    margin-bottom: 1;
+    padding: 1 2;
+    background: #1e1e1e;
+    border: solid #333333;
+    width: 20;
+}
+
+.settings-action {
+    color: #888888;
+    margin-left: 4;
+    margin-bottom: 1;
+}
+
+.settings-field {
+    color: #aaaaaa;
+    margin-left: 2;
+    padding: 1 2;
+    background: #1e1e1e;
+    border: solid #333333;
+}
+
+.oauth-item {
+    color: #aaaaaa;
+    margin-left: 2;
+    margin-bottom: 1;
+    padding: 1 2;
+    background: #1e1e1e;
+    border: solid #333333;
+}
+
+.checkbox-item {
+    color: #aaaaaa;
+    margin-left: 2;
+    margin-bottom: 1;
+    padding: 1 2;
+}
+
+.settings-actions {
+    color: #888888;
+    margin-left: 2;
+    margin-top: 2;
+}
+
+.help-text {
+    color: #666666;
+    margin: 2;
+    padding: 1 2;
+    text-align: center;
+}
+
+/* Scrollbars */
+VerticalScroll {
+    scrollbar-color: #444444;
+    scrollbar-color-hover: #666666;
+    scrollbar-color-active: #888888;
+    scrollbar-background: #1a1a1a;
+}
+
+/* Input Focus */
+Input:focus {
+    border: solid #4a9eff;
+}
