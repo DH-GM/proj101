@@ -86,6 +86,16 @@ class ConversationItem(Static):
         unread_text = "• unread" if self.conversation.unread else ""
         return f"{unread_marker}@{self.conversation.username}\n  {self.conversation.last_message}\n  {time_ago} {unread_text}"
 
+    def on_click(self) -> None:
+        """Handle click to open conversation"""
+        # Find the parent MessagesScreen
+        screen = self.ancestors_with_class(MessagesScreen)
+        if screen:
+            # Get the first matching screen
+            messages_screen = screen[0]
+            # Open this conversation
+            messages_screen.open_conversation(self.conversation)
+
 
 class ChatMessage(Static):
     def __init__(self, message, current_user: str = "yourname", **kwargs):
@@ -743,10 +753,17 @@ class ConversationsList(VerticalScroll):
         """When the list gets focus"""
         self.cursor_position = 0
         self._update_cursor()
+        # Ensure the border is highlighted when focused
+        self.border = "round #4a9eff"
+        self.add_class("vim-mode-active")
 
     def on_blur(self) -> None:
         """When list loses focus"""
-        pass
+        # Keep a visible but less prominent border when not focused
+        self.border = "round #4a9eff 50%"
+        self.remove_class("vim-mode-active")
+        # Keep the border title visible
+        self.border_title = "Messages [6]"
 
     def key_j(self) -> None:
         """Move down with j key"""
@@ -788,20 +805,45 @@ class ConversationsList(VerticalScroll):
         self.cursor_position = max(self.cursor_position - 3, 0)
 
     def on_key(self, event) -> None:
-        """Handle g+g key combination for top"""
+        """Handle keyboard shortcuts in conversation list"""
+        # Handle g+g key combination for top
         if event.key == "g" and event.is_repeat:
             self.cursor_position = 0
             event.prevent_default()
+
+        # Handle Enter key to open the currently selected conversation
+        elif event.key == "enter":
+            items = list(self.query(".conversation-item"))
+            if 0 <= self.cursor_position < len(items):
+                # Get the current conversation item
+                item = items[self.cursor_position]
+                # Find the parent MessagesScreen
+                screen = self.ancestors_with_class(MessagesScreen)
+                if screen:
+                    # Open this conversation
+                    screen[0].open_conversation(item.conversation)
+                    event.prevent_default()
 
 
 class ChatView(VerticalScroll):
     conversation_id = "c1"
     cursor_position = reactive(0)
+    conversation = None
+
+    def __init__(self, conversation=None, **kwargs):
+        super().__init__(**kwargs)
+        if conversation:
+            self.conversation = conversation
+            self.conversation_id = getattr(conversation, 'id', 'c1')
 
     def compose(self) -> ComposeResult:
         self.border_title = "Chat [0]"
         messages = api.get_conversation_messages(self.conversation_id)
-        yield Static("@alice | conversation", classes="panel-header")
+
+        # Display the conversation username in the header
+        username = getattr(self.conversation, 'username', 'alice') if self.conversation else 'alice'
+        yield Static(f"@{username} | conversation", classes="panel-header")
+
         for msg in messages:
             yield ChatMessage(msg, classes="chat-message")
         yield Static("-- INSERT --", classes="mode-indicator")
@@ -857,18 +899,105 @@ class ChatView(VerticalScroll):
         messages = self.query(".chat-message")
         self.cursor_position = max(0, len(messages) - 1)
 
+    def load_conversation(self, conversation):
+        """Update the view with a new conversation"""
+        self.conversation = conversation
+        self.conversation_id = getattr(conversation, 'id', 'c1')
+
+        # Remove existing messages
+        for msg in self.query(".chat-message"):
+            msg.remove()
+
+        # Get the mode indicator and input box
+        mode_indicator = None
+        input_box = None
+        for child in self.children:
+            if isinstance(child, Static) and "mode-indicator" in child.classes:
+                mode_indicator = child
+            elif isinstance(child, Input) and child.id == "message-input":
+                input_box = child
+
+        # Update header
+        username = getattr(conversation, 'username', 'Unknown')
+        for child in self.children:
+            if "panel-header" in child.classes:
+                child.update(f"@{username} | conversation")
+                break
+
+        # Load new messages
+        messages = api.get_conversation_messages(self.conversation_id)
+
+        # Remove all chat messages first to avoid duplicates
+        to_remove = []
+        for child in self.children:
+            if isinstance(child, ChatMessage) or "chat-message" in getattr(child, "classes", []):
+                to_remove.append(child)
+
+        for child in to_remove:
+            child.remove()
+
+        # Add new messages before the mode indicator
+        for msg in messages:
+            if mode_indicator:
+                self.mount(ChatMessage(msg, classes="chat-message"), before=mode_indicator)
+            else:
+                self.mount(ChatMessage(msg, classes="chat-message"))
+
+        # Reset cursor position
+        self.cursor_position = 0
+
 
 class MessagesScreen(Container):
     def compose(self) -> ComposeResult:
         yield Sidebar(current="messages", id="sidebar")
         yield ConversationsList(id="conversations")
-        yield ChatView(id="chat")
+
+        # Get the first conversation to display initially
+        conversations = api.get_conversations()
+        initial_conversation = conversations[0] if conversations else None
+        yield ChatView(conversation=initial_conversation, id="chat")
 
     def on_mount(self) -> None:
         """Add border to conversations list"""
         conversations = self.query_one("#conversations", ConversationsList)
         conversations.border_title = "Messages [6]"
         conversations.border = "round #4a9eff"
+        # Make sure the border is always visible by adding this class
+        conversations.add_class("always-bordered")
+
+    def open_conversation(self, conversation):
+        """Open a conversation in the chat view"""
+        try:
+            # Find the chat view and load the conversation
+            chat_view = self.query_one("#chat", ChatView)
+            chat_view.load_conversation(conversation)
+
+            # Focus the chat view to allow immediate interaction
+            chat_view.focus()
+
+            # Ensure the chat view border is visible
+            chat_view.border = "round lime"
+            chat_view.border_title = "Chat [0]"
+            chat_view.add_class("vim-mode-active")
+
+            # Update the cursor in the conversations list
+            conversations = self.query_one("#conversations", ConversationsList)
+
+            # Ensure the conversations list border remains visible even when not focused
+            conversations.border = "round #4a9eff 80%"
+            conversations.border_title = "Messages [6]"
+            conversations.add_class("always-bordered")
+
+            # Update cursor position
+            items = list(conversations.query(".conversation-item"))
+            for i, item in enumerate(items):
+                if item.conversation == conversation:
+                    conversations.cursor_position = i
+                    conversations._update_cursor()
+                    break
+        except Exception as e:
+            # In case of errors, log them but don't crash
+            print(f"Error opening conversation: {e}")
 
 
 class SettingsPanel(VerticalScroll):
@@ -1218,9 +1347,24 @@ class Proj101App(App):
         self.switch_screen("messages")
         self.action_focus_main_content()
 
+        # Ensure the conversations list border is visible even when not focused
+        self.call_after_refresh(self._ensure_conversations_border)
+
     def action_show_settings(self) -> None:
         self.switch_screen("settings")
         self.action_focus_main_content()
+
+    def _ensure_conversations_border(self) -> None:
+        """Ensure conversations list has visible border even when not focused"""
+        try:
+            if self.current_screen_name == "messages":
+                conversations = self.query_one("#conversations", ConversationsList)
+                if conversations:
+                    conversations.border_title = "Messages [6]"
+                    conversations.border = "round #4a9eff 80%"
+                    conversations.add_class("always-bordered")
+        except Exception:
+            pass
 
     def action_focus_navigation(self) -> None:
         try:
@@ -1261,8 +1405,11 @@ class Proj101App(App):
         try:
             if self.current_screen_name == "messages":
                 conversations = self.query_one("#conversations", ConversationsList)
+                # Ensure the border is always visible with a highlighted title
                 conversations.border_title = "Messages [6]"
+                conversations.border = "round #4a9eff"
                 conversations.add_class("vim-mode-active")
+                conversations.add_class("always-bordered")
                 conversations.focus()
                 # Reset cursor position to ensure it's visible
                 conversations.cursor_position = 0

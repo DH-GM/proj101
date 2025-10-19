@@ -370,6 +370,13 @@ TimelineFeed:focus, DiscoverFeed:focus, NotificationsFeed:focus, ChatView:focus,
     border-title-style: bold;
 }
 
+/* Always keep the border visible for the conversations list */
+.always-bordered {
+    border: round #4a9eff 80%;
+    border-title-color: #4a9eff;
+    border-title-style: bold;
+}
+
 /* Conversation cursor */
 .conversation-item.vim-cursor {
     background: #184070;
