@@ -497,3 +497,41 @@ Input:focus {
     text-align: center;
     width: 100%;
 }
+
+/* Messages Container */
+#messages-container {
+    height: auto;
+    width: 100%;
+}
+
+/* New message animation */
+.chat-message.message-new {
+    background: #2a4a2a;
+    border: solid #4a7a4a;
+}
+
+.chat-message.sent.message-new {
+    background: #2a4a2a;
+    border: solid #3a6a3a;
+}
+
+/* Mode indicator styling */
+.mode-indicator {
+    color: #888888;
+    margin-top: 1;
+    margin-bottom: 1;
+    text-align: center;
+    text-style: bold;
+}
+
+/* Chat input focus */
+#chat-message-input:focus {
+    border: solid #4a9eff;
+    background: #2a2a2a;
+}
+
+/* Comment new animation */
+.comment-new {
+    background: #2a3a2a !important;
+    color: #e0e0e0 !important;
+}

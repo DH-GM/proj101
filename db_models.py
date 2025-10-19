@@ -5,6 +5,7 @@ from sqlalchemy.orm import DeclarativeBase, relationship, Mapped, mapped_column,
 from sqlalchemy import create_engine, String, Text, Integer, Boolean, ForeignKey, TIMESTAMP, Index
 import uuid, datetime as dt
 from typing import Optional
+from dataclasses import dataclass
 
 # ---------- base / engine / session ----------
 class Base(DeclarativeBase):

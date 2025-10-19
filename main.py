@@ -1,9 +1,9 @@
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Container, Horizontal, Vertical, VerticalScroll, ScrollableContainer
-from textual.widgets import Header, Footer, Static, Input, Label, Button, Checkbox
+from textual.widgets import Static, Input, Button
 from textual.reactive import reactive
-from datetime import datetime, timedelta
+from datetime import datetime
 from api_interface import api
 import sys
 import subprocess
@@ -17,23 +17,18 @@ def format_time_ago(dt: datetime) -> str:
     """Format datetime as 'time ago' string."""
     now = datetime.now()
     diff = now - dt
-    
+    if diff.days > 0:
+        return f"{diff.days}d ago"
     if diff.seconds < 60:
         return "just now"
-    elif diff.seconds < 3600:
-        mins = diff.seconds // 60
-        return f"{mins}m ago"
-    elif diff.seconds < 86400:
-        hours = diff.seconds // 3600
-        return f"{hours}h ago"
-    else:
-        days = diff.days
-        return f"{days}d ago"
+    if diff.seconds < 3600:
+        return f"{diff.seconds // 60}m ago"
+    return f"{diff.seconds // 3600}h ago"
 
+
+# ───────── Items ─────────
 
 class NavigationItem(Static):
-    """A navigation menu item."""
-    
     def __init__(self, label: str, screen_name: str, number: int, active: bool = False, **kwargs):
         super().__init__(**kwargs)
         self.label_text = label
@@ -42,33 +37,26 @@ class NavigationItem(Static):
         self.active = active
         if active:
             self.add_class("active")
-    
+
     def render(self) -> str:
         prefix = "▾ " if self.active else "▸ "
         return f"{prefix}[{self.number}] {self.label_text}"
-    
+
     def on_click(self) -> None:
-        """Handle click event."""
         self.app.switch_screen(self.screen_name)
-    
+
     def set_active(self, is_active: bool) -> None:
-        """Update the active state of this navigation item."""
         self.active = is_active
-        if is_active:
-            self.add_class("active")
-        else:
-            self.remove_class("active")
+        (self.add_class if is_active else self.remove_class)("active")
         self.refresh()
 
 
 class CommandItem(Static):
-    """A command menu item."""
-    
     def __init__(self, shortcut: str, description: str, **kwargs):
         super().__init__(**kwargs)
         self.shortcut = shortcut
         self.description = description
-    
+
     def render(self) -> str:
         return f"{self.shortcut} - {self.description}"
 
@@ -86,12 +74,10 @@ class ProfileDisplay(Static):
 
 
 class ConversationItem(Static):
-    """A conversation list item."""
-    
     def __init__(self, conversation, **kwargs):
         super().__init__(**kwargs)
         self.conversation = conversation
-    
+
     def render(self) -> str:
         unread_marker = "• " if self.conversation.unread else "  "
         time_ago = format_time_ago(self.conversation.timestamp)
@@ -100,78 +86,64 @@ class ConversationItem(Static):
 
 
 class ChatMessage(Static):
-    """A chat message bubble."""
-    
     def __init__(self, message, current_user: str = "yourname", **kwargs):
         super().__init__(**kwargs)
         self.message = message
-        self.is_sent = message.sender == current_user
-        self.add_class("sent" if self.is_sent else "received")
-    
+        is_sent = message.sender == current_user
+        self.add_class("sent" if is_sent else "received")
+
     def render(self) -> str:
-        time_str = format_time_ago(self.message.timestamp)
-        return f"{self.message.content}\n{time_str}"
+        return f"{self.message.content}\n{format_time_ago(self.message.timestamp)}"
 
 
 class PostItem(Static):
-    """A post/tweet item."""
-    
     def __init__(self, post, **kwargs):
         super().__init__(**kwargs)
         self.post = post
-    
+
     def render(self) -> str:
         time_ago = format_time_ago(self.post.timestamp)
         like_symbol = "♥" if self.post.liked_by_user else "♡"
         repost_symbol = "⇄" if self.post.reposted_by_user else "⇄"
-        return f"@{self.post.author} • {time_ago}\n\n{self.post.content}\n\n{like_symbol} {self.post.likes}  {repost_symbol} {self.post.reposts}  💬 {self.post.comments}"
+        return (
+            f"@{self.post.author} • {time_ago}\n\n"
+            f"{self.post.content}\n\n"
+            f"{like_symbol} {self.post.likes}  {repost_symbol} {self.post.reposts}  💬 {self.post.comments}"
+        )
 
 
 class NotificationItem(Static):
-    """A notification item."""
-    
     def __init__(self, notification, **kwargs):
         super().__init__(**kwargs)
         self.notification = notification
         if not notification.read:
             self.add_class("unread")
-    
-    def render(self) -> str:
-        time_ago = format_time_ago(self.notification.timestamp)
-        icon_map = {
-            "mention": "●",
-            "like": "♥",
-            "repost": "⇄",
-            "follow": "◉",
-            "comment": "💬"
-        }
-        icon = icon_map.get(self.notification.type, "●")
-        
-        if self.notification.type == "mention":
-            content = f'@{self.notification.actor} mentioned you • {time_ago}\n{self.notification.content}'
-        elif self.notification.type == "like":
-            content = f'{icon} @{self.notification.actor} liked your post • {time_ago}\n{self.notification.content}'
-        elif self.notification.type == "repost":
-            content = f'{icon} @{self.notification.actor} reposted • {time_ago}\n{self.notification.content}'
-        elif self.notification.type == "follow":
-            content = f'{icon} @{self.notification.actor} started following you • {time_ago}'
-        else:
-            content = f'{icon} @{self.notification.actor} • {time_ago}\n{self.notification.content}'
-        
-        return content
 
+    def render(self) -> str:
+        t = format_time_ago(self.notification.timestamp)
+        icon = {"mention": "●", "like": "♥", "repost": "⇄", "follow": "◉", "comment": "💬"}.get(self.notification.type, "●")
+        n = self.notification
+        if n.type == "mention":
+            return f"@{n.actor} mentioned you • {t}\n{n.content}"
+        if n.type == "like":
+            return f"{icon} @{n.actor} liked your post • {t}\n{n.content}"
+        if n.type == "repost":
+            return f"{icon} @{n.actor} reposted • {t}\n{n.content}"
+        if n.type == "follow":
+            return f"{icon} @{n.actor} started following you • {t}"
+        return f"{icon} @{n.actor} • {t}\n{n.content}"
+
+
+# ───────── Sidebar ─────────
 
 class Sidebar(Container):
-    """Left sidebar with navigation."""
-    
     current_screen = reactive("timeline")
-    
+
     def __init__(self, current: str = "timeline", **kwargs):
         super().__init__(**kwargs)
         self.current_screen = current
-    
+
     def compose(self) -> ComposeResult:
-        # Navigation Section Box
         nav_container = Container(classes="navigation-box")
         nav_container.border_title = "Navigation [N]"
         with nav_container:
@@ -193,11 +165,10 @@ class Sidebar(Container):
         commands_container = Container(classes="commands-box")
         commands_container.border_title = "Commands"
         with commands_container:
-            # Screen-specific commands
             if self.current_screen == "messages":
                 yield CommandItem(":n", "new message", classes="command-item")
                 yield CommandItem(":r", "reply", classes="command-item")
-            elif self.current_screen == "timeline" or self.current_screen == "discover":
+            elif self.current_screen in ("timeline", "discover"):
                 yield CommandItem(":n", "new post", classes="command-item")
                 yield CommandItem(":r", "reply", classes="command-item")
                 yield CommandItem(":l", "like", classes="command-item")
@@ -213,55 +184,41 @@ class Sidebar(Container):
                 yield CommandItem(":w", "save", classes="command-item")
                 yield CommandItem(":q", "quit", classes="command-item")
                 yield CommandItem(":e", "edit", classes="command-item")
-            
+
             yield CommandItem(":d", "delete", classes="command-item")
             yield CommandItem(":s", "search", classes="command-item")
             yield CommandItem("N", "nav focus", classes="command-item")
             yield CommandItem(":P", "profile", classes="command-item")
         yield commands_container
-    
+
     def update_active(self, screen_name: str):
-        """Update which navigation item is active."""
         self.current_screen = screen_name
-        # Update all navigation items
-        nav_ids = ["nav-timeline", "nav-discover", "nav-notifications", "nav-messages", "nav-settings"]
-        for nav_id in nav_ids:
+        for nav_id in ["nav-timeline", "nav-discover", "nav-notifications", "nav-messages", "nav-settings"]:
             try:
                 nav_item = self.query_one(f"#{nav_id}", NavigationItem)
                 nav_item.set_active(nav_item.screen_name == screen_name)
-            except:
+            except Exception:
                 pass
 
 
-# ==================== TIMELINE SCREEN ====================
+# ───────── Screens ─────────
 
 class TimelineFeed(VerticalScroll):
-    """Timeline feed with posts from following."""
-    
     def compose(self) -> ComposeResult:
-        user = api.get_current_user()
         posts = api.get_timeline()
         unread_count = len([p for p in posts if (datetime.now() - p.timestamp).seconds < 3600])
-        
         yield Static(f"timeline.home | {unread_count} new posts | line 1", classes="panel-header")
-        
         for post in posts:
             yield PostItem(post, classes="post-item")
 
 
 class TimelineScreen(Container):
-    """Timeline screen layout."""
-    
     def compose(self) -> ComposeResult:
         yield Sidebar(current="timeline", id="sidebar")
         yield TimelineFeed(id="timeline-feed")
 
 
-# ==================== DISCOVER SCREEN ====================
-
 class DiscoverFeed(VerticalScroll):
-    """Discover feed with trending posts and interactive search."""
-
     query_text = reactive("")
 
     def __init__(self, **kwargs):
@@ -269,17 +226,13 @@ class DiscoverFeed(VerticalScroll):
         self._all_posts = []
 
     def on_mount(self) -> None:
-        """Load posts once mounted."""
         self._all_posts = api.get_discover_posts()
 
     def _filtered_posts(self):
         if not self.query_text:
             return self._all_posts
         q = self.query_text.lower()
-        return [
-            p for p in self._all_posts
-            if q in p.author.lower() or q in p.content.lower()
-        ]
+        return [p for p in self._all_posts if q in p.author.lower() or q in p.content.lower()]
 
     def compose(self) -> ComposeResult:
         yield Input(placeholder="Search posts, people, tags...", classes="message-input", id="discover-search")
@@ -290,14 +243,13 @@ class DiscoverFeed(VerticalScroll):
             classes="suggested-user",
         )
 
-    def watch_query_text(self, query: str) -> None:
-        """Update posts when query changes."""
+    def watch_query_text(self, _: str) -> None:
         try:
             container = self.query_one("#posts-container", Container)
             container.remove_children()
             for post in self._filtered_posts():
                 container.mount(PostItem(post, classes="post-item"))
-        except:
+        except Exception:
             pass
 
     def on_input_changed(self, event: Input.Changed) -> None:
@@ -306,90 +258,81 @@ class DiscoverFeed(VerticalScroll):
 
 
 class DiscoverScreen(Container):
-    """Discover screen layout."""
-    
     def compose(self) -> ComposeResult:
         yield Sidebar(current="discover", id="sidebar")
         yield DiscoverFeed(id="discover-feed")
 
 
-# ==================== NOTIFICATIONS SCREEN ====================
-
 class NotificationsFeed(VerticalScroll):
-    """Notifications feed."""
-    
     def compose(self) -> ComposeResult:
         notifications = api.get_notifications()
         unread_count = len([n for n in notifications if not n.read])
-        
         yield Static(f"notifications.all | {unread_count} unread | line 1", classes="panel-header")
-        
         for notif in notifications:
             yield NotificationItem(notif, classes="notification-item")
-        
         yield Static("\n[↑] Previous [n] Next [m] Mark Read [Enter] Open [q] Quit", classes="help-text")
 
 
 class NotificationsScreen(Container):
-    """Notifications screen layout."""
-    
     def compose(self) -> ComposeResult:
         yield Sidebar(current="notifications", id="sidebar")
         yield NotificationsFeed(id="notifications-feed")
 
 
-# ==================== MESSAGES SCREEN ====================
-
 class ConversationsList(VerticalScroll):
-    """Middle panel with conversations list."""
-    
     def compose(self) -> ComposeResult:
         conversations = api.get_conversations()
         unread_count = len([c for c in conversations if c.unread])
-        
         yield Static(f"conversations | {unread_count} unread", classes="panel-header")
-        
         for conv in conversations:
             yield ConversationItem(conv, classes="conversation-item")
 
 
 class ChatView(VerticalScroll):
-    """Right panel with chat messages."""
-    
+    """Right panel with chat messages. Handles sending + live append."""
+    conversation_id = "c1"  # hardcoded for now
+
     def compose(self) -> ComposeResult:
-        # Hardcoded to alice conversation for now
-        messages = api.get_conversation_messages("c1")
-        
-        yield Static("@alice | conversation | line 12", classes="panel-header")
-        
+        messages = api.get_conversation_messages(self.conversation_id)
+        yield Static("@alice | conversation", classes="panel-header")
         for msg in messages:
             yield ChatMessage(msg, classes="chat-message")
-        
         yield Static("-- INSERT --", classes="mode-indicator")
-        yield Input(placeholder="Type message... (Esc to cancel)", classes="message-input", id="message-input")
+        # IMPORTANT: keep this id so actions can find it
+        yield Input(placeholder="Type message and press Enter… (Esc to cancel)",
+                    classes="message-input", id="message-input")
 
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        """Send on Enter, append bubble above the input, keep focus."""
+        if event.input.id != "message-input":
+            return
+        text = event.value.strip()
+        if not text:
+            return
+
+        # 1) send
+        new_msg = api.send_message(self.conversation_id, text)
+
+        # 2) append bubble right above the input so it stays at the bottom
+        self.mount(ChatMessage(new_msg, classes="chat-message"), before=event.input)
+
+        # 3) clear, refocus, and scroll to the end
+        event.input.value = ""
+        event.input.focus()
+        self.scroll_end(animate=False)
 
 
 class MessagesScreen(Container):
-    """Main messages screen layout."""
-    
     def compose(self) -> ComposeResult:
         yield Sidebar(current="messages", id="sidebar")
         yield ConversationsList(id="conversations")
         yield ChatView(id="chat")
 
 
-# ==================== SETTINGS SCREEN ====================
-
 class SettingsPanel(VerticalScroll):
-    """Settings panel with profile and preferences."""
-    
     def compose(self) -> ComposeResult:
         settings = api.get_user_settings()
-        
         yield Static("settings.profile | line 1", classes="panel-header")
-        
-        # Profile Picture
         yield Static("\n→ Profile Picture (ASCII)", classes="settings-section-header")
         yield Static("Make ASCII Profile Picture from image file")
         yield Button("Upload file", id="upload-profile-picture", classes="upload-profile-picture")
@@ -403,29 +346,22 @@ class SettingsPanel(VerticalScroll):
         yield Static(f"  Username:\n  @{settings.username}", classes="settings-field")
         yield Static(f"\n  Display Name:\n  {settings.display_name}", classes="settings-field")
         yield Static(f"\n  Bio:\n  {settings.bio}", classes="settings-field")
-        
-        # OAuth Connections
         yield Static("\n→ OAuth Connections", classes="settings-section-header")
         github_status = "Connected" if settings.github_connected else "[:c] Connect"
         gitlab_status = "Connected" if settings.gitlab_connected else "[:c] Connect"
         google_status = "Connected" if settings.google_connected else "[:c] Connect"
         discord_status = "Connected" if settings.discord_connected else "[:c] Connect"
-        
         yield Static(f"  [●] GitHub                                              {github_status}", classes="oauth-item")
         yield Static(f"  [○] GitLab                                              {gitlab_status}", classes="oauth-item")
         yield Static(f"  [○] Google                                              {google_status}", classes="oauth-item")
         yield Static(f"  [○] Discord                                             {discord_status}", classes="oauth-item")
-        
-        # Preferences
         yield Static("\n→ Preferences", classes="settings-section-header")
         email_check = "☑" if settings.email_notifications else "☐"
         online_check = "☑" if settings.show_online_status else "☐"
         private_check = "☑" if settings.private_account else "☐"
-        
         yield Static(f"  {email_check} Email notifications", classes="checkbox-item")
         yield Static(f"  {online_check} Show online status", classes="checkbox-item")
         yield Static(f"  {private_check} Private account", classes="checkbox-item")
-        
         yield Static("\n  [:w] Save Changes     [:q] Cancel", classes="settings-actions")
         yield Static("\n:w - save  [:e] Edit field  [Tab] Next field  [Esc] Cancel", classes="help-text")
     
@@ -519,8 +455,6 @@ class SettingsPanel(VerticalScroll):
 
 
 class SettingsScreen(Container):
-    """Settings screen layout."""
-    
     def compose(self) -> ComposeResult:
         yield Sidebar(current="settings", id="sidebar")
         yield SettingsPanel(id="settings-panel")
@@ -581,13 +515,67 @@ class ProfileScreen(Container):
         yield ProfilePanel(id="profile-panel")
 
 
-# ==================== MAIN APP ====================
+# ==================== PROFILE SCREEN ====================
+
+class ProfilePanel(VerticalScroll):
+    """Profile panel with large display."""
+    
+    def compose(self) -> ComposeResult:
+        user = api.get_current_user()
+        settings = api.get_user_settings()
+        
+        yield Static("profile | @yourname | line 1", classes="panel-header")
+        
+        # Centered profile container
+        profile_container = Container(classes="profile-center-container")
+        
+        with profile_container:
+            # Profile Picture
+            yield Static(
+                "    [@#$&●*]\n    |+ YY =|\n    |$%&++=|", 
+                classes="profile-avatar-large"
+            )
+            
+            # Display Name
+            yield Static(f"{settings.display_name}", classes="profile-name-large")
+            
+            # Username
+            yield Static(f"@{settings.username}", classes="profile-username-display")
+            
+            # Stats Row
+            stats_row = Container(classes="profile-stats-row")
+            with stats_row:
+                yield Static(f"{user.posts_count}\nPosts", classes="profile-stat-item")
+                yield Static(f"{user.following}\nFollowing", classes="profile-stat-item")
+                yield Static(f"{user.followers}\nFollowers", classes="profile-stat-item")
+            yield stats_row
+            
+            # Bio Section
+            bio_container = Container(classes="profile-bio-container")
+            bio_container.border_title = "Bio"
+            with bio_container:
+                yield Static(f"{settings.bio}", classes="profile-bio-display")
+            yield bio_container
+        
+        yield profile_container
+        
+        yield Static("\n[:e] Edit Profile  [Esc] Back", classes="help-text")
+
+
+class ProfileScreen(Container):
+    """Profile screen layout."""
+    
+    def compose(self) -> ComposeResult:
+        yield Sidebar(current="profile", id="sidebar")
+        yield ProfilePanel(id="profile-panel")
+
+
+# ───────── App ─────────
 
 class Proj101App(App):
     """A vim-style social network TUI application."""
-    
     CSS_PATH = "main.tcss"
-    
+
     BINDINGS = [
         Binding("q", "quit", "Quit", show=False),
         Binding("i", "insert_mode", "Insert", show=True),
@@ -601,22 +589,19 @@ class Proj101App(App):
         Binding("shift+n", "focus_navigation", "Nav Focus", show=False),
         Binding("colon", "show_command_bar", "Command", show=False),
     ]
-    
+
     current_screen_name = reactive("timeline")
     command_mode = reactive(False)
-    
+
     def compose(self) -> ComposeResult:
         yield Static("proj101 [timeline] @yourname", id="app-header")
         yield TimelineScreen(id="screen-container")
         yield Static(":↑↓ Navigate [n] New Post [f] Follow [/] Search [?] Help", id="app-footer")
         yield Input(id="command-input", classes="command-bar")
-    
+
     def switch_screen(self, screen_name: str):
-        """Switch to a different screen."""
         if screen_name == self.current_screen_name:
             return
-        
-        # Screen mapping
         screen_map = {
             "timeline": (TimelineScreen, ":↑↓ Navigate [n] New Post [f] Follow [/] Search [?] Help"),
             "discover": (DiscoverScreen, ":/ - search [f] Follow [↑↓] Navigate [Enter] Open [?] Help"),
@@ -625,69 +610,43 @@ class Proj101App(App):
             "profile": (ProfileScreen, ":[:e] Edit Profile [Esc] Back"),
             "settings": (SettingsScreen, ":w - save  [:e] Edit field  [Tab] Next field  [Esc] Cancel"),
         }
-        
         if screen_name in screen_map:
-            # Remove old screen container by querying all and removing
-            old_containers = self.query("#screen-container")
-            for container in old_containers:
+            for container in self.query("#screen-container"):
                 container.remove()
-            
-            # Mount new screen
             ScreenClass, footer_text = screen_map[screen_name]
             self.call_after_refresh(self.mount, ScreenClass(id="screen-container"))
-            
-            # Update header and footer
             self.query_one("#app-header", Static).update(f"proj101 [{screen_name}] @yourname")
             self.query_one("#app-footer", Static).update(footer_text)
             self.current_screen_name = screen_name
-            
-            # Update sidebar navigation arrows
             try:
                 sidebar = self.query_one("#sidebar", Sidebar)
                 sidebar.update_active(screen_name)
-            except:
+            except Exception:
                 pass
-    
+
+    # Actions
     def action_quit(self) -> None:
-        """Quit the application."""
         self.exit()
-    
+
     def action_toggle_dark(self) -> None:
-        """Toggle dark mode."""
         self.theme = "textual-dark" if self.theme == "textual-light" else "textual-light"
-    
+
     def action_insert_mode(self) -> None:
-        """Enter insert mode."""
         try:
-            input_widget = self.query_one("#message-input", Input)
-            input_widget.focus()
-        except:
+            self.query_one("#message-input", Input).focus()
+        except Exception:
             pass
-    
+
     def action_normal_mode(self) -> None:
-        """Return to normal mode."""
         self.screen.focus_next()
-    
-    def action_show_timeline(self) -> None:
-        """Show timeline screen."""
-        self.switch_screen("timeline")
-    
-    def action_show_discover(self) -> None:
-        """Show discover screen."""
-        self.switch_screen("discover")
-    
-    def action_show_notifications(self) -> None:
-        """Show notifications screen."""
-        self.switch_screen("notifications")
-    
-    def action_show_messages(self) -> None:
-        """Show messages screen."""
-        self.switch_screen("messages")
-    
-    def action_show_settings(self) -> None:
-        """Show settings screen."""
-        self.switch_screen("settings")
-    
+
+    def action_show_timeline(self) -> None: self.switch_screen("timeline")
+    def action_show_discover(self) -> None: self.switch_screen("discover")
+    def action_show_notifications(self) -> None: self.switch_screen("notifications")
+    def action_show_messages(self) -> None: self.switch_screen("messages")
+    def action_show_settings(self) -> None: self.switch_screen("settings")
+
+    # Vim-like command bar (unchanged except for cleanup)
     def action_focus_navigation(self) -> None:
         """Focus on navigation section."""
         try:
@@ -698,69 +657,48 @@ class Proj101App(App):
             pass
     
     def action_show_command_bar(self) -> None:
-        """Show vim-style command bar."""
         try:
             command_input = self.query_one("#command-input", Input)
-            
             command_input.styles.display = "block"
             command_input.value = ":"
             self.command_mode = True
             command_input.focus()
-            # Move cursor to end (after the colon)
             self.call_after_refresh(self._focus_command_input)
-        except Exception as e:
+        except Exception:
             pass
-    
+
     def _focus_command_input(self) -> None:
-        """Focus the command input and position cursor after the colon."""
         try:
             command_input = self.query_one("#command-input", Input)
             command_input.focus()
             command_input.cursor_position = len(command_input.value)
-        except:
+        except Exception:
             pass
-    
+
     def on_input_changed(self, event: Input.Changed) -> None:
-        """Prevent removing the colon prefix in command mode."""
         if event.input.id == "command-input" and self.command_mode:
-            # Ensure the input always starts with ':'
             if not event.value.startswith(":"):
                 event.input.value = ":" + event.value
                 event.input.cursor_position = len(event.input.value)
-    
+
     def on_input_submitted(self, event: Input.Submitted) -> None:
-        """Handle command input submission."""
         if event.input.id == "command-input" and self.command_mode:
             command = event.value.strip()
-            
-            # Hide command bar
             command_input = self.query_one("#command-input", Input)
             command_input.styles.display = "none"
             event.input.value = ""
             self.command_mode = False
-            
-            # Parse command - strip the colon prefix
             if command.startswith(":"):
                 command = command[1:]
-            
-            # Navigation commands
-            screen_map = {
-                "0": "timeline",
-                "1": "discover",
-                "2": "notifications",
-                "3": "messages",
-                "4": "settings",
-            }
-            
+            screen_map = {"0": "timeline", "1": "discover", "2": "notifications", "3": "messages", "4": "settings"}
             if command in screen_map:
                 self.switch_screen(screen_map[command])
-            elif command == "q" or command == "quit":
+            elif command in ("q", "quit"):
                 self.exit()
             elif command == "P" or command.upper() == "P":
                 self.switch_screen("profile")
-    
+
     def on_key(self, event) -> None:
-        """Handle escape key in command mode."""
         if event.key == "escape" and self.command_mode:
             try:
                 command_input = self.query_one("#command-input", Input)
@@ -768,9 +706,8 @@ class Proj101App(App):
                 command_input.value = ""
                 self.command_mode = False
                 event.prevent_default()
-            except:
+            except Exception:
                 pass
 
 if __name__ == "__main__":
-    app = Proj101App()
-    app.run()
+    Proj101App().run()
