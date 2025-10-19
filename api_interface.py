@@ -4,6 +4,9 @@ This module provides an abstraction layer between the UI and the backend.
 Replace the FakeAPI class with a real API client to connect to your backend.
 """
 from typing import List, Optional
+from data_models import (
+    User, Post, Message, Conversation, Notification, UserSettings
+)
 from datetime import datetime, timedelta
 import random
 from data_models import (
@@ -52,6 +55,12 @@ class APIInterface:
     
     def repost(self, post_id: str) -> bool:
         raise NotImplementedError
+    
+    def add_comment(self, post_id: str, content: str) -> bool:
+        raise NotImplementedError
+    
+    def get_comments(self, post_id: str) -> List[dict]:
+        raise NotImplementedError
 
 
 class FakeAPI(APIInterface):
@@ -84,6 +93,10 @@ class FakeAPI(APIInterface):
                  now - timedelta(minutes=15), 45, 12, 28),
             Post("3", "bob", "Refactoring is like cleaning your room. You know where everything is in the mess, but it's still better to organize it.", 
                  now - timedelta(hours=1), 234, 67, 45),
+            Post("4", "charlie", "Just learned about Textual - this framework is incredible! 🎨", 
+                 now - timedelta(hours=2), 89, 23, 15),
+            Post("5", "dana", "Anyone else obsessed with terminal aesthetics? 💻✨", 
+                 now - timedelta(hours=3), 156, 42, 31),
         ]
         
         # Fake discover posts
@@ -94,7 +107,21 @@ class FakeAPI(APIInterface):
                  now - timedelta(hours=4), 189, 52, 34),
             Post("12", "vimfan", "Finally got my custom vim config working with this social network. The hjkl navigation feels so natural! #vim", 
                  now - timedelta(hours=5), 156, 28, 12),
+            Post("13", "devops_guru", "Deployed my first TUI app to production today. The users love it! 🚀", 
+                 now - timedelta(hours=6), 203, 67, 29),
         ]
+        
+        # Comments storage - maps post_id to list of comments
+        self.post_comments = {
+            "1": [
+                {"user": "alice", "text": "This is so cool! Love the design! 🎉"},
+                {"user": "bob", "text": "Great work! How long did it take?"},
+            ],
+            "2": [
+                {"user": "yourname", "text": "I'd love to test it! Sign me up!"},
+                {"user": "charlie", "text": "Looks interesting, what stack?"},
+            ],
+        }
         
         # Fake conversations
         self.conversations = [
@@ -214,9 +241,11 @@ class FakeAPI(APIInterface):
             reposted_by_user=False
         )
         self.timeline_posts.insert(0, new_post)
+        self.current_user.posts_count += 1
         return new_post
     
     def like_post(self, post_id: str) -> bool:
+        """Toggle like status for a post."""
         for post in self.timeline_posts + self.discover_posts:
             if post.id == post_id:
                 if post.liked_by_user:
@@ -229,6 +258,7 @@ class FakeAPI(APIInterface):
         return False
     
     def repost(self, post_id: str) -> bool:
+        """Toggle repost status for a post."""
         for post in self.timeline_posts + self.discover_posts:
             if post.id == post_id:
                 if post.reposted_by_user:
@@ -239,8 +269,30 @@ class FakeAPI(APIInterface):
                     post.reposted_by_user = True
                 return True
         return False
+    
+    def add_comment(self, post_id: str, content: str) -> bool:
+        """Add a comment to a post."""
+        # Find the post and increment comment count
+        for post in self.timeline_posts + self.discover_posts:
+            if post.id == post_id:
+                post.comments += 1
+                break
+        
+        # Add comment to storage
+        if post_id not in self.post_comments:
+            self.post_comments[post_id] = []
+        
+        self.post_comments[post_id].append({
+            "user": "yourname",
+            "text": content,
+            "timestamp": datetime.now()
+        })
+        return True
+    
+    def get_comments(self, post_id: str) -> List[dict]:
+        """Get all comments for a post."""
+        return self.post_comments.get(post_id, [])
 
 
 # Global API instance - replace FakeAPI() with your real API client
 api = FakeAPI()
-
