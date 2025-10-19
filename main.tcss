@@ -262,7 +262,7 @@ TimelineScreen, DiscoverScreen, NotificationsScreen, MessagesScreen, SettingsScr
 }
 
 .chat-message {
-    width: 60%;
+    width: 100%;
     height: auto;
     margin: 0 0 1 0;
     padding: 1 2;
@@ -346,16 +346,6 @@ TimelineScreen, DiscoverScreen, NotificationsScreen, MessagesScreen, SettingsScr
     color: #666666;
     margin-left: 4;
     margin-bottom: 1;
-}
-
-.ascii-avatar {
-    color: #aaaaaa;
-    margin-left: 2;
-    margin-bottom: 1;
-    padding: 1 2;
-    background: #1a1a1a;
-    border: solid #333333;
-    width: 20;
 }
 
 .settings-action {

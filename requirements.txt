@@ -1,3 +1,4 @@
 textual
 textual-web
 requests
+Pillow

@@ -10,6 +10,7 @@ import subprocess
 from pathlib import Path
 import tkinter as tk
 from tkinter import filedialog
+from PIL import Image
 
 
 def format_time_ago(dt: datetime) -> str:
@@ -436,7 +437,21 @@ class SettingsPanel(VerticalScroll):
                 if not file_path:
                     return
                 
-                # Run asciifer
+                # # Crop image to small square from top-left corner
+                # cropped_path = "temp_cropped.png"
+                # try:
+                #     img = Image.open(file_path)
+                #     # Monaco terminal cell aspect ~ 1(w) : 1.25(h)
+                #     crop_w = img.width
+                #     crop_h = min(int(crop_w / 1.25), img.height)
+                #     cropped = img.crop((0, 0, crop_w, crop_h))
+                #     cropped.save(cropped_path)
+                #     self.app.notify(f"Cropped to {crop_w}x{crop_h}", severity="information")
+                # except Exception as e:
+                #     self.app.notify(f"Crop failed: {e}", severity="error")
+                #     return
+                
+                # Run asciifer on cropped image
                 script_path = Path("asciifer/asciifer.py")
                 
                 if not script_path.exists():
@@ -454,8 +469,8 @@ class SettingsPanel(VerticalScroll):
                     "--output-text", output_text,
                     "--output-image", output_image,
                     "--font", font_path,
-                    "--font-size", "20",
-                    file_path
+                    "--font-size", "24",
+                    file_path  # Use cropped image instead of original
                 ]
                 
                 result = subprocess.run(cmd, capture_output=True, text=True)
@@ -465,8 +480,17 @@ class SettingsPanel(VerticalScroll):
                 
                 # Read the generated ASCII art
                 if Path(output_text).exists():
-                    with open(output_text, "r") as file:
-                        ascii_art = file.read()
+                    with open(output_text, "r") as f:
+                        lines = f.read().splitlines()
+
+                    # Keep consistent width (characters per line)
+                    max_width = max((len(line) for line in lines), default=0)
+
+                    max_lines = int(max_width / 2)
+
+                    lines = lines[:max_lines]
+
+                    ascii_art = "\n".join(lines)
                     
                     # Update the settings model (persist the change)
                     settings = api.get_user_settings()
@@ -482,7 +506,6 @@ class SettingsPanel(VerticalScroll):
                         self.app.notify(f"Widget not found: {e}", severity="error")
                 else:
                     self.app.notify("Output file not generated", severity="error")
-                
             except Exception as e:
                 pass
 
@@ -671,7 +694,6 @@ class Proj101App(App):
                 event.prevent_default()
             except:
                 pass
-
 
 if __name__ == "__main__":
     app = Proj101App()

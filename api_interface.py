@@ -68,7 +68,7 @@ class FakeAPI(APIInterface):
             followers=891,
             following=328,
             posts_count=142,
-            avatar_ascii="[@#$&●*]"
+            avatar_ascii=""
         )
         self._init_fake_data()
     
