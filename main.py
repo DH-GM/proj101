@@ -66,14 +66,11 @@ class CommandItem(Static):
 
 class ProfileDisplay(Static):
     """Display user profile."""
-    
+
     def compose(self) -> ComposeResult:
         user = api.get_current_user()
-        yield Static(f"@{user.username}", classes="profile-username")
-        yield Static(f"{user.display_name}", classes="profile-name")
-        yield Static(f"\nPosts {user.posts_count}", classes="profile-stat")
-        yield Static(f"Following {user.following}", classes="profile-stat")
-        yield Static(f"Followers {user.followers}", classes="profile-stat")
+        yield Static(f"@{user.username} • {user.display_name}", classes="profile-username")
+        yield Static(f"P:{user.posts_count} F:{user.following} F:{user.followers}", classes="profile-stat")
 
 
 class ConversationItem(Static):
@@ -101,7 +98,7 @@ class ChatMessage(Static):
 
 class PostItem(Static):
     """Simple non-interactive post display."""
-    
+
     def __init__(self, post, **kwargs):
         super().__init__(**kwargs)
         self.post = post
@@ -112,13 +109,14 @@ class PostItem(Static):
         time_ago = format_time_ago(self.post.timestamp)
         like_symbol = "♥" if self.post.liked_by_user else "♡"
         repost_symbol = "⇄" if self.post.reposted_by_user else "⇄"
-        
+
         # Post header and content
         yield Static(
             f"@{self.post.author} • {time_ago}\n{self.post.content}",
-            classes="post-text"
+            classes="post-text",
+            markup=False
         )
-        
+
         # Video player if post has video
         if self.has_video and Path(self.post.video_path).exists():
             yield ASCIIVideoPlayer(
@@ -126,14 +124,24 @@ class PostItem(Static):
                 fps=getattr(self.post, 'video_fps', 2),
                 classes="post-video"
             )
-        
+
         # Post stats - non-interactive
         yield Static(
             f"{like_symbol} {self.post.likes}  {repost_symbol} {self.post.reposts}  💬 {self.post.comments}",
-            classes="post-stats"
+            classes="post-stats",
+            markup=False
         )
 
-
+    def watch_has_class(self, has_class: bool) -> None:
+        """Watch for class changes to handle cursor"""
+        if has_class and "vim-cursor" in self.classes:
+            # We have cursor focus
+            self.border = "ascii"
+            self.styles.background = "darkblue"
+        else:
+            # We don't have cursor focus
+            self.border = ""
+            self.styles.background = ""
 class NotificationItem(Static):
     def __init__(self, notification, **kwargs):
         super().__init__(**kwargs)
@@ -158,7 +166,7 @@ class NotificationItem(Static):
 
 class UserProfileCard(Static):
     """A user profile card for search results."""
-    
+
     def __init__(self, username: str, display_name: str, bio: str, followers: int, following: int, ascii_pic: str, **kwargs):
         super().__init__(**kwargs)
         self.username = username
@@ -167,28 +175,28 @@ class UserProfileCard(Static):
         self.followers = followers
         self.following = following
         self.ascii_pic = ascii_pic
-    
+
     def compose(self) -> ComposeResult:
         card_container = Container(classes="user-card-container")
-        
+
         with card_container:
             pic_container = Container(classes="user-card-pic")
             with pic_container:
                 yield Static(self.ascii_pic, classes="user-card-avatar")
             yield pic_container
-            
+
             info_container = Container(classes="user-card-info")
             with info_container:
                 yield Static(self.display_name, classes="user-card-name")
                 yield Static(f"@{self.username}", classes="user-card-username")
                 yield Static(self.bio, classes="user-card-bio")
-                
+
                 stats_container = Container(classes="user-card-stats")
                 with stats_container:
                     yield Static(f"{self.followers} Followers", classes="user-card-stat")
                     yield Static(f"{self.following} Following", classes="user-card-stat")
                 yield stats_container
-                
+
                 buttons_container = Container(classes="user-card-buttons")
                 with buttons_container:
                     yield Button("Follow", id=f"follow-{self.username}", classes="user-card-button")
@@ -196,13 +204,13 @@ class UserProfileCard(Static):
                     yield Button("View Profile", id=f"view-{self.username}", classes="user-card-button")
                 yield buttons_container
             yield info_container
-        
+
         yield card_container
 
 
 # ───────── Sidebar ─────────
 
-class Sidebar(Container):
+class Sidebar(VerticalScroll):
     current_screen = reactive("timeline")
 
     def __init__(self, current: str = "timeline", **kwargs):
@@ -213,46 +221,43 @@ class Sidebar(Container):
         nav_container = Container(classes="navigation-box")
         nav_container.border_title = "Navigation [N]"
         with nav_container:
-            yield NavigationItem("Timeline", "timeline", 0, self.current_screen == "timeline", classes="nav-item", id="nav-timeline")
-            yield NavigationItem("Discover", "discover", 1, self.current_screen == "discover", classes="nav-item", id="nav-discover")
-            yield NavigationItem("Notifs", "notifications", 2, self.current_screen == "notifications", classes="nav-item", id="nav-notifications")
-            yield NavigationItem("Messages", "messages", 3, self.current_screen == "messages", classes="nav-item", id="nav-messages")
-            yield NavigationItem("Settings", "settings", 4, self.current_screen == "settings", classes="nav-item", id="nav-settings")
+            yield NavigationItem("Timeline", "timeline", 1, self.current_screen == "timeline", classes="nav-item", id="nav-timeline")
+            yield NavigationItem("Discover", "discover", 2, self.current_screen == "discover", classes="nav-item", id="nav-discover")
+            yield NavigationItem("Notifs", "notifications", 3, self.current_screen == "notifications", classes="nav-item", id="nav-notifications")
+            yield NavigationItem("Messages", "messages", 4, self.current_screen == "messages", classes="nav-item", id="nav-messages")
+            yield NavigationItem("Settings", "settings", 5, self.current_screen == "settings", classes="nav-item", id="nav-settings")
         yield nav_container
-        
+
         profile_container = Container(classes="profile-box")
         profile_container.border_title = "Profile [:P]"
         with profile_container:
             yield ProfileDisplay()
         yield profile_container
-        
+
         commands_container = Container(classes="commands-box")
         commands_container.border_title = "Commands"
         with commands_container:
+            # Show only screen-specific commands to save space
             if self.current_screen == "messages":
-                yield CommandItem(":n", "new message", classes="command-item")
+                yield CommandItem(":n", "new msg", classes="command-item")
                 yield CommandItem(":r", "reply", classes="command-item")
             elif self.current_screen in ("timeline", "discover"):
                 yield CommandItem(":n", "new post", classes="command-item")
-                yield CommandItem(":r", "reply", classes="command-item")
                 yield CommandItem(":l", "like", classes="command-item")
                 yield CommandItem(":rt", "repost", classes="command-item")
             elif self.current_screen == "notifications":
                 yield CommandItem(":m", "mark read", classes="command-item")
                 yield CommandItem(":ma", "mark all", classes="command-item")
-                yield CommandItem(":f", "filter", classes="command-item")
             elif self.current_screen == "profile":
-                yield CommandItem(":e", "edit profile", classes="command-item")
-                yield CommandItem(":f", "follow/unfollow", classes="command-item")
+                yield CommandItem(":e", "edit", classes="command-item")
+                yield CommandItem(":f", "follow", classes="command-item")
             elif self.current_screen == "settings":
                 yield CommandItem(":w", "save", classes="command-item")
-                yield CommandItem(":q", "quit", classes="command-item")
                 yield CommandItem(":e", "edit", classes="command-item")
 
-            yield CommandItem(":d", "delete", classes="command-item")
+            # Common commands (limited to save space)
             yield CommandItem(":s", "search", classes="command-item")
-            yield CommandItem("N", "nav focus", classes="command-item")
-            yield CommandItem(":P", "profile", classes="command-item")
+            yield CommandItem("0", "main", classes="command-item")
         yield commands_container
 
     def update_active(self, screen_name: str):
@@ -269,12 +274,12 @@ class Sidebar(Container):
 
 class NewPostDialog(ModalScreen):
     """Modal dialog for creating a new post."""
-    
+
     CSS = """
     NewPostDialog {
         align: center middle;
     }
-    
+
     #dialog-container {
         width: 80;
         height: auto;
@@ -282,14 +287,14 @@ class NewPostDialog(ModalScreen):
         border: round cyan;
         padding: 2;
     }
-    
+
     #dialog-title {
         color: cyan;
         text-style: bold;
         text-align: center;
         margin-bottom: 1;
     }
-    
+
     #post-textarea {
         width: 100%;
         height: 10;
@@ -303,7 +308,7 @@ class NewPostDialog(ModalScreen):
         layout: horizontal;
         margin: 1 0;
     }
-    
+
     #media-buttons {
         width: 100%;
         height: auto;
@@ -311,7 +316,7 @@ class NewPostDialog(ModalScreen):
         layout: horizontal;
         margin: 1 0;
     }
-    
+
     #action-buttons Button, #media-buttons Button {
         width: 1fr;
         margin: 0 1;
@@ -321,39 +326,39 @@ class NewPostDialog(ModalScreen):
         border: none;
         background: #2a2a2a;
     }
-    
+
     #action-buttons Button:hover, #media-buttons Button:hover {
         background: #3a3a3a;
         border: none;
     }
-    
+
     #action-buttons, #media-buttons {
         margin: 1;
         padding: 0 2;
     }
-    
+
     Button#attach-photo, Button#attach-video {
         background: #2a2a2a;
     }
-    
+
     Button#attach-photo:hover, Button#attach-video:hover {
         background: #3a3a3a;
     }
-    
+
     Button#post-button {
         background: #4a9eff;
         border: none;
     }
-    
+
     Button#post-button:hover {
         background: #5aaeff;
         border: none;
     }
-    
+
     Button#cancel-button {
         border: none;
     }
-    
+
     Button#cancel-button:hover {
         background: #3a3a3a;
         border: none;
@@ -364,7 +369,7 @@ class NewPostDialog(ModalScreen):
         color: #888888;
     }
     """
-    
+
     def compose(self) -> ComposeResult:
         with Container(id="dialog-container"):
             yield Static("New Post", id="dialog-title")
@@ -375,17 +380,17 @@ class NewPostDialog(ModalScreen):
             with Container(id="action-buttons"):
                 yield Button("Post", variant="primary", id="post-button")
                 yield Button("Cancel", variant="default", id="cancel-button")
-            
+
             with Container(id="media-buttons"):
                 yield Button("📷 Photo", id="attach-photo")
                 yield Button("📹 Video", id="attach-video")
-    
+
     def on_mount(self) -> None:
         """Focus the textarea when dialog opens."""
         self.query_one("#post-textarea", TextArea).focus()
         # initialize attachments container on the instance
         self._attachments = []  # list of (type, path) tuples, type in ('photo','video')
-    
+
     def on_button_pressed(self, event: Button.Pressed) -> None:
         btn_id = getattr(event.button, "id", None)
 
@@ -479,12 +484,95 @@ class NewPostDialog(ModalScreen):
 # ───────── Screens ─────────
 
 class TimelineFeed(VerticalScroll):
+    cursor_position = reactive(0)
+
     def compose(self) -> ComposeResult:
         posts = api.get_timeline()
         unread_count = len([p for p in posts if (datetime.now() - p.timestamp).seconds < 3600])
-        yield Static(f"timeline.home | {unread_count} new posts | line 1", classes="panel-header")
-        for post in posts:
-            yield PostItem(post, classes="post-item")
+        self.border_title = "Main Timeline [0]"
+        yield Static(f"timeline.home | {unread_count} new posts | line 1", classes="panel-header", markup=False)
+        for i, post in enumerate(posts):
+            post_item = PostItem(post, classes="post-item", id=f"post-{i}")
+            if i == 0:
+                post_item.add_class("vim-cursor")
+            yield post_item
+
+    def on_mount(self) -> None:
+        self.watch(self, "cursor_position", self._update_cursor)
+
+    def _update_cursor(self) -> None:
+        """Update the cursor position"""
+        try:
+            # Find all post items
+            items = list(self.query(".post-item"))
+
+            # Remove cursor from all items
+            for i, item in enumerate(items):
+                item.remove_class("vim-cursor")
+
+            # Add cursor to focused item
+            if 0 <= self.cursor_position < len(items):
+                items[self.cursor_position].add_class("vim-cursor")
+                # Ensure the cursor is visible
+                self.scroll_to_widget(items[self.cursor_position], top=True)
+                self.app.notify(f"Post {self.cursor_position+1}/{len(items)}", severity="information")
+        except Exception:
+            pass
+
+    def on_focus(self) -> None:
+        """When the feed gets focus"""
+        self.border_subtitle = "VIM MODE"
+        self.cursor_position = 0
+        self._update_cursor()
+
+    def on_blur(self) -> None:
+        """When feed loses focus"""
+        self.border_subtitle = ""
+
+    def key_j(self) -> None:
+        """Move down with j key"""
+        items = list(self.query(".post-item"))
+        if self.cursor_position < len(items) - 1:
+            self.cursor_position += 1
+
+    def key_k(self) -> None:
+        """Move up with k key"""
+        if self.cursor_position > 0:
+            self.cursor_position -= 1
+
+    def key_g(self) -> None:
+        """Go to top with gg"""
+        # g is handled in on_key for double-press
+        pass
+
+    def key_G(self) -> None:
+        """Go to bottom with G"""
+        items = list(self.query(".post-item"))
+        self.cursor_position = len(items) - 1
+
+    def key_ctrl_d(self) -> None:
+        """Half page down"""
+        items = list(self.query(".post-item"))
+        self.cursor_position = min(self.cursor_position + 5, len(items) - 1)
+
+    def key_ctrl_u(self) -> None:
+        """Half page up"""
+        self.cursor_position = max(self.cursor_position - 5, 0)
+
+    def key_w(self) -> None:
+        """Word forward - move down by 3"""
+        items = list(self.query(".post-item"))
+        self.cursor_position = min(self.cursor_position + 3, len(items) - 1)
+
+    def key_b(self) -> None:
+        """Word backward - move up by 3"""
+        self.cursor_position = max(self.cursor_position - 3, 0)
+
+    def on_key(self, event) -> None:
+        """Handle g+g key combination for top"""
+        if event.key == "g" and event.is_repeat:
+            self.cursor_position = 0
+            event.prevent_default()
 
 
 class TimelineScreen(Container):
@@ -499,6 +587,7 @@ class DiscoverFeed(Container):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self._all_posts = []
+        self.border_title = "Discover [0]"
         self._dummy_users = {
             "john doe": {
                 "username": "johndoe",
@@ -534,7 +623,7 @@ class DiscoverFeed(Container):
             return self._all_posts
         q = self.query_text.lower()
         return [p for p in self._all_posts if q in p.author.lower() or q in p.content.lower()]
-    
+
     def _search_users(self):
         if not self.query_text:
             return []
@@ -552,15 +641,16 @@ class DiscoverFeed(Container):
         yield Static(
             "  @opensource_dev\n  Building tools for developers | 1.2k followers\n  [f] Follow  [↑↓] Navigate  [Enter] Open  [?] Help",
             classes="suggested-user",
+            markup=False,
         )
 
     def watch_query_text(self, _: str) -> None:
         try:
             container = self.query_one("#search-results-container", VerticalScroll)
             container.remove_children()
-            
+
             matching_users = self._search_users()
-            
+
             if matching_users:
                 container.mount(Static("\n→ People", classes="section-header"))
                 for user_data in matching_users:
@@ -574,7 +664,7 @@ class DiscoverFeed(Container):
                         classes="user-profile-card"
                     )
                     container.mount(card)
-            
+
             filtered_posts = self._filtered_posts()
             if filtered_posts:
                 if matching_users:
@@ -599,10 +689,11 @@ class NotificationsFeed(VerticalScroll):
     def compose(self) -> ComposeResult:
         notifications = api.get_notifications()
         unread_count = len([n for n in notifications if not n.read])
+        self.border_title = "Notifications [0]"
         yield Static(f"notifications.all | {unread_count} unread | line 1", classes="panel-header")
         for notif in notifications:
             yield NotificationItem(notif, classes="notification-item")
-        yield Static("\n[↑] Previous [n] Next [m] Mark Read [Enter] Open [q] Quit", classes="help-text")
+        yield Static("\n[↑] Previous [n] Next [m] Mark Read [Enter] Open [q] Quit", classes="help-text", markup=False)
 
 
 class NotificationsScreen(Container):
@@ -622,8 +713,10 @@ class ConversationsList(VerticalScroll):
 
 class ChatView(VerticalScroll):
     conversation_id = "c1"
+    cursor_position = reactive(0)
 
     def compose(self) -> ComposeResult:
+        self.border_title = "Chat [0]"
         messages = api.get_conversation_messages(self.conversation_id)
         yield Static("@alice | conversation", classes="panel-header")
         for msg in messages:
@@ -645,6 +738,41 @@ class ChatView(VerticalScroll):
         event.input.focus()
         self.scroll_end(animate=False)
 
+    def watch_cursor_position(self, old_position: int, new_position: int) -> None:
+        """Update the cursor when position changes"""
+        # Remove cursor from old position
+        messages = self.query(".chat-message")
+        if old_position < len(messages):
+            old_msg = messages[old_position]
+            if "vim-cursor" in old_msg.classes:
+                old_msg.remove_class("vim-cursor")
+
+        # Add cursor to new position
+        if new_position < len(messages):
+            new_msg = messages[new_position]
+            new_msg.add_class("vim-cursor")
+            self.scroll_to_widget(new_msg)
+
+    def key_j(self) -> None:
+        """Vim-style down navigation"""
+        messages = self.query(".chat-message")
+        if self.cursor_position < len(messages) - 1:
+            self.cursor_position += 1
+
+    def key_k(self) -> None:
+        """Vim-style up navigation"""
+        if self.cursor_position > 0:
+            self.cursor_position -= 1
+
+    def key_g(self) -> None:
+        """Vim-style go to top"""
+        self.cursor_position = 0
+
+    def key_G(self) -> None:
+        """Vim-style go to bottom"""
+        messages = self.query(".chat-message")
+        self.cursor_position = max(0, len(messages) - 1)
+
 
 class MessagesScreen(Container):
     def compose(self) -> ComposeResult:
@@ -654,14 +782,17 @@ class MessagesScreen(Container):
 
 
 class SettingsPanel(VerticalScroll):
+    cursor_position = reactive(0)
+
     def compose(self) -> ComposeResult:
+        self.border_title = "Settings [0]"
         settings = api.get_user_settings()
         yield Static("settings.profile | line 1", classes="panel-header")
         yield Static("\n→ Profile Picture (ASCII)", classes="settings-section-header")
         yield Static("Make ASCII Profile Picture from image file")
         yield Button("Upload file", id="upload-profile-picture", classes="upload-profile-picture")
         yield Static(f"{settings.ascii_pic}", id="profile-picture-display", classes="ascii-avatar")
-        
+
         yield Static("\n→ Account Information", classes="settings-section-header")
         yield Static(f"  Username:\n  @{settings.username}", classes="settings-field")
         yield Static(f"\n  Display Name:\n  {settings.display_name}", classes="settings-field")
@@ -683,8 +814,56 @@ class SettingsPanel(VerticalScroll):
         yield Static(f"  {online_check} Show online status", classes="checkbox-item")
         yield Static(f"  {private_check} Private account", classes="checkbox-item")
         yield Static("\n  [:w] Save Changes     [:q] Cancel", classes="settings-actions")
-        yield Static("\n:w - save  [:e] Edit field  [Tab] Next field  [Esc] Cancel", classes="help-text")
-    
+        yield Static("\n:w - save  [:e] Edit field  [Tab] Next field  [Esc] Cancel", classes="help-text", markup=False)
+
+    def watch_cursor_position(self, old_position: int, new_position: int) -> None:
+        """Update the cursor when position changes"""
+        # We'll consider settings items that can be selected for cursor movement:
+        selectable_classes = [".upload-profile-picture", ".oauth-item", ".checkbox-item"]
+
+        items = []
+        for cls in selectable_classes:
+            items.extend(list(self.query(cls)))
+
+        # Remove cursor from old position
+        if old_position < len(items):
+            old_item = items[old_position]
+            if "vim-cursor" in old_item.classes:
+                old_item.remove_class("vim-cursor")
+
+        # Add cursor to new position
+        if new_position < len(items):
+            new_item = items[new_position]
+            new_item.add_class("vim-cursor")
+            self.scroll_to_widget(new_item)
+
+    def key_j(self) -> None:
+        """Vim-style down navigation"""
+        selectable_classes = [".upload-profile-picture", ".oauth-item", ".checkbox-item"]
+        items = []
+        for cls in selectable_classes:
+            items.extend(list(self.query(cls)))
+
+        if self.cursor_position < len(items) - 1:
+            self.cursor_position += 1
+
+    def key_k(self) -> None:
+        """Vim-style up navigation"""
+        if self.cursor_position > 0:
+            self.cursor_position -= 1
+
+    def key_g(self) -> None:
+        """Vim-style go to top"""
+        self.cursor_position = 0
+
+    def key_G(self) -> None:
+        """Vim-style go to bottom"""
+        selectable_classes = [".upload-profile-picture", ".oauth-item", ".checkbox-item"]
+        items = []
+        for cls in selectable_classes:
+            items.extend(list(self.query(cls)))
+        self.cursor_position = max(0, len(items) - 1)
+
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "upload-profile-picture":
             try:
@@ -695,19 +874,19 @@ class SettingsPanel(VerticalScroll):
                     filetypes=[("Image files", "*.png *.jpg *.jpeg")]
                 )
                 root.destroy()
-                
+
                 if not file_path:
                     return
-                
+
                 script_path = Path("asciifer/asciifer.py")
-                
+
                 if not script_path.exists():
                     return
-                
+
                 output_text = "output.txt"
                 output_image = "output.png"
                 font_path = "/System/Library/Fonts/Monaco.ttf"
-                
+
                 cmd = [
                     sys.executable,
                     str(script_path),
@@ -717,12 +896,12 @@ class SettingsPanel(VerticalScroll):
                     "--font-size", "24",
                     file_path
                 ]
-                
+
                 result = subprocess.run(cmd, capture_output=True, text=True)
-                
+
                 if result.returncode != 0:
                     return
-                
+
                 if Path(output_text).exists():
                     with open(output_text, "r") as f:
                         lines = f.read().splitlines()
@@ -731,11 +910,11 @@ class SettingsPanel(VerticalScroll):
                     max_lines = int(max_width / 2)
                     lines = lines[:max_lines]
                     ascii_art = "\n".join(lines)
-                    
+
                     settings = api.get_user_settings()
                     settings.ascii_pic = ascii_art
                     api.update_user_settings(settings)
-                    
+
                     try:
                         avatar = self.query_one("#profile-picture-display", Static)
                         avatar.update(ascii_art)
@@ -755,34 +934,86 @@ class SettingsScreen(Container):
 
 
 class ProfilePanel(VerticalScroll):
+    cursor_position = reactive(0)
+
     def compose(self) -> ComposeResult:
+        self.border_title = "Profile [0]"
         user = api.get_current_user()
         settings = api.get_user_settings()
-        
+
         yield Static("profile | @yourname | line 1", classes="panel-header")
-        
+
         profile_container = Container(classes="profile-center-container")
-        
+
         with profile_container:
             yield Static(settings.ascii_pic, classes="profile-avatar-large")
             yield Static(f"{settings.display_name}", classes="profile-name-large")
             yield Static(f"@{settings.username}", classes="profile-username-display")
-            
+
             stats_row = Container(classes="profile-stats-row")
             with stats_row:
                 yield Static(f"{user.posts_count}\nPosts", classes="profile-stat-item")
                 yield Static(f"{user.following}\nFollowing", classes="profile-stat-item")
                 yield Static(f"{user.followers}\nFollowers", classes="profile-stat-item")
             yield stats_row
-            
+
             bio_container = Container(classes="profile-bio-container")
             bio_container.border_title = "Bio"
             with bio_container:
                 yield Static(f"{settings.bio}", classes="profile-bio-display")
             yield bio_container
-        
+
         yield profile_container
-        yield Static("\n[:e] Edit Profile  [Esc] Back", classes="help-text")
+        yield Static("\n[:e] Edit Profile  [Esc] Back", classes="help-text", markup=False)
+
+    def watch_cursor_position(self, old_position: int, new_position: int) -> None:
+        """Update the cursor when position changes"""
+        # For profile panel, we'll treat the profile-stat-item elements as navigable
+        items = list(self.query(".profile-stat-item"))
+
+        # Remove cursor from old position
+        if old_position < len(items):
+            old_item = items[old_position]
+            if "vim-cursor" in old_item.classes:
+                old_item.remove_class("vim-cursor")
+
+        # Add cursor to new position
+        if new_position < len(items):
+            new_item = items[new_position]
+            new_item.add_class("vim-cursor")
+            self.scroll_to_widget(new_item)
+
+    def key_j(self) -> None:
+        """Vim-style down navigation"""
+        items = list(self.query(".profile-stat-item"))
+        if self.cursor_position < len(items) - 1:
+            self.cursor_position += 1
+
+    def key_k(self) -> None:
+        """Vim-style up navigation"""
+        if self.cursor_position > 0:
+            self.cursor_position -= 1
+
+    def key_h(self) -> None:
+        """Vim-style left navigation"""
+        items = list(self.query(".profile-stat-item"))
+        if self.cursor_position > 0:
+            self.cursor_position -= 1
+
+    def key_l(self) -> None:
+        """Vim-style right navigation"""
+        items = list(self.query(".profile-stat-item"))
+        if self.cursor_position < len(items) - 1:
+            self.cursor_position += 1
+
+    def key_g(self) -> None:
+        """Vim-style go to top"""
+        self.cursor_position = 0
+
+    def key_G(self) -> None:
+        """Vim-style go to bottom"""
+        items = list(self.query(".profile-stat-item"))
+        self.cursor_position = max(0, len(items) - 1)
 
 
 class ProfileScreen(Container):
@@ -795,38 +1026,56 @@ class Proj101App(App):
     CSS_PATH = "main.tcss"
 
     BINDINGS = [
+        # Basic app controls
         Binding("q", "quit", "Quit", show=False),
         Binding("i", "insert_mode", "Insert", show=True),
         Binding("escape", "normal_mode", "Normal", show=False),
         Binding("d", "toggle_dark", "Dark", show=True),
-        Binding("0", "show_timeline", "Timeline", show=False),
-        Binding("1", "show_discover", "Discover", show=False),
-        Binding("2", "show_notifications", "Notifications", show=False),
-        Binding("3", "show_messages", "Messages", show=False),
-        Binding("4", "show_settings", "Settings", show=False),
+
+        # Screen navigation
+        Binding("0", "focus_main_content", "Main Content", show=False),
+        Binding("1", "show_timeline", "Timeline", show=False),
+        Binding("2", "show_discover", "Discover", show=False),
+        Binding("3", "show_notifications", "Notifications", show=False),
+        Binding("4", "show_messages", "Messages", show=False),
+        Binding("5", "show_settings", "Settings", show=False),
         Binding("shift+n", "focus_navigation", "Nav Focus", show=False),
         Binding("colon", "show_command_bar", "Command", show=False),
+
+        # Vim-style navigation bindings
+        Binding("j", "vim_down", "Down", show=False),
+        Binding("k", "vim_up", "Up", show=False),
+        Binding("h", "vim_left", "Left", show=False),
+        Binding("l", "vim_right", "Right", show=False),
+        Binding("w", "vim_word_forward", "Word Forward", show=False),
+        Binding("b", "vim_word_backward", "Word Backward", show=False),
+        Binding("g g", "vim_top", "Top", show=False),
+        Binding("G", "vim_bottom", "Bottom", show=False),
+        Binding("ctrl+d", "vim_half_page_down", "Half Page Down", show=False),
+        Binding("ctrl+u", "vim_half_page_up", "Half Page Up", show=False),
+        Binding("ctrl+f", "vim_page_down", "Page Down", show=False),
+        Binding("ctrl+b", "vim_page_up", "Page Up", show=False),
     ]
 
     current_screen_name = reactive("timeline")
     command_mode = reactive(False)
 
     def compose(self) -> ComposeResult:
-        yield Static("proj101 [timeline] @yourname", id="app-header")
+        yield Static("proj101 [timeline] @yourname", id="app-header", markup=False)
         yield TimelineScreen(id="screen-container")
-        yield Static(":↑↓ Navigate [n] New Post [f] Follow [/] Search [?] Help", id="app-footer")
+        yield Static(":↑↓ Navigate [0] Main [1-5] Sidebar [n] New Post [f] Follow [/] Search [?] Help", id="app-footer", markup=False)
         yield Input(id="command-input", classes="command-bar")
 
     def switch_screen(self, screen_name: str):
         if screen_name == self.current_screen_name:
             return
         screen_map = {
-            "timeline": (TimelineScreen, ":↑↓ Navigate [n] New Post [f] Follow [/] Search [?] Help"),
-            "discover": (DiscoverScreen, ":/ - search [f] Follow [↑↓] Navigate [Enter] Open [?] Help"),
-            "notifications": (NotificationsScreen, ":[↑] Previous [n] Next [m] Mark Read [Enter] Open [q] Quit"),
-            "messages": (MessagesScreen, ":i - insert mode [Ctrl+N] New [↑↓] Navigate [Enter] Open [Esc] Exit"),
-            "profile": (ProfileScreen, ":[:e] Edit Profile [Esc] Back"),
-            "settings": (SettingsScreen, ":w - save  [:e] Edit field  [Tab] Next field  [Esc] Cancel"),
+            "timeline": (TimelineScreen, ":[0] Main [1-5] Sidebar [↑↓] Navigate [n] New Post [f] Follow [/] Search [?] Help"),
+            "discover": (DiscoverScreen, ":[0] Main [1-5] Sidebar [/] Search [f] Follow [↑↓] Navigate [Enter] Open [?] Help"),
+            "notifications": (NotificationsScreen, ":[0] Main [1-5] Sidebar [↑] Previous [n] Next [m] Mark Read [Enter] Open [q] Quit"),
+            "messages": (MessagesScreen, ":[0] Main [1-5] Sidebar [i] Insert mode [↑↓] Navigate [Enter] Open [Esc] Exit"),
+            "profile": (ProfileScreen, ":[0] Main [1-5] Sidebar [:e] Edit Profile [Esc] Back"),
+            "settings": (SettingsScreen, ":[0] Main [1-5] Sidebar [w] Save [:e] Edit field [Tab] Next field [Esc] Cancel"),
         }
         if screen_name in screen_map:
             for container in self.query("#screen-container"):
@@ -857,19 +1106,19 @@ class Proj101App(App):
     def action_normal_mode(self) -> None:
         self.screen.focus_next()
 
-    def action_show_timeline(self) -> None: 
+    def action_show_timeline(self) -> None:
         self.switch_screen("timeline")
-    
-    def action_show_discover(self) -> None: 
+
+    def action_show_discover(self) -> None:
         self.switch_screen("discover")
-    
-    def action_show_notifications(self) -> None: 
+
+    def action_show_notifications(self) -> None:
         self.switch_screen("notifications")
-    
-    def action_show_messages(self) -> None: 
+
+    def action_show_messages(self) -> None:
         self.switch_screen("messages")
-    
-    def action_show_settings(self) -> None: 
+
+    def action_show_settings(self) -> None:
         self.switch_screen("settings")
 
     def action_focus_navigation(self) -> None:
@@ -879,7 +1128,94 @@ class Proj101App(App):
             nav_item.focus()
         except:
             pass
-    
+
+    def action_focus_main_content(self) -> None:
+        """Focus the main content area when pressing 0"""
+        try:
+            target_id = None
+            if self.current_screen_name == "timeline":
+                target_id = "#timeline-feed"
+            elif self.current_screen_name == "discover":
+                target_id = "#discover-feed"
+            elif self.current_screen_name == "notifications":
+                target_id = "#notifications-feed"
+            elif self.current_screen_name == "messages":
+                target_id = "#chat"
+            elif self.current_screen_name == "settings":
+                target_id = "#settings-panel"
+            elif self.current_screen_name == "profile":
+                target_id = "#profile-panel"
+
+            if target_id:
+                panel = self.query_one(target_id)
+                panel.border_subtitle = "VIM MODE"
+                panel.focus()
+                self.notify(f"Focused: {self.current_screen_name.title()}", severity="information")
+
+        except Exception as e:
+            self.notify(f"Error focusing main content: {str(e)}", severity="error")
+
+    # Vim-style navigation actions - these forward to focused widget
+    def action_vim_down(self) -> None:
+        """Move down (j key)"""
+        # The key will be handled by the focused widget's key_j method if it exists
+        pass
+
+    def action_vim_up(self) -> None:
+        """Move up (k key)"""
+        # The key will be handled by the focused widget's key_k method if it exists
+        pass
+
+    def action_vim_left(self) -> None:
+        """Move left (h key)"""
+        # The key will be handled by the focused widget's key_h method if it exists
+        pass
+
+    def action_vim_right(self) -> None:
+        """Move right (l key)"""
+        # The key will be handled by the focused widget's key_l method if it exists
+        pass
+
+    def action_vim_word_forward(self) -> None:
+        """Move forward one word (w key)"""
+        # The key will be handled by the focused widget's key_w method if it exists
+        pass
+
+    def action_vim_word_backward(self) -> None:
+        """Move backward one word (b key)"""
+        # The key will be handled by the focused widget's key_b method if it exists
+        pass
+
+    def action_vim_top(self) -> None:
+        """Move to the top (gg key)"""
+        # This is handled by the on_key method for the double-g press
+        pass
+
+    def action_vim_bottom(self) -> None:
+        """Move to the bottom (G key)"""
+        # The key will be handled by the focused widget's key_G method if it exists
+        pass
+
+    def action_vim_half_page_down(self) -> None:
+        """Move half page down (Ctrl+d)"""
+        # The key will be handled by the focused widget's key_ctrl_d method if it exists
+        pass
+
+    def action_vim_half_page_up(self) -> None:
+        """Move half page up (Ctrl+u)"""
+        # The key will be handled by the focused widget's key_ctrl_u method if it exists
+        pass
+
+    def action_vim_page_down(self) -> None:
+        """Move one page down (Ctrl+f)"""
+        # The key will be handled by the focused widget's key_ctrl_f method if it exists
+        pass
+
+    def action_vim_page_up(self) -> None:
+        """Move one page up (Ctrl+b)"""
+        # The key will be handled by the focused widget's key_ctrl_b method if it exists
+        pass
+
     def action_show_command_bar(self) -> None:
         try:
             command_input = self.query_one("#command-input", Input)
@@ -914,7 +1250,7 @@ class Proj101App(App):
             self.command_mode = False
             if command.startswith(":"):
                 command = command[1:]
-            screen_map = {"0": "timeline", "1": "discover", "2": "notifications", "3": "messages", "4": "settings"}
+            screen_map = {"1": "timeline", "2": "discover", "3": "notifications", "4": "messages", "5": "settings"}
             if command in screen_map:
                 self.switch_screen(screen_map[command])
             elif command in ("q", "quit"):
@@ -923,14 +1259,14 @@ class Proj101App(App):
                 self.switch_screen("profile")
             elif command == "n":
                 self.action_new_post()
-    
+
     def action_new_post(self) -> None:
         """Show the new post dialog."""
         def check_refresh(result):
             if result:
                 if self.current_screen_name == "timeline":
                     self.switch_screen("timeline")
-        
+
         self.push_screen(NewPostDialog(), check_refresh)
 
     def on_key(self, event) -> None:
