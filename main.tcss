@@ -74,9 +74,7 @@ TimelineScreen, DiscoverScreen, NotificationsScreen, MessagesScreen, SettingsScr
 }
 
 /* Hover effects for items */
-.nav-item:hover,
-.command-item:hover,
-.stat-item:hover {
+.nav-item:hover {
     background: #252525;
     color: #ffffff;
 }

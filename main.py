@@ -292,6 +292,7 @@ class ChatView(VerticalScroll):
         
         yield Static("-- INSERT --", classes="mode-indicator")
         yield Input(placeholder="Type message... (Esc to cancel)", classes="message-input", id="message-input")
+        
 
 
 class MessagesScreen(Container):
