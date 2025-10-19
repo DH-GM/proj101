@@ -31,6 +31,25 @@ TimelineScreen, DiscoverScreen, NotificationsScreen, MessagesScreen, SettingsScr
     height: 2fr;
 }
 
+/* Command Bar */
+#command-input {
+    dock: bottom;
+    height: 1;
+    width: 100%;
+    background: #252525;
+    border: solid #4a9eff;
+    color: #ffffff;
+    padding: 0 1;
+    display: none;
+    offset-y: -1;
+}
+
+#command-input:focus {
+    background: #252525;
+    color: #ffffff;
+    border: solid #4a9eff;
+}
+
 /* Sidebar */
 #sidebar {
     width: 25;
@@ -38,22 +57,56 @@ TimelineScreen, DiscoverScreen, NotificationsScreen, MessagesScreen, SettingsScr
     height: 100%;
     dock: left;
     layout: vertical;
-    padding: 0;          /* remove extra padding to avoid gap */
+    padding: 1;
 }
 
-/* Section headers inside sidebar */
+/* ========== VIBRANT SECTION BOXES ========== */
+
+/* Navigation Section Box - Cyan */
+.navigation-box {
+    border: round cyan;
+    border-title-align: left;
+    border-title-color: cyan;
+    border-title-style: bold;
+    padding: 1;
+    margin-bottom: 1;
+    height: auto;
+}
+
+/* Stats Section Box - Magenta */
+.stats-box {
+    border: round magenta;
+    border-title-align: left;
+    border-title-color: magenta;
+    border-title-style: bold;
+    padding: 1;
+    margin-bottom: 1;
+    height: auto;
+}
+
+/* Commands Section Box - Yellow */
+.commands-box {
+    border: round yellow;
+    border-title-align: left;
+    border-title-color: yellow;
+    border-title-style: bold;
+    padding: 1;
+    height: auto;
+}
+
+/* Section headers inside boxes */
 .section-header {
     color: #666666;
     text-style: bold;
     margin-top: 1;
     margin-bottom: 1;
-    padding-left: 1;    /* spacing inside the header */
+    padding-left: 1;
 }
 
 /* Navigation items */
 .nav-item {
     color: #888888;
-    padding: 0 1;       /* internal spacing only */
+    padding: 0 1;
 }
 
 .nav-item.active {
@@ -63,7 +116,7 @@ TimelineScreen, DiscoverScreen, NotificationsScreen, MessagesScreen, SettingsScr
 
 /* Command items */
 .command-item {
-    color: #666666;
+    color: #888888;
     padding: 0 1;
 }
 
@@ -82,20 +135,20 @@ TimelineScreen, DiscoverScreen, NotificationsScreen, MessagesScreen, SettingsScr
 
 /* ---------------- Timeline Feed Container ---------------- */
 #timeline-feed {
-    width: 1fr;               /* fill all horizontal space next to sidebar */
+    width: 1fr;
     background: #1a1a1a;
-    height: 1fr;              /* fill vertical space */
-    layout: vertical;         /* stack posts vertically */
-    padding: 1 2;             /* add spacing from edges */
-    overflow: auto;           /* enable scrolling if posts exceed height */
+    height: 1fr;
+    layout: vertical;
+    padding: 1 2;
+    overflow: auto;
 }
 
 /* ---------------- Individual Post Items ---------------- */
 .post-item {
-    width: 100%;              /* fill container width */
+    width: 100%;
     height: auto;
-    margin: 0 0 1 0;          /* only bottom margin for spacing between posts */
-    padding: 2 3;             /* internal spacing */
+    margin: 0 0 1 0;
+    padding: 2 3;
     background: #1a1a1a;
     color: #cccccc;
     border: solid #2a2a2a;
@@ -118,7 +171,7 @@ TimelineScreen, DiscoverScreen, NotificationsScreen, MessagesScreen, SettingsScr
 #discover-feed {
     width: 1fr;
     background: #1a1a1a;
-    padding: 1 2;             /* add spacing from edges */
+    padding: 1 2;
     height: 100%;
 }
 
@@ -126,7 +179,7 @@ TimelineScreen, DiscoverScreen, NotificationsScreen, MessagesScreen, SettingsScr
 #notifications-feed {
     width: 1fr;
     background: #1a1a1a;
-    padding: 1 2;             /* add spacing from edges */
+    padding: 1 2;
     height: 100%;
 }
 
@@ -134,7 +187,7 @@ TimelineScreen, DiscoverScreen, NotificationsScreen, MessagesScreen, SettingsScr
     background: #1a1a1a;
     color: #aaaaaa;
     padding: 2 3;
-    margin: 0 0 1 0;          /* only bottom margin, stick to top */
+    margin: 0 0 1 0;
     border: solid #333333;
     height: auto;
     width: 100%;
@@ -194,7 +247,7 @@ TimelineScreen, DiscoverScreen, NotificationsScreen, MessagesScreen, SettingsScr
 }
 
 .chat-message {
-    width: 100%;
+    width: 60%;
     height: auto;
     margin: 0 0 1 0;
     padding: 1 2;
@@ -210,8 +263,6 @@ TimelineScreen, DiscoverScreen, NotificationsScreen, MessagesScreen, SettingsScr
 
 .chat-message.received:hover {
     border: solid #4a5a4a;
-    margin-top: 1;
-    margin-bottom: 1;
 }
 
 .chat-message.sent {
@@ -224,8 +275,6 @@ TimelineScreen, DiscoverScreen, NotificationsScreen, MessagesScreen, SettingsScr
 
 .chat-message.sent:hover {
     border: solid #5a4a4a;
-    margin-top: 1;
-    margin-bottom: 1;
 }
 
 .mode-indicator {
@@ -257,7 +306,7 @@ TimelineScreen, DiscoverScreen, NotificationsScreen, MessagesScreen, SettingsScr
     background: #1a1a1a;
     color: #aaaaaa;
     padding: 2 3;
-    margin: 0 0 1 0;          /* only bottom margin, stick to top */
+    margin: 0 0 1 0;
     border: solid #2a2a2a;
     height: auto;
     width: 100%;

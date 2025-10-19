@@ -28,17 +28,18 @@ def format_time_ago(dt: datetime) -> str:
 class NavigationItem(Static):
     """A navigation menu item."""
     
-    def __init__(self, label: str, screen_name: str, active: bool = False, **kwargs):
+    def __init__(self, label: str, screen_name: str, number: int, active: bool = False, **kwargs):
         super().__init__(**kwargs)
         self.label_text = label
         self.screen_name = screen_name
+        self.number = number
         self.active = active
         if active:
             self.add_class("active")
     
     def render(self) -> str:
         prefix = "▾ " if self.active else "▸ "
-        return f"{prefix}{self.label_text}"
+        return f"{prefix}[{self.number}] {self.label_text}"
     
     def on_click(self) -> None:
         """Handle click event."""
@@ -162,38 +163,48 @@ class Sidebar(Container):
         self.current_screen = current
     
     def compose(self) -> ComposeResult:
-        yield Static("~ NAVIGATION ~", classes="section-header")
-        yield NavigationItem("Timeline", "timeline", self.current_screen == "timeline", classes="nav-item", id="nav-timeline")
-        yield NavigationItem("Discover", "discover", self.current_screen == "discover", classes="nav-item", id="nav-discover")
-        yield NavigationItem("Notifications", "notifications", self.current_screen == "notifications", classes="nav-item", id="nav-notifications")
-        yield NavigationItem("Messages", "messages", self.current_screen == "messages", classes="nav-item", id="nav-messages")
-        yield NavigationItem("Settings", "settings", self.current_screen == "settings", classes="nav-item", id="nav-settings")
+        # Navigation Section Box
+        nav_container = Container(classes="navigation-box")
+        nav_container.border_title = "Navigation"
+        with nav_container:
+            yield NavigationItem("Timeline", "timeline", 0, self.current_screen == "timeline", classes="nav-item", id="nav-timeline")
+            yield NavigationItem("Discover", "discover", 1, self.current_screen == "discover", classes="nav-item", id="nav-discover")
+            yield NavigationItem("Notifs", "notifications", 2, self.current_screen == "notifications", classes="nav-item", id="nav-notifications")
+            yield NavigationItem("Messages", "messages", 3, self.current_screen == "messages", classes="nav-item", id="nav-messages")
+            yield NavigationItem("Settings", "settings", 4, self.current_screen == "settings", classes="nav-item", id="nav-settings")
+        yield nav_container
         
-        yield Static("\n~ STATS ~", classes="section-header")
-        yield StatsDisplay()
+        # Stats Section Box
+        stats_container = Container(classes="stats-box")
+        stats_container.border_title = "Stats"
+        with stats_container:
+            yield StatsDisplay()
+        yield stats_container
         
-        yield Static("\n~ COMMANDS ~", classes="section-header")
-        
-        # Screen-specific commands
-        if self.current_screen == "messages":
-            yield CommandItem(":n", "new message", classes="command-item")
-            yield CommandItem(":r", "reply", classes="command-item")
-        elif self.current_screen == "timeline" or self.current_screen == "discover":
-            yield CommandItem(":n", "new post", classes="command-item")
-            yield CommandItem(":r", "reply", classes="command-item")
-            yield CommandItem(":l", "like", classes="command-item")
-            yield CommandItem(":rt", "repost", classes="command-item")
-        elif self.current_screen == "notifications":
-            yield CommandItem(":m", "mark read", classes="command-item")
-            yield CommandItem(":ma", "mark all", classes="command-item")
-            yield CommandItem(":f", "filter", classes="command-item")
-        elif self.current_screen == "settings":
-            yield CommandItem(":w", "save", classes="command-item")
-            yield CommandItem(":q", "quit", classes="command-item")
-            yield CommandItem(":e", "edit", classes="command-item")
-        
-        yield CommandItem(":d", "delete", classes="command-item")
-        yield CommandItem(":s", "search", classes="command-item")
+        # Commands Section Box
+        commands_container = Container(classes="commands-box")
+        commands_container.border_title = "Commands"
+        with commands_container:
+            # Screen-specific commands
+            if self.current_screen == "messages":
+                yield CommandItem(":n", "new message", classes="command-item")
+                yield CommandItem(":r", "reply", classes="command-item")
+            elif self.current_screen == "timeline" or self.current_screen == "discover":
+                yield CommandItem(":n", "new post", classes="command-item")
+                yield CommandItem(":r", "reply", classes="command-item")
+                yield CommandItem(":l", "like", classes="command-item")
+                yield CommandItem(":rt", "repost", classes="command-item")
+            elif self.current_screen == "notifications":
+                yield CommandItem(":m", "mark read", classes="command-item")
+                yield CommandItem(":ma", "mark all", classes="command-item")
+                yield CommandItem(":f", "filter", classes="command-item")
+            elif self.current_screen == "settings":
+                yield CommandItem(":w", "save", classes="command-item")
+                yield CommandItem(":q", "quit", classes="command-item")
+                yield CommandItem(":e", "edit", classes="command-item")
+            
+            yield CommandItem(":d", "delete", classes="command-item")
+            yield CommandItem(":s", "search", classes="command-item")
     
     def update_active(self, screen_name: str):
         """Update which navigation item is active."""
@@ -208,6 +219,7 @@ class Sidebar(Container):
                 pass
 
 
+# ==================== TIMELINE SCREEN ====================
 
 class TimelineFeed(VerticalScroll):
     """Timeline feed with posts from following."""
@@ -421,19 +433,22 @@ class Proj101App(App):
         Binding("i", "insert_mode", "Insert", show=True),
         Binding("escape", "normal_mode", "Normal", show=False),
         Binding("d", "toggle_dark", "Dark", show=True),
-        Binding("1", "show_timeline", "Timeline", show=False),
-        Binding("2", "show_discover", "Discover", show=False),
-        Binding("3", "show_notifications", "Notifications", show=False),
-        Binding("4", "show_messages", "Messages", show=False),
-        Binding("5", "show_settings", "Settings", show=False),
+        Binding("0", "show_timeline", "Timeline", show=False),
+        Binding("1", "show_discover", "Discover", show=False),
+        Binding("2", "show_notifications", "Notifications", show=False),
+        Binding("3", "show_messages", "Messages", show=False),
+        Binding("4", "show_settings", "Settings", show=False),
+        Binding("colon", "show_command_bar", "Command", show=False),
     ]
     
     current_screen_name = reactive("timeline")
+    command_mode = reactive(False)
     
     def compose(self) -> ComposeResult:
         yield Static("proj101 [timeline] @yourname", id="app-header")
         yield TimelineScreen(id="screen-container")
         yield Static(":↑↓ Navigate [n] New Post [f] Follow [/] Search [?] Help", id="app-footer")
+        yield Input(id="command-input", classes="command-bar")
     
     def switch_screen(self, screen_name: str):
         """Switch to a different screen."""
@@ -510,6 +525,78 @@ class Proj101App(App):
     def action_show_settings(self) -> None:
         """Show settings screen."""
         self.switch_screen("settings")
+    
+    def action_show_command_bar(self) -> None:
+        """Show vim-style command bar."""
+        try:
+            command_input = self.query_one("#command-input", Input)
+            
+            command_input.styles.display = "block"
+            command_input.value = ":"
+            self.command_mode = True
+            command_input.focus()
+            # Move cursor to end (after the colon)
+            self.call_after_refresh(self._focus_command_input)
+        except Exception as e:
+            pass
+    
+    def _focus_command_input(self) -> None:
+        """Focus the command input and position cursor after the colon."""
+        try:
+            command_input = self.query_one("#command-input", Input)
+            command_input.focus()
+            command_input.cursor_position = len(command_input.value)
+        except:
+            pass
+    
+    def on_input_changed(self, event: Input.Changed) -> None:
+        """Prevent removing the colon prefix in command mode."""
+        if event.input.id == "command-input" and self.command_mode:
+            # Ensure the input always starts with ':'
+            if not event.value.startswith(":"):
+                event.input.value = ":" + event.value
+                event.input.cursor_position = len(event.input.value)
+    
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        """Handle command input submission."""
+        if event.input.id == "command-input" and self.command_mode:
+            command = event.value.strip()
+            
+            # Hide command bar
+            command_input = self.query_one("#command-input", Input)
+            command_input.styles.display = "none"
+            event.input.value = ""
+            self.command_mode = False
+            
+            # Parse command - strip the colon prefix
+            if command.startswith(":"):
+                command = command[1:]
+            
+            # Navigation commands
+            screen_map = {
+                "0": "timeline",
+                "1": "discover",
+                "2": "notifications",
+                "3": "messages",
+                "4": "settings",
+            }
+            
+            if command in screen_map:
+                self.switch_screen(screen_map[command])
+            elif command == "q" or command == "quit":
+                self.exit()
+    
+    def on_key(self, event) -> None:
+        """Handle escape key in command mode."""
+        if event.key == "escape" and self.command_mode:
+            try:
+                command_input = self.query_one("#command-input", Input)
+                command_input.styles.display = "none"
+                command_input.value = ""
+                self.command_mode = False
+                event.prevent_default()
+            except:
+                pass
 
 
 if __name__ == "__main__":
