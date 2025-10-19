@@ -28,29 +28,32 @@ Screen {
 /* Main Layout Containers */
 TimelineScreen, DiscoverScreen, NotificationsScreen, MessagesScreen, SettingsScreen {
     layout: horizontal;
-    height: 1fr;
+    height: 2fr;
 }
 
 /* Sidebar */
 #sidebar {
     width: 25;
     background: #1e1e1e;
-    border-right: solid #333333;
-    padding: 1 2;
     height: 100%;
+    dock: left;
+    layout: vertical;
+    padding: 0;          /* remove extra padding to avoid gap */
 }
 
+/* Section headers inside sidebar */
 .section-header {
     color: #666666;
     text-style: bold;
     margin-top: 1;
     margin-bottom: 1;
+    padding-left: 1;    /* spacing inside the header */
 }
 
+/* Navigation items */
 .nav-item {
     color: #888888;
-    margin-bottom: 1;
-    padding-left: 1;
+    padding: 0 1;       /* internal spacing only */
 }
 
 .nav-item.active {
@@ -58,17 +61,26 @@ TimelineScreen, DiscoverScreen, NotificationsScreen, MessagesScreen, SettingsScr
     text-style: bold;
 }
 
+/* Command items */
 .command-item {
     color: #666666;
-    margin-bottom: 1;
-    padding-left: 1;
+    padding: 0 1;
 }
 
+/* Stats or other sidebar items */
 .stat-item {
     color: #888888;
-    margin-bottom: 1;
-    padding-left: 1;
+    padding: 0 1;
 }
+
+/* Hover effects for items */
+.nav-item:hover,
+.command-item:hover,
+.stat-item:hover {
+    background: #252525;
+    color: #ffffff;
+}
+
 
 /* Timeline Feed */
 #timeline-feed {
@@ -124,9 +136,11 @@ TimelineScreen, DiscoverScreen, NotificationsScreen, MessagesScreen, SettingsScr
 .panel-header {
     background: #252525;
     color: #cccccc;
-    padding: 1 2;
-    text-style: bold;
-    border-bottom: solid #333333;
+    padding: 1 1; 
+    overflow: ellipsis;
+    width: 100%;
+    box-sizing: border-box; 
+    overflow: hidden;
 }
 
 .conversation-item {
@@ -159,6 +173,8 @@ TimelineScreen, DiscoverScreen, NotificationsScreen, MessagesScreen, SettingsScr
 .chat-message.received {
     background: #2a2a3a;
     color: #e0e0e0;
+    align: left top;
+    margin-right: 15;
 }
 
 .chat-message.sent {

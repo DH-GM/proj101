@@ -1,6 +1,10 @@
+<<<<<<< HEAD
 __pycache__/
 .env
 .venv/
 venv/
 *.pyc
 .DS_Store
+=======
+__pychache__/
+>>>>>>> 45bcd50 (panel update)
