@@ -122,11 +122,19 @@ class Sidebar(Container):
 
 # ---------- timeline post ----------
 class PostItem(Container):
-    """Interactive post: ♥, ⇄, 💬 with inline comments."""
+    ...
     def __init__(self, post: _Post, **kwargs):
         super().__init__(**kwargs)
         self.post = post
         self._comments_open = False
+        self._selected = False  # NEW
+
+    def set_selected(self, is_selected: bool) -> None:  # NEW
+        self._selected = is_selected
+        if is_selected:
+            self.add_class("selected")
+        else:
+            self.remove_class("selected")
 
     def _like_label(self) -> str:
         heart = "♥" if self.post.liked_by_user else "♡"
@@ -224,9 +232,77 @@ class PostItem(Container):
             b.label = self._comment_label()
         except Exception:
             pass
+# ---------- selectable feed (keyboard + selection) ----------
+class SelectableFeed(VerticalScroll):
+    """A VerticalScroll that tracks a selected PostItem and exposes actions."""
+    can_focus = True
+    selected = reactive(0)
+
+    def _post_items(self):
+        return [w for w in self.query(PostItem)]
+
+    def _update_selection(self) -> None:
+        items = self._post_items()
+        if not items:
+            return
+        self.selected = max(0, min(self.selected, len(items) - 1))
+        for i, it in enumerate(items):
+            it.set_selected(i == self.selected)
+        # keep selected item visible
+        try:
+            self.scroll_to_widget(items[self.selected], animate=False, top=False)
+        except Exception:
+            pass
+
+    # Movement
+    def move_selection(self, delta: int) -> None:
+        items = self._post_items()
+        if not items:
+            return
+        self.selected = max(0, min(self.selected + delta, len(items) - 1))
+        self._update_selection()
+
+    # Actions mapped to buttons on the selected PostItem
+    def like_selected(self) -> None:
+        items = self._post_items()
+        if not items:
+            return
+        item = items[self.selected]
+        try:
+            btn = item.query_one(f"#like-{item.post.id}", Button)
+            item.on_button_pressed(Button.Pressed(btn))
+        except Exception:
+            pass
+
+    def repost_selected(self) -> None:
+        items = self._post_items()
+        if not items:
+            return
+        item = items[self.selected]
+        try:
+            btn = item.query_one(f"#repost-{item.post.id}", Button)
+            item.on_button_pressed(Button.Pressed(btn))
+        except Exception:
+            pass
+
+    def comment_selected(self) -> None:
+        items = self._post_items()
+        if not items:
+            return
+        item = items[self.selected]
+        try:
+            btn = item.query_one(f"#comment-{item.post.id}", Button)
+            item.on_button_pressed(Button.Pressed(btn))
+        except Exception:
+            pass
+
+    def open_selected(self) -> None:
+        # Enter = toggle/expand comments (same as comment button)
+        self.comment_selected()
+
 
 # ---------- timeline / discover ----------
-class TimelineFeed(VerticalScroll):
+class TimelineFeed(SelectableFeed):
     def compose(self) -> ComposeResult:
         posts = api.get_timeline()
         unread_count = len([p for p in posts if (datetime.now() - p.timestamp).seconds < 3600])
@@ -245,6 +321,10 @@ class TimelineFeed(VerticalScroll):
         yield Static(f"timeline.home | {unread} new posts | line 1", classes="panel-header")
         for p in posts:
             yield PostItem(p, classes="post-item")
+    
+    def on_mount(self) -> None:
+        self._update_selection()
+        self.focus()
 
 
 class TimelineScreen(Container):
@@ -254,7 +334,7 @@ class TimelineScreen(Container):
 
 
 # ---------- discover (restore v1 behavior, keep v2 PostItem) ----------
-class DiscoverFeed(VerticalScroll):
+class DiscoverFeed(SelectableFeed):
     query_text = reactive("")
 
     def __init__(self, **kwargs):
@@ -262,9 +342,9 @@ class DiscoverFeed(VerticalScroll):
         self._all_posts = []
 
     def on_mount(self) -> None:
-        # load once and render
         self._all_posts = api.get_discover_posts()
         self._render_posts()
+        self.focus()
 
     def _filtered_posts(self):
         if not self.query_text:
@@ -278,8 +358,10 @@ class DiscoverFeed(VerticalScroll):
             container.remove_children()
             for post in self._filtered_posts():
                 container.mount(PostItem(post, classes="post-item"))
+            # reset selection on new render
+            self.selected = 0
+            self._update_selection()
         except Exception:
-            # be resilient if first render happens before container exists
             pass
 
     def compose(self) -> ComposeResult:
@@ -294,7 +376,6 @@ class DiscoverFeed(VerticalScroll):
         
         yield Container(id="posts-container")
 
-        # Optional: the suggested follow block from v1
         yield Static("\n→ Suggested Follow", classes="section-header")
         yield Static(
             "  @opensource_dev\n  Building tools for developers | 1.2k followers\n  [f] Follow  [↑↓] Navigate  [Enter] Open  [?] Help",
@@ -307,6 +388,7 @@ class DiscoverFeed(VerticalScroll):
     def on_input_changed(self, event: Input.Changed) -> None:
         if event.input.id == "discover-search":
             self.query_text = event.value
+
 
 
 
@@ -716,6 +798,26 @@ class Proj101App(App):
         Binding("2", "show_notifications", "Notifications", show=False),
         Binding("3", "show_messages", "Messages", show=False),
         Binding("4", "show_settings", "Settings", show=False),
+
+        Binding("j", "select_down", show=False),
+        Binding("k", "select_up", show=False),
+        Binding("l", "like_selected", show=False),
+        Binding("r", "repost_selected", show=False),
+        Binding("c", "comment_selected", show=False),
+        Binding("enter", "open_selected", show=False),
+
+        Binding("/", "focus_discover_search", show=False),
+
+        # Selection + actions (timeline/discover)
+        Binding("j", "select_down", show=False),
+        Binding("k", "select_up", show=False),
+        Binding("l", "like_selected", show=False),
+        Binding("r", "repost_selected", show=False),
+        Binding("c", "comment_selected", show=False),
+        Binding("enter", "open_selected", show=False),
+
+        # Quick focus for discover search
+        Binding("/", "focus_discover_search", show=False),
     ]
 
     current = reactive("timeline")
@@ -930,6 +1032,17 @@ class Proj101App(App):
             self.query_one("#sidebar", Sidebar).update_active(name)
         except Exception:
             pass
+    
+    def _active_feed(self):
+        """Return the currently active SelectableFeed, if any."""
+        try:
+            if self.current == "timeline":
+                return self.query_one("#timeline-feed", SelectableFeed)
+            elif self.current == "discover":
+                return self.query_one("#discover-feed", SelectableFeed)
+        except Exception:
+            return None
+        return None
 
     def action_show_timeline(self):
         self._swap_screen(TimelineScreen, "timeline", ":↑↓ Navigate [n] New Post [?] Help")
@@ -946,6 +1059,59 @@ class Proj101App(App):
 
     def action_show_settings(self):
         self._swap_screen(SettingsScreen, "settings", ":w Save [:e] Edit [Esc] Cancel")
+    
+    def action_select_down(self):
+        feed = self._active_feed()
+        if feed:
+            feed.move_selection(1)
+
+    def action_select_up(self):
+        feed = self._active_feed()
+        if feed:
+            feed.move_selection(-1)
+
+    def action_like_selected(self):
+        feed = self._active_feed()
+        if feed:
+            feed.like_selected()
+
+    def action_repost_selected(self):
+        feed = self._active_feed()
+        if feed:
+            feed.repost_selected()
+
+    def action_comment_selected(self):
+        feed = self._active_feed()
+        if feed:
+            feed.comment_selected()
+
+    def action_open_selected(self):
+        feed = self._active_feed()
+        if feed:
+            feed.open_selected()
+
+    def action_focus_discover_search(self):
+        if self.current == "discover":
+            try:
+                self.query_one("#discover-search", Input).focus()
+            except Exception:
+                pass
+# Focus a sensible default widget after swap
+    def _focus_default(self) -> None:
+        try:
+            if self.current == "timeline":
+                self.set_focus(self.query_one("#timeline-feed"))
+            elif self.current == "discover":
+                self.set_focus(self.query_one("#discover-feed"))
+            elif self.current == "notifications":
+                self.set_focus(self.query_one("#notifications-feed"))
+            elif self.current == "messages":
+                # leave focus behavior as-is (you can focus chat input here if you want)
+                pass
+        except Exception:
+            pass
+
+        self.call_after_refresh(self._focus_default)
 
 
 if __name__ == "__main__":
