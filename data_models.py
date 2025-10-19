@@ -75,6 +75,7 @@ class UserSettings:
     email_notifications: bool
     show_online_status: bool
     private_account: bool
+    ascii_pic: str = ""
     github_connected: bool = False
     gitlab_connected: bool = False
     google_connected: bool = False

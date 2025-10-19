@@ -5,6 +5,11 @@ from textual.widgets import Header, Footer, Static, Input, Label, Button, Checkb
 from textual.reactive import reactive
 from datetime import datetime, timedelta
 from api_interface import api
+import sys
+import subprocess
+from pathlib import Path
+import tkinter as tk
+from tkinter import filedialog
 
 
 def format_time_ago(dt: datetime) -> str:
@@ -347,9 +352,12 @@ class SettingsPanel(VerticalScroll):
         
         # Profile Picture
         yield Static("\n→ Profile Picture (ASCII)", classes="settings-section-header")
-        yield Static("      Your profile picture is automatically generated from your username.", classes="settings-help")
-        yield Static(f"    [@#$&●*]\n    |+ YY =|\n    |$%&++=|", classes="ascii-avatar")
-        yield Static("      [:r] Regenerate", classes="settings-action")
+        yield Static("Make ASCII Profile Picture from image file")
+        yield Button("Upload file", id="upload-profile-picture", classes="upload-profile-picture")
+        # yield Static("      Your profile picture is automatically generated from your username.", classes="settings-help")
+        # yield Static(f"    [@#$&●*]\n    |+ YY =|\n    |$%&++=|", classes="ascii-avatar")
+        # yield Static("      [:r] Regenerate", classes="settings-action")
+        yield Static(f"{settings.ascii_pic}", id="profile-picture-display", classes="ascii-avatar")
         
         # Account Information
         yield Static("\n→ Account Information", classes="settings-section-header")
@@ -381,6 +389,72 @@ class SettingsPanel(VerticalScroll):
         
         yield Static("\n  [:w] Save Changes     [:q] Cancel", classes="settings-actions")
         yield Static("\n:w - save  [:e] Edit field  [Tab] Next field  [Esc] Cancel", classes="help-text")
+    
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        """Handle button press events."""
+        if event.button.id == "upload-profile-picture":
+            try:
+                # Open file dialog
+                root = tk.Tk()
+                root.withdraw()
+                file_path = filedialog.askopenfilename(
+                    title="Select an Image",
+                    filetypes=[("Image files", "*.png *.jpg *.jpeg")]
+                )
+                root.destroy()
+                
+                if not file_path:
+                    return
+                
+                # Run asciifer
+                script_path = Path("asciifer/asciifer.py")
+                
+                if not script_path.exists():
+                    return
+                
+                output_text = "output.txt"
+                output_image = "output.png"
+                
+                # Use system monospace font (exists on all macOS)
+                font_path = "/System/Library/Fonts/Monaco.ttf"
+                
+                cmd = [
+                    sys.executable,
+                    str(script_path),
+                    "--output-text", output_text,
+                    "--output-image", output_image,
+                    "--font", font_path,
+                    "--font-size", "20",
+                    file_path
+                ]
+                
+                result = subprocess.run(cmd, capture_output=True, text=True)
+                
+                if result.returncode != 0:
+                    return
+                
+                # Read the generated ASCII art
+                if Path(output_text).exists():
+                    with open(output_text, "r") as file:
+                        ascii_art = file.read()
+                    
+                    # Update the settings model (persist the change)
+                    settings = api.get_user_settings()
+                    settings.ascii_pic = ascii_art
+                    api.update_user_settings(settings)
+                    
+                    # Update the display widget
+                    try:
+                        avatar = self.query_one("#profile-picture-display", Static)
+                        avatar.update(ascii_art)
+                        self.app.notify("Profile picture updated!", severity="success")
+                    except Exception as e:
+                        self.app.notify(f"Widget not found: {e}", severity="error")
+                else:
+                    self.app.notify("Output file not generated", severity="error")
+                
+            except Exception as e:
+                pass
 
 
 class SettingsScreen(Container):

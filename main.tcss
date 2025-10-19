@@ -79,6 +79,21 @@ TimelineScreen, DiscoverScreen, NotificationsScreen, MessagesScreen, SettingsScr
     color: #ffffff;
 }
 
+.upload-profile-picture:hover {
+    margin-top: 1;
+    background:rgb(88, 88, 88);
+    color: rgb(255, 255, 255);
+}
+
+.ascii-avatar {
+    margin-top: 1;
+}
+
+.upload-profile-picture {
+    margin-top: 1;
+    background:rgb(152, 147, 147);
+    color: rgb(0,0,0);
+}
 
 /* Timeline Feed */
 #timeline-feed {
@@ -252,16 +267,6 @@ TimelineScreen, DiscoverScreen, NotificationsScreen, MessagesScreen, SettingsScr
     color: #666666;
     margin-left: 4;
     margin-bottom: 1;
-}
-
-.ascii-avatar {
-    color: #aaaaaa;
-    margin-left: 2;
-    margin-bottom: 1;
-    padding: 1 2;
-    background: #1e1e1e;
-    border: solid #333333;
-    width: 20;
 }
 
 .settings-action {

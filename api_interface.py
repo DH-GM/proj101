@@ -147,6 +147,7 @@ class FakeAPI(APIInterface):
             email_notifications=True,
             show_online_status=True,
             private_account=False,
+            ascii_pic="",
             github_connected=True,
             gitlab_connected=False,
             google_connected=False,
