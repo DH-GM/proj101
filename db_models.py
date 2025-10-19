@@ -5,6 +5,8 @@ from sqlalchemy.orm import DeclarativeBase, relationship, Mapped, mapped_column,
 from sqlalchemy import create_engine, String, Text, Integer, Boolean, ForeignKey, TIMESTAMP, Index
 import uuid, datetime as dt
 from typing import Optional
+from dataclasses import dataclass
+from datetime import datetime
 
 # ---------- base / engine / session ----------
 class Base(DeclarativeBase):
@@ -87,6 +89,13 @@ class Notification(Base):
     related_post_id: Mapped[Optional[str]] = mapped_column(ForeignKey("posts.id"), nullable=True)
     created_at: Mapped[dt.datetime] = mapped_column(TIMESTAMP, default=now_utc, index=True)
     read: Mapped[bool] = mapped_column(Boolean, default=False)
+
+class Comment:
+    id: str
+    post_id: str
+    user: str
+    text: str
+    timestamp: datetime
 
 Index("idx_notifications_user_time", Notification.user_id, Notification.created_at.desc())
 

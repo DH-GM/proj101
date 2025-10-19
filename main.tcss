@@ -58,7 +58,7 @@ Screen {
 }
 
 /* Main Layout Containers */
-TimelineScreen, DiscoverScreen, NotificationsScreen, MessagesScreen, SettingsScreen {
+TimelineScreen, DiscoverScreen, NotificationsScreen, MessagesScreen, SettingsScreen, ProfileScreen {
     layout: horizontal;
     height: 2fr;
 }
@@ -105,8 +105,8 @@ TimelineScreen, DiscoverScreen, NotificationsScreen, MessagesScreen, SettingsScr
     height: auto;
 }
 
-/* Stats Section Box - Magenta */
-.stats-box {
+/* Profile Section Box - Magenta */
+.profile-box {
     border: round magenta;
     border-title-align: left;
     border-title-color: magenta;
@@ -114,6 +114,23 @@ TimelineScreen, DiscoverScreen, NotificationsScreen, MessagesScreen, SettingsScr
     padding: 1;
     margin-bottom: 1;
     height: auto;
+}
+
+.profile-username {
+    color: #ffffff;
+    text-style: bold;
+    padding: 0 1;
+}
+
+.profile-name {
+    color: #aaaaaa;
+    padding: 0 1;
+    margin-bottom: 1;
+}
+
+.profile-stat {
+    color: #888888;
+    padding: 0 1;
 }
 
 /* Commands Section Box - Yellow */
@@ -461,4 +478,157 @@ VerticalScroll {
 /* Input Focus */
 Input:focus {
     border: solid #4a9eff;
+}
+
+/* Profile Panel */
+#profile-panel {
+    width: 1fr;
+    background: #1a1a1a;
+    padding: 2 4;
+    height: 100%;
+    align: center top;
+}
+
+.profile-center-container {
+    width: 70;
+    height: auto;
+    align: center top;
+    layout: vertical;
+    margin-top: 4;
+}
+
+.profile-avatar-large {
+    color: #4a9eff;
+    text-style: bold;
+    text-align: center;
+    width: 100%;
+    margin-bottom: 2;
+    background: #1a1a1a;
+    border: round #4a9eff;
+    padding: 2;
+}
+
+.profile-name-large {
+    color: #ffffff;
+    text-style: bold;
+    text-align: center;
+    width: 100%;
+    margin-bottom: 1;
+}
+
+.profile-username-display {
+    color: #4a9eff;
+    text-align: center;
+    width: 100%;
+    margin-bottom: 3;
+}
+
+.profile-stats-row {
+    layout: horizontal;
+    width: 100%;
+    height: auto;
+    align: center middle;
+    margin-bottom: 3;
+}
+
+.profile-stat-item {
+    color: #cccccc;
+    text-align: center;
+    width: 1fr;
+    padding: 2;
+    background: #1a1a1a;
+    border: solid #333333;
+    margin: 0 1;
+}
+
+.profile-bio-container {
+    width: 100%;
+    height: auto;
+    border: round #666666;
+    border-title-align: center;
+    border-title-color: #888888;
+    padding: 2;
+    background: #1a1a1a;
+}
+
+.profile-bio-display {
+    color: #aaaaaa;
+    text-align: center;
+    width: 100%;
+}
+
+/* Messages Container */
+#messages-container {
+    height: auto;
+    width: 100%;
+}
+
+/* New message animation */
+.chat-message.message-new {
+    background: #2a4a2a;
+    border: solid #4a7a4a;
+}
+
+.chat-message.sent.message-new {
+    background: #2a4a2a;
+    border: solid #3a6a3a;
+}
+
+/* Mode indicator styling */
+.mode-indicator {
+    color: #888888;
+    margin-top: 1;
+    margin-bottom: 1;
+    text-align: center;
+    text-style: bold;
+}
+
+/* Chat input focus */
+#chat-message-input:focus {
+    border: solid #4a9eff;
+    background: #2a2a2a;
+}
+
+/* Comment new animation */
+.comment-new {
+    background: #2a3a2a !important;
+    color: #e0e0e0 !important;
+}
+
+/* Messages Container */
+#messages-container {
+    height: auto;
+    width: 100%;
+}
+
+/* New message animation */
+.chat-message.message-new {
+    background: #2a4a2a;
+    border: solid #4a7a4a;
+}
+
+.chat-message.sent.message-new {
+    background: #2a4a2a;
+    border: solid #3a6a3a;
+}
+
+/* Mode indicator styling */
+.mode-indicator {
+    color: #888888;
+    margin-top: 1;
+    margin-bottom: 1;
+    text-align: center;
+    text-style: bold;
+}
+
+/* Chat input focus */
+#chat-message-input:focus {
+    border: solid #4a9eff;
+    background: #2a2a2a;
+}
+
+/* Comment new animation */
+.comment-new {
+    background: #2a3a2a !important;
+    color: #e0e0e0 !important;
 }

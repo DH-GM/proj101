@@ -1,7 +1,7 @@
 from textual.app import App, ComposeResult
 from textual.binding import Binding
-from textual.containers import Container, Horizontal, Vertical, VerticalScroll, ScrollableContainer
-from textual.widgets import Header, Footer, Static, Input, Label, Button, Checkbox
+from textual.containers import Container, Horizontal, Vertical, VerticalScroll
+from textual.widgets import Static, Input, Button
 from textual.reactive import reactive
 from datetime import datetime, timedelta
 from api_interface import api
@@ -21,69 +21,54 @@ from urllib.parse import urlparse, parse_qs
 import socketserver
 
 
+from datetime import datetime
+from api_interface import api, Post as _Post, Message as _Message
+
+# ---------- utils ----------
 def format_time_ago(dt: datetime) -> str:
-    """Format datetime as 'time ago' string."""
     now = datetime.now()
     diff = now - dt
-    
-    if diff.seconds < 60:
+    s = diff.total_seconds()
+    if s < 60:
         return "just now"
-    elif diff.seconds < 3600:
-        mins = diff.seconds // 60
-        return f"{mins}m ago"
-    elif diff.seconds < 86400:
-        hours = diff.seconds // 3600
-        return f"{hours}h ago"
-    else:
-        days = diff.days
-        return f"{days}d ago"
+    if s < 3600:
+        return f"{int(s // 60)}m ago"
+    if s < 86400:
+        return f"{int(s // 3600)}h ago"
+    return f"{diff.days}d ago"
 
-
+# ---------- sidebar ----------
 class NavigationItem(Static):
-    """A navigation menu item."""
-    
     def __init__(self, label: str, screen_name: str, number: int, active: bool = False, **kwargs):
         super().__init__(**kwargs)
         self.label_text = label
-        self.screen_name = screen_name
+        self.target_screen = screen_name
         self.number = number
         self.active = active
-        if active:
-            self.add_class("active")
-    
+
     def render(self) -> str:
         prefix = "▾ " if self.active else "▸ "
         return f"{prefix}[{self.number}] {self.label_text}"
-    
+
     def on_click(self) -> None:
-        """Handle click event."""
-        self.app.switch_screen(self.screen_name)
-    
+        self.app.navigate(self.target_screen)
+
     def set_active(self, is_active: bool) -> None:
-        """Update the active state of this navigation item."""
         self.active = is_active
-        if is_active:
-            self.add_class("active")
-        else:
-            self.remove_class("active")
         self.refresh()
 
 
 class CommandItem(Static):
-    """A command menu item."""
-    
     def __init__(self, shortcut: str, description: str, **kwargs):
         super().__init__(**kwargs)
         self.shortcut = shortcut
         self.description = description
-    
+
     def render(self) -> str:
         return f"{self.shortcut} - {self.description}"
 
 
 class StatsDisplay(Static):
-    """Display user stats."""
-    
     def compose(self) -> ComposeResult:
         user = api.get_current_user()
         yield Static(f"Posts {user.posts_count}", classes="stat-item")
@@ -91,155 +76,158 @@ class StatsDisplay(Static):
         yield Static(f"Followers {user.followers}", classes="stat-item")
 
 
-class ConversationItem(Static):
-    """A conversation list item."""
-    
-    def __init__(self, conversation, **kwargs):
-        super().__init__(**kwargs)
-        self.conversation = conversation
-    
-    def render(self) -> str:
-        unread_marker = "• " if self.conversation.unread else "  "
-        time_ago = format_time_ago(self.conversation.timestamp)
-        unread_text = "• unread" if self.conversation.unread else ""
-        return f"{unread_marker}@{self.conversation.username}\n  {self.conversation.last_message}\n  {time_ago} {unread_text}"
-
-
-class ChatMessage(Static):
-    """A chat message bubble."""
-    
-    def __init__(self, message, current_user: str = "yourname", **kwargs):
-        super().__init__(**kwargs)
-        self.message = message
-        self.is_sent = message.sender == current_user
-        self.add_class("sent" if self.is_sent else "received")
-    
-    def render(self) -> str:
-        time_str = format_time_ago(self.message.timestamp)
-        return f"{self.message.content}\n{time_str}"
-
-
-class PostItem(Static):
-    """A post/tweet item."""
-    
-    def __init__(self, post, **kwargs):
-        super().__init__(**kwargs)
-        self.post = post
-    
-    def render(self) -> str:
-        time_ago = format_time_ago(self.post.timestamp)
-        like_symbol = "♥" if self.post.liked_by_user else "♡"
-        repost_symbol = "⇄" if self.post.reposted_by_user else "⇄"
-        return f"@{self.post.author} • {time_ago}\n\n{self.post.content}\n\n{like_symbol} {self.post.likes}  {repost_symbol} {self.post.reposts}  💬 {self.post.comments}"
-
-
-class NotificationItem(Static):
-    """A notification item."""
-    
-    def __init__(self, notification, **kwargs):
-        super().__init__(**kwargs)
-        self.notification = notification
-        if not notification.read:
-            self.add_class("unread")
-    
-    def render(self) -> str:
-        time_ago = format_time_ago(self.notification.timestamp)
-        icon_map = {
-            "mention": "●",
-            "like": "♥",
-            "repost": "⇄",
-            "follow": "◉",
-            "comment": "💬"
-        }
-        icon = icon_map.get(self.notification.type, "●")
-        
-        if self.notification.type == "mention":
-            content = f'@{self.notification.actor} mentioned you • {time_ago}\n{self.notification.content}'
-        elif self.notification.type == "like":
-            content = f'{icon} @{self.notification.actor} liked your post • {time_ago}\n{self.notification.content}'
-        elif self.notification.type == "repost":
-            content = f'{icon} @{self.notification.actor} reposted • {time_ago}\n{self.notification.content}'
-        elif self.notification.type == "follow":
-            content = f'{icon} @{self.notification.actor} started following you • {time_ago}'
-        else:
-            content = f'{icon} @{self.notification.actor} • {time_ago}\n{self.notification.content}'
-        
-        return content
-
-
 class Sidebar(Container):
-    """Left sidebar with navigation."""
-    
-    current_screen = reactive("timeline")
-    
+    current = reactive("timeline")
+
     def __init__(self, current: str = "timeline", **kwargs):
         super().__init__(**kwargs)
-        self.current_screen = current
-    
+        self.current = current
+
     def compose(self) -> ComposeResult:
-        # Navigation Section Box
-        nav_container = Container(classes="navigation-box")
-        nav_container.border_title = "Navigation"
-        with nav_container:
-            yield NavigationItem("Timeline", "timeline", 0, self.current_screen == "timeline", classes="nav-item", id="nav-timeline")
-            yield NavigationItem("Discover", "discover", 1, self.current_screen == "discover", classes="nav-item", id="nav-discover")
-            yield NavigationItem("Notifs", "notifications", 2, self.current_screen == "notifications", classes="nav-item", id="nav-notifications")
-            yield NavigationItem("Messages", "messages", 3, self.current_screen == "messages", classes="nav-item", id="nav-messages")
-            yield NavigationItem("Settings", "settings", 4, self.current_screen == "settings", classes="nav-item", id="nav-settings")
-        yield nav_container
-        
-        # Stats Section Box
-        stats_container = Container(classes="stats-box")
-        stats_container.border_title = "Stats"
-        with stats_container:
+        nav = Container(classes="navigation-box")
+        with nav:
+            yield NavigationItem("Timeline", "timeline", 0, self.current == "timeline", classes="nav-item", id="nav-timeline")
+            yield NavigationItem("Discover", "discover", 1, self.current == "discover", classes="nav-item", id="nav-discover")
+            yield NavigationItem("Notifs", "notifications", 2, self.current == "notifications", classes="nav-item", id="nav-notifications")
+            yield NavigationItem("Messages", "messages", 3, self.current == "messages", classes="nav-item", id="nav-messages")
+            yield NavigationItem("Settings", "settings", 4, self.current == "settings", classes="nav-item", id="nav-settings")
+        yield nav
+
+        stats = Container(classes="stats-box")
+        with stats:
             yield StatsDisplay()
-        yield stats_container
-        
-        # Commands Section Box
-        commands_container = Container(classes="commands-box")
-        commands_container.border_title = "Commands"
-        with commands_container:
-            # Screen-specific commands
-            if self.current_screen == "messages":
-                yield CommandItem(":n", "new message", classes="command-item")
-                yield CommandItem(":r", "reply", classes="command-item")
-            elif self.current_screen == "timeline" or self.current_screen == "discover":
+        yield stats
+
+        cmds = Container(classes="commands-box")
+        with cmds:
+            if self.current in ("timeline", "discover"):
                 yield CommandItem(":n", "new post", classes="command-item")
-                yield CommandItem(":r", "reply", classes="command-item")
                 yield CommandItem(":l", "like", classes="command-item")
                 yield CommandItem(":rt", "repost", classes="command-item")
-            elif self.current_screen == "notifications":
+            elif self.current == "messages":
+                yield CommandItem(":n", "new message", classes="command-item")
+                yield CommandItem(":r", "reply", classes="command-item")
+            elif self.current == "notifications":
                 yield CommandItem(":m", "mark read", classes="command-item")
-                yield CommandItem(":ma", "mark all", classes="command-item")
-                yield CommandItem(":f", "filter", classes="command-item")
-            elif self.current_screen == "settings":
-                yield CommandItem(":w", "save", classes="command-item")
-                yield CommandItem(":q", "quit", classes="command-item")
-                yield CommandItem(":e", "edit", classes="command-item")
-            
-            yield CommandItem(":d", "delete", classes="command-item")
-            yield CommandItem(":s", "search", classes="command-item")
-    
+        yield cmds
+
     def update_active(self, screen_name: str):
-        """Update which navigation item is active."""
-        self.current_screen = screen_name
-        # Update all navigation items
-        nav_ids = ["nav-timeline", "nav-discover", "nav-notifications", "nav-messages", "nav-settings"]
-        for nav_id in nav_ids:
+        self.current = screen_name
+        for i in ("timeline", "discover", "notifications", "messages", "settings"):
             try:
-                nav_item = self.query_one(f"#{nav_id}", NavigationItem)
-                nav_item.set_active(nav_item.screen_name == screen_name)
-            except:
+                item = self.query_one(f"#nav-{i}", NavigationItem)
+                item.set_active(i == screen_name)
+            except Exception:
                 pass
 
+# ---------- timeline post ----------
+class PostItem(Container):
+    """Interactive post: ♥, ⇄, 💬 with inline comments."""
+    def __init__(self, post: _Post, **kwargs):
+        super().__init__(**kwargs)
+        self.post = post
+        self._comments_open = False
 
-# ==================== TIMELINE SCREEN ====================
+    def _like_label(self) -> str:
+        heart = "♥" if self.post.liked_by_user else "♡"
+        return f"{heart} {self.post.likes}"
 
-class TimelineFeed(VerticalScroll):
-    """Timeline feed with posts from following."""
-    
+    def _repost_label(self) -> str:
+        return f"⇄ {self.post.reposts}"
+
+    def _comment_label(self) -> str:
+        return f"💬 {self.post.comments}"
+
     def compose(self) -> ComposeResult:
-        user = api.get_current_user()
+        yield Static(f"@{self.post.author} • {format_time_ago(self.post.timestamp)}", classes="post-header")
+        yield Static(self.post.content, classes="post-body")
+        
+        actions = Horizontal(classes="post-actions")
+        with actions:
+            yield Button(self._like_label(), id=f"like-{self.post.id}", classes="action like-btn")
+            yield Button(self._repost_label(), id=f"repost-{self.post.id}", classes="action repost-btn")
+            yield Button(self._comment_label(), id=f"comment-{self.post.id}", classes="action comment-btn")
+        yield actions
+        
+        yield Vertical(id=f"comments-{self.post.id}", classes="comments-section hidden")
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        bid = (event.button.id or "")
+        
+        if bid == f"like-{self.post.id}":
+            if api.like_post(self.post.id):
+                event.button.label = self._like_label()
+                # Add visual feedback
+                if self.post.liked_by_user:
+                    event.button.add_class("liked")
+                else:
+                    event.button.remove_class("liked")
+        
+        elif bid == f"repost-{self.post.id}":
+            if api.repost(self.post.id):
+                event.button.label = self._repost_label()
+                if self.post.reposted_by_user:
+                    event.button.add_class("reposted")
+                else:
+                    event.button.remove_class("reposted")
+        
+        elif bid == f"comment-{self.post.id}":
+            self._toggle_comments()
+
+    def _toggle_comments(self) -> None:
+        self._comments_open = not self._comments_open
+        panel = self.query_one(f"#comments-{self.post.id}", Vertical)
+        panel.remove_children()
+        
+        if not self._comments_open:
+            panel.add_class("hidden")
+            return
+        
+        panel.remove_class("hidden")
+        comments = api.get_comments(self.post.id)
+        
+        if comments:
+            for c in comments:
+                panel.mount(Static(f"@{c.get('user','user')}: {c.get('text','')}", classes="comment-item"))
+        else:
+            panel.mount(Static("No comments yet — be first!", classes="comment-hint"))
+        
+        panel.mount(Input(placeholder="Write a comment and press Enter…", id=f"cinput-{self.post.id}", classes="comment-input"))
+        
+        # Focus the input
+        try:
+            input_widget = self.query_one(f"#cinput-{self.post.id}", Input)
+            input_widget.focus()
+        except Exception:
+            pass
+
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        if not event.input.id or not event.input.id.startswith(f"cinput-{self.post.id}"):
+            return
+        
+        text = event.value.strip()
+        if not text:
+            return
+        
+        api.add_comment(self.post.id, text)
+        panel = self.query_one(f"#comments-{self.post.id}", Vertical)
+        
+        # Add comment above input
+        panel.mount(Static(f"@you: {text}", classes="comment-item"), before=event.input)
+        
+        event.input.value = ""
+        self.post.comments += 1
+        
+        # Update button count
+        try:
+            b = self.query_one(f"#comment-{self.post.id}", Button)
+            b.label = self._comment_label()
+        except Exception:
+            pass
+
+# ---------- timeline / discover ----------
+class TimelineFeed(VerticalScroll):
+    def compose(self) -> ComposeResult:
         posts = api.get_timeline()
         unread_count = len([p for p in posts if (datetime.now() - p.timestamp).seconds < 3600])
         
@@ -253,21 +241,20 @@ class TimelineFeed(VerticalScroll):
         
         for post in posts:
             yield PostItem(post, classes="post-item")
+        unread = len([p for p in posts if (datetime.now() - p.timestamp).seconds < 3600])
+        yield Static(f"timeline.home | {unread} new posts | line 1", classes="panel-header")
+        for p in posts:
+            yield PostItem(p, classes="post-item")
 
 
 class TimelineScreen(Container):
-    """Timeline screen layout."""
-    
     def compose(self) -> ComposeResult:
         yield Sidebar(current="timeline", id="sidebar")
         yield TimelineFeed(id="timeline-feed")
 
 
-# ==================== DISCOVER SCREEN ====================
-
+# ---------- discover (restore v1 behavior, keep v2 PostItem) ----------
 class DiscoverFeed(VerticalScroll):
-    """Discover feed with trending posts and interactive search."""
-
     query_text = reactive("")
 
     def __init__(self, **kwargs):
@@ -275,143 +262,152 @@ class DiscoverFeed(VerticalScroll):
         self._all_posts = []
 
     def on_mount(self) -> None:
-        """Load posts once mounted."""
+        # load once and render
         self._all_posts = api.get_discover_posts()
+        self._render_posts()
 
     def _filtered_posts(self):
         if not self.query_text:
             return self._all_posts
         q = self.query_text.lower()
-        return [
-            p for p in self._all_posts
-            if q in p.author.lower() or q in p.content.lower()
-        ]
+        return [p for p in self._all_posts if q in p.author.lower() or q in p.content.lower()]
+
+    def _render_posts(self) -> None:
+        try:
+            container = self.query_one("#posts-container", Container)
+            container.remove_children()
+            for post in self._filtered_posts():
+                container.mount(PostItem(post, classes="post-item"))
+        except Exception:
+            # be resilient if first render happens before container exists
+            pass
 
     def compose(self) -> ComposeResult:
+        yield Static("discover.trending | line 1", classes="panel-header")
         yield Input(placeholder="Search posts, people, tags...", classes="message-input", id="discover-search")
         
         # Add ASCII video at top of discover if frames exist
         if Path("subway_ascii_frames").exists():
-            yield Static("@yourname • just now", classes="post-author")
+            yield Static("@yourname • just now (Tip: press Alt+Enter for full screen)", classes="post-author")
             yield ASCIIVideoPlayer("subway_ascii_frames", fps=2, classes="ascii-video")
             yield Static("🚇 Subway ride in ASCII! ♥ 0  ⇄ 0  💬 0", classes="post-stats")
         
         yield Container(id="posts-container")
+
+        # Optional: the suggested follow block from v1
         yield Static("\n→ Suggested Follow", classes="section-header")
         yield Static(
             "  @opensource_dev\n  Building tools for developers | 1.2k followers\n  [f] Follow  [↑↓] Navigate  [Enter] Open  [?] Help",
             classes="suggested-user",
         )
 
-    def watch_query_text(self, query: str) -> None:
-        """Update posts when query changes."""
-        try:
-            container = self.query_one("#posts-container", Container)
-            container.remove_children()
-            for post in self._filtered_posts():
-                container.mount(PostItem(post, classes="post-item"))
-        except:
-            pass
+    def watch_query_text(self, _: str) -> None:
+        self._render_posts()
 
     def on_input_changed(self, event: Input.Changed) -> None:
         if event.input.id == "discover-search":
             self.query_text = event.value
 
 
+
 class DiscoverScreen(Container):
-    """Discover screen layout."""
-    
     def compose(self) -> ComposeResult:
         yield Sidebar(current="discover", id="sidebar")
         yield DiscoverFeed(id="discover-feed")
 
+# ---------- notifications ----------
+class NotificationItem(Static):
+    def __init__(self, notif, **kwargs):
+        super().__init__(**kwargs)
+        self.notif = notif
 
-# ==================== NOTIFICATIONS SCREEN ====================
+    def render(self) -> str:
+        icon = {"mention": "●", "like": "♥", "repost": "⇄", "follow": "◉"}.get(self.notif.type, "●")
+        return f"{icon} @{self.notif.actor} • {format_time_ago(self.notif.timestamp)}\n{self.notif.content}"
+
 
 class NotificationsFeed(VerticalScroll):
-    """Notifications feed."""
-    
     def compose(self) -> ComposeResult:
-        notifications = api.get_notifications()
-        unread_count = len([n for n in notifications if not n.read])
-        
-        yield Static(f"notifications.all | {unread_count} unread | line 1", classes="panel-header")
-        
-        for notif in notifications:
-            yield NotificationItem(notif, classes="notification-item")
-        
-        yield Static("\n[↑] Previous [n] Next [m] Mark Read [Enter] Open [q] Quit", classes="help-text")
+        notifs = api.get_notifications()
+        unread = len([n for n in notifs if not n.read])
+        yield Static(f"notifications.all | {unread} unread | line 1", classes="panel-header")
+        for n in notifs:
+            yield NotificationItem(n, classes="notification-item")
 
 
 class NotificationsScreen(Container):
-    """Notifications screen layout."""
-    
     def compose(self) -> ComposeResult:
         yield Sidebar(current="notifications", id="sidebar")
         yield NotificationsFeed(id="notifications-feed")
 
+# ---------- messages ----------
+class ConversationItem(Static):
+    def __init__(self, conv, **kwargs):
+        super().__init__(**kwargs)
+        self.conv = conv
 
-# ==================== MESSAGES SCREEN ====================
+    def render(self) -> str:
+        unread = " • unread" if self.conv.unread else ""
+        return f"@{self.conv.username}\n {self.conv.last_message}\n {format_time_ago(self.conv.timestamp)}{unread}"
+
 
 class ConversationsList(VerticalScroll):
-    """Middle panel with conversations list."""
-    
     def compose(self) -> ComposeResult:
-        conversations = api.get_conversations()
-        unread_count = len([c for c in conversations if c.unread])
-        
-        yield Static(f"conversations | {unread_count} unread", classes="panel-header")
-        
-        for conv in conversations:
-            yield ConversationItem(conv, classes="conversation-item")
+        convs = api.get_conversations()
+        unread = len([c for c in convs if c.unread])
+        yield Static(f"conversations | {unread} unread", classes="panel-header")
+        for c in convs:
+            yield ConversationItem(c, classes="conversation-item")
+
+
+class ChatMessage(Static):
+    def __init__(self, message: _Message, **kwargs):
+        super().__init__(**kwargs)
+        self.message = message
+        mine = message.sender == "yourname"
+        self.add_class("sent" if mine else "received")
+
+    def render(self) -> str:
+        return f"{self.message.content}\n{format_time_ago(self.message.timestamp)}"
 
 
 class ChatView(VerticalScroll):
-    """Right panel with chat messages."""
-    
-    def compose(self) -> ComposeResult:
-        # Hardcoded to alice conversation for now
-        messages = api.get_conversation_messages("c1")
-        
-        yield Static("@alice | conversation | line 12", classes="panel-header")
-        
-        for msg in messages:
-            yield ChatMessage(msg, classes="chat-message")
-        
-        yield Static("-- INSERT --", classes="mode-indicator")
-        yield Input(placeholder="Type message... (Esc to cancel)", classes="message-input", id="message-input")
+    conversation_id = "c1"
 
+    def compose(self) -> ComposeResult:
+        yield Static("@alice | conversation", classes="panel-header")
+        for m in api.get_conversation_messages(self.conversation_id):
+            yield ChatMessage(m, classes="chat-message")
+        yield Static("-- INSERT --", classes="mode-indicator")
+        yield Input(placeholder="Type message and press Enter…", id="chat-input", classes="message-input")
+
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        if event.input.id != "chat-input":
+            return
+        text = event.value.strip()
+        if not text:
+            return
+        msg = api.send_message(self.conversation_id, text)
+        self.mount(ChatMessage(msg, classes="chat-message"), before=event.input)
+        event.input.value = ""
+        self.scroll_end(animate=False)
 
 
 class MessagesScreen(Container):
-    """Main messages screen layout."""
-    
     def compose(self) -> ComposeResult:
         yield Sidebar(current="messages", id="sidebar")
         yield ConversationsList(id="conversations")
         yield ChatView(id="chat")
 
-
-# ==================== SETTINGS SCREEN ====================
-
+# ---------- settings ----------
 class SettingsPanel(VerticalScroll):
-    """Settings panel with profile and preferences."""
-    
     def compose(self) -> ComposeResult:
         settings = api.get_user_settings()
-        
         yield Static("settings.profile | line 1", classes="panel-header")
-        
-        # Profile Picture
         yield Static("\n→ Profile Picture (ASCII)", classes="settings-section-header")
-        yield Static("Make ASCII Profile Picture from image file")
-        yield Button("Upload file", id="upload-profile-picture", classes="upload-profile-picture")
-        # yield Static("      Your profile picture is automatically generated from your username.", classes="settings-help")
-        # yield Static(f"    [@#$&●*]\n    |+ YY =|\n    |$%&++=|", classes="ascii-avatar")
-        # yield Static("      [:r] Regenerate", classes="settings-action")
-        yield Static(f"{settings.ascii_pic}", id="profile-picture-display", classes="ascii-avatar")
-        
-        # Account Information
+        yield Static(" Your profile picture is automatically generated from your username.", classes="settings-help")
+        yield Static(f" {api.get_current_user().avatar_ascii}", classes="ascii-avatar")
+        yield Static(" [:r] Regenerate", classes="settings-action")
         yield Static("\n→ Account Information", classes="settings-section-header")
         yield Static(f"  Username:\n  @{settings.username}", classes="settings-field")
         yield Static(f"\n  Display Name:\n  {settings.display_name}", classes="settings-field")
@@ -544,11 +540,12 @@ class SettingsPanel(VerticalScroll):
                 self.app.notify("Signed out.", severity="information")
             except Exception:
                 pass
+        yield Static(f" Username:\n @{s.username}", classes="settings-field")
+        yield Static(f"\n Display Name:\n {s.display_name}", classes="settings-field")
+        yield Static(f"\n Bio:\n {s.bio}", classes="settings-field")
 
 
 class SettingsScreen(Container):
-    """Settings screen layout."""
-    
     def compose(self) -> ComposeResult:
         yield Sidebar(current="settings", id="sidebar")
         yield SettingsPanel(id="settings-panel")
@@ -709,27 +706,33 @@ class AuthScreen(Container):
 
 # ==================== MAIN APP ====================
 
+# ---------- app ----------
 class Proj101App(App):
-    """A vim-style social network TUI application."""
-    
     CSS_PATH = "main.tcss"
-    
     BINDINGS = [
         Binding("q", "quit", "Quit", show=False),
-        Binding("i", "insert_mode", "Insert", show=True),
-        Binding("escape", "normal_mode", "Normal", show=False),
-        Binding("d", "toggle_dark", "Dark", show=True),
         Binding("0", "show_timeline", "Timeline", show=False),
         Binding("1", "show_discover", "Discover", show=False),
         Binding("2", "show_notifications", "Notifications", show=False),
         Binding("3", "show_messages", "Messages", show=False),
         Binding("4", "show_settings", "Settings", show=False),
-        Binding("colon", "show_command_bar", "Command", show=False),
     ]
-    
-    current_screen_name = reactive("timeline")
-    command_mode = reactive(False)
-    
+
+    current = reactive("timeline")
+
+    def navigate(self, name: str) -> None:
+        """Simple navigator for sidebar clicks / key bindings."""
+        mapping = {
+            "timeline": self.action_show_timeline,
+            "discover": self.action_show_discover,
+            "notifications": self.action_show_notifications,
+            "messages": self.action_show_messages,
+            "settings": self.action_show_settings,
+        }
+        action = mapping.get(name)
+        if action:
+            action()
+
     def compose(self) -> ComposeResult:
         # If we don't have tokens, show auth-first experience
         if not Path("oauth_tokens.json").exists():
@@ -910,7 +913,40 @@ class Proj101App(App):
                 event.prevent_default()
             except:
                 pass
+        yield Static("proj101 [timeline] @yourname", id="app-header")
+        yield TimelineScreen(id="screen-container")
+        yield Static(":↑↓ Navigate [Enter] Open [?] Help", id="app-footer")
+
+    def _swap_screen(self, ScreenClass, name: str, footer_text: str):
+        try:
+            self.query_one("#screen-container").remove()
+        except Exception:
+            pass
+        self.call_after_refresh(self.mount, ScreenClass(id="screen-container"))
+        self.query_one("#app-header", Static).update(f"proj101 [{name}] @yourname")
+        self.query_one("#app-footer", Static).update(footer_text)
+        self.current = name
+        try:
+            self.query_one("#sidebar", Sidebar).update_active(name)
+        except Exception:
+            pass
+
+    def action_show_timeline(self):
+        self._swap_screen(TimelineScreen, "timeline", ":↑↓ Navigate [n] New Post [?] Help")
+
+    def action_show_discover(self):
+        # Fixed: Removed [/] which was causing markup error
+        self._swap_screen(DiscoverScreen, "discover", ":↑↓ Navigate (/) Search [?] Help")
+
+    def action_show_notifications(self):
+        self._swap_screen(NotificationsScreen, "notifications", ":[↑] Prev [n] Next [m] Mark Read")
+
+    def action_show_messages(self):
+        self._swap_screen(MessagesScreen, "messages", ":i Insert [Esc] Normal")
+
+    def action_show_settings(self):
+        self._swap_screen(SettingsScreen, "settings", ":w Save [:e] Edit [Esc] Cancel")
+
 
 if __name__ == "__main__":
-    app = Proj101App()
-    app.run()
+    Proj101App().run()

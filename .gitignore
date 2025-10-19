@@ -5,3 +5,4 @@ venv/
 *.pyc
 .DS_Store
 convert_subway_video.py
+.py
