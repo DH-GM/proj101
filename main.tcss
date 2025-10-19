@@ -363,10 +363,11 @@ TimelineFeed:focus, DiscoverFeed:focus, NotificationsFeed:focus, ChatView:focus,
 #conversations {
     width: 35;
     background: #1a1a1a;
-    border-right: solid #333333;
     padding: 1 2;
     height: 100%;
     border-title-align: center;
+    border-title-color: #4a9eff;
+    border-title-style: bold;
 }
 
 /* Conversation cursor */

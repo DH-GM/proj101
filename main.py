@@ -1204,18 +1204,23 @@ class Proj101App(App):
 
     def action_show_timeline(self) -> None:
         self.switch_screen("timeline")
+        self.action_focus_main_content()
 
     def action_show_discover(self) -> None:
         self.switch_screen("discover")
+        self.action_focus_main_content()
 
     def action_show_notifications(self) -> None:
         self.switch_screen("notifications")
+        self.action_focus_main_content()
 
     def action_show_messages(self) -> None:
         self.switch_screen("messages")
+        self.action_focus_main_content()
 
     def action_show_settings(self) -> None:
         self.switch_screen("settings")
+        self.action_focus_main_content()
 
     def action_focus_navigation(self) -> None:
         try:
@@ -1256,8 +1261,12 @@ class Proj101App(App):
         try:
             if self.current_screen_name == "messages":
                 conversations = self.query_one("#conversations", ConversationsList)
+                conversations.border_title = "Messages [6]"
                 conversations.add_class("vim-mode-active")
                 conversations.focus()
+                # Reset cursor position to ensure it's visible
+                conversations.cursor_position = 0
+                conversations._update_cursor()
         except Exception:
             pass
 
