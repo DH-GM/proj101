@@ -116,7 +116,6 @@ TimelineScreen, DiscoverScreen, NotificationsScreen, MessagesScreen, SettingsScr
 }
 
 .notification-item.unread {
-    background: #252535;
     border: solid #4a4a5a;
 }
 
@@ -164,7 +163,7 @@ TimelineScreen, DiscoverScreen, NotificationsScreen, MessagesScreen, SettingsScr
 }
 
 .chat-message {
-    width: 60%;
+    width: 100%;
     height: auto;
     margin: 1 0;
     padding: 1 2;
@@ -175,6 +174,8 @@ TimelineScreen, DiscoverScreen, NotificationsScreen, MessagesScreen, SettingsScr
     color: #e0e0e0;
     align: left top;
     margin-right: 15;
+    margin-top: 1;
+    margin-bottom: 1;
 }
 
 .chat-message.sent {
@@ -182,6 +183,8 @@ TimelineScreen, DiscoverScreen, NotificationsScreen, MessagesScreen, SettingsScr
     color: #e0e0e0;
     align: right top;
     margin-left: 15;
+    margin-top: 1;
+    margin-bottom: 1;
 }
 
 .mode-indicator {
