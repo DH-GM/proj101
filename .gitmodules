@@ -1,0 +1,3 @@
+[submodule "asciifer"]
+	path = asciifer
+	url = https://github.com/Refffy/asciifer.git

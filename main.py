@@ -216,18 +216,49 @@ class TimelineScreen(Container):
 # ==================== DISCOVER SCREEN ====================
 
 class DiscoverFeed(VerticalScroll):
-    """Discover feed with trending posts."""
-    
+    """Discover feed with trending posts and interactive search."""
+
+    query_text = reactive("")
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self._all_posts = []
+
+    def on_mount(self) -> None:
+        """Load posts once mounted."""
+        self._all_posts = api.get_discover_posts()
+
+    def _filtered_posts(self):
+        if not self.query_text:
+            return self._all_posts
+        q = self.query_text.lower()
+        return [
+            p for p in self._all_posts
+            if q in p.author.lower() or q in p.content.lower()
+        ]
+
     def compose(self) -> ComposeResult:
-        yield Static("/ Search posts, people, tags...", classes="search-input")
-        yield Static("discover.trending | 147 posts | #vim #tui #cli", classes="panel-header")
-        
-        posts = api.get_discover_posts()
-        for post in posts:
-            yield PostItem(post, classes="post-item")
-        
+        yield Input(placeholder="Search posts, people, tags...", classes="message-input", id="discover-search")
+        yield Container(id="posts-container")
         yield Static("\n→ Suggested Follow", classes="section-header")
-        yield Static("  @opensource_dev\n  Building tools for developers | 1.2k followers\n  [f] Follow  [↑↓] Navigate  [Enter] Open  [?] Help", classes="suggested-user")
+        yield Static(
+            "  @opensource_dev\n  Building tools for developers | 1.2k followers\n  [f] Follow  [↑↓] Navigate  [Enter] Open  [?] Help",
+            classes="suggested-user",
+        )
+
+    def watch_query_text(self, query: str) -> None:
+        """Update posts when query changes."""
+        try:
+            container = self.query_one("#posts-container", Container)
+            container.remove_children()
+            for post in self._filtered_posts():
+                container.mount(PostItem(post, classes="post-item"))
+        except:
+            pass
+
+    def on_input_changed(self, event: Input.Changed) -> None:
+        if event.input.id == "discover-search":
+            self.query_text = event.value
 
 
 class DiscoverScreen(Container):
@@ -292,7 +323,7 @@ class ChatView(VerticalScroll):
         
         yield Static("-- INSERT --", classes="mode-indicator")
         yield Input(placeholder="Type message... (Esc to cancel)", classes="message-input", id="message-input")
-        
+
 
 
 class MessagesScreen(Container):
