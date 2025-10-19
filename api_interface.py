@@ -5,7 +5,11 @@ Replace the FakeAPI class with a real API client to connect to your backend.
 """
 from typing import List, Optional, Dict, Any
 from datetime import datetime, timedelta
+import os
 import random
+import json
+import requests
+from pathlib import Path
 
 # === lightweight data objects used by the UI ===
 from dataclasses import dataclass
@@ -67,6 +71,11 @@ class Notification:
     read: bool = False
     related_post: Optional[str] = None
 
+class Comment:
+    def __init__(self, author: str, content: str, timestamp: datetime):
+        self.author = author
+        self.content = content
+        self.timestamp = timestamp
 
 @dataclass
 class UserSettings:
@@ -95,7 +104,7 @@ class APIInterface:
     def mark_notification_read(self, notification_id: str) -> bool: ...
     def get_user_settings(self) -> UserSettings: ...
     def update_user_settings(self, settings: UserSettings) -> bool: ...
-    def create_post(self, content: str) -> Post: ...
+    def create_post(self, content: str) -> bool: ...
     def like_post(self, post_id: str) -> bool: ...
     def repost(self, post_id: str) -> bool: ...
     # comments
@@ -113,7 +122,7 @@ class FakeAPI(APIInterface):
             followers=891,
             following=328,
             posts_count=142,
-            ascii_pic=""
+            ascii_pic="  [●▓▓●]\n  |≈ ◡ ≈|\n  |▓███▓|"
         )
         self._init_fake_data()
 
@@ -167,6 +176,7 @@ class FakeAPI(APIInterface):
             show_online_status=True,
             private_account=False,
             github_connected=True,
+            ascii_pic="  [●▓▓●]\n  |≈ ◡ ≈|\n  |▓███▓|"
         )
 
         # simple in-memory comments: post_id -> list of dicts
@@ -176,96 +186,290 @@ class FakeAPI(APIInterface):
         }
 
     # --- User / settings ---
-    def get_current_user(self) -> User: return self.current_user
-    def get_user_settings(self) -> UserSettings: return self.settings
+    def get_current_user(self) -> User:
+        return self.current_user
+    
+    def get_user_settings(self) -> UserSettings:
+        return self.settings
+    
     def update_user_settings(self, settings: UserSettings) -> bool:
         self.settings = settings
+        # Update current_user ascii_pic as well
+        self.current_user.ascii_pic = settings.ascii_pic
         return True
 
     # --- Timeline / Discover ---
     def get_timeline(self, limit: int = 50) -> List[Post]:
+        """Get the user's timeline/feed."""
         return self.timeline_posts[:limit]
 
     def get_discover_posts(self, limit: int = 50) -> List[Post]:
+        """Get discover/explore posts."""
         return self.discover_posts[:limit]
+    
+    def get_post_comments(self, post_id: str, limit: int = 5):
+        """Get top comments for a post."""
+        # Return fake comments for now
+        return [
+            Comment("alice", "Great post!", datetime.now() - timedelta(hours=2)),
+            Comment("bob", "I totally agree with this", datetime.now() - timedelta(hours=5)),
+            Comment("charlie", "Thanks for sharing!", datetime.now() - timedelta(days=1)),
+        ][:limit]
+    
+    def add_comment(self, post_id: str, content: str):
+        """Add a new comment to a post."""
+        return Comment("yourname", content, datetime.now())
+    def get_conversations(self) -> List[Conversation]:
+        """Get all conversations for the current user."""
+        return self.conversations
+    
 
-    def create_post(self, content: str) -> Post:
-        p = Post(
-            id=f"p{random.randint(1000, 9999)}",
+    def get_conversation_messages(self, conversation_id: str) -> List[Message]:
+        """Get all messages in a specific conversation."""
+        return self.messages.get(conversation_id, [])
+    
+    def send_message(self, conversation_id: str, content: str) -> Message:
+        """Send a message in a conversation."""
+        now = datetime.now()
+        new_msg = Message(
+            id=f"m{random.randint(1000, 9999)}",
+            sender="yourname",
+            content=content,
+            timestamp=now,
+            is_read=True
+        )
+        if conversation_id not in self.messages:
+            self.messages[conversation_id] = []
+        self.messages[conversation_id].append(new_msg)
+        
+        # Update conversation last message
+        for conv in self.conversations:
+            if conv.id == conversation_id:
+                conv.last_message = content[:30] + "..." if len(content) > 30 else content
+                conv.timestamp = now
+                break
+        
+        return new_msg
+
+    def get_notifications(self, unread_only: bool = False) -> List[Notification]:
+        """Get notifications for the current user."""
+        if unread_only:
+            return [n for n in self.notifications if not n.read]
+        return self.notifications
+
+    def mark_notification_read(self, notification_id: str) -> bool:
+        """Mark a notification as read."""
+        for notif in self.notifications:
+            if notif.id == notification_id:
+                notif.read = True
+                return True
+        return False
+
+    def create_post(self, content: str, image_path=None, video_path=None) -> bool:
+        """Create a new post with optional media."""
+        now = datetime.now()
+        new_post = Post(
+            id=str(random.randint(100, 9999)),
             author="yourname",
             content=content,
-            timestamp=datetime.now(),
+            timestamp=now,
             likes=0,
             reposts=0,
             comments=0,
             liked_by_user=False,
-            reposted_by_user=False,
+            reposted_by_user=False
         )
-        self.timeline_posts.insert(0, p)
-        return p
+        self.timeline_posts.insert(0, new_post)
+        self.current_user.posts_count += 1
+        return True
 
     def like_post(self, post_id: str) -> bool:
-        for p in self.timeline_posts + self.discover_posts:
-            if p.id == post_id:
-                if p.liked_by_user:
-                    p.liked_by_user = False
-                    p.likes = max(0, p.likes - 1)
+        """Like/unlike a post."""
+        for post in self.timeline_posts + self.discover_posts:
+            if post.id == post_id:
+                if post.liked_by_user:
+                    post.likes -= 1
+                    post.liked_by_user = False
                 else:
-                    p.liked_by_user = True
-                    p.likes += 1
+                    post.likes += 1
+                    post.liked_by_user = True
                 return True
         return False
 
     def repost(self, post_id: str) -> bool:
-        for p in self.timeline_posts + self.discover_posts:
-            if p.id == post_id:
-                if p.reposted_by_user:
-                    p.reposted_by_user = False
-                    p.reposts = max(0, p.reposts - 1)
+        """Repost/unrepost a post."""
+        for post in self.timeline_posts + self.discover_posts:
+            if post.id == post_id:
+                if post.reposted_by_user:
+                    post.reposts -= 1
+                    post.reposted_by_user = False
                 else:
-                    p.reposted_by_user = True
-                    p.reposts += 1
+                    post.reposts += 1
+                    post.reposted_by_user = True
                 return True
         return False
 
-    # --- Conversations / Messages ---
+    def add_comment(self, post_id: str, text: str) -> Dict[str, Any]:
+        """Add a comment to a post."""
+        if post_id not in self.comments:
+            self.comments[post_id] = []
+        
+        comment = {"user": "yourname", "text": text}
+        self.comments[post_id].append(comment)
+        
+        # Update comment count on post
+        for post in self.timeline_posts + self.discover_posts:
+            if post.id == post_id:
+                post.comments += 1
+                break
+        
+        return comment
+
+    def get_comments(self, post_id: str) -> List[Dict[str, Any]]:
+        """Get comments for a post."""
+        return self.comments.get(post_id, [])
+
+
+# === Real API Backend (with OAuth) ===
+class RealAPI(APIInterface):
+    def __init__(self, base_url: str = "https://your-api.com/api"):
+        self.base_url = base_url
+        self.access_token = None
+        self.refresh_token = None
+        self._load_tokens()
+    
+    def _load_tokens(self):
+        """Load tokens from oauth_tokens.json if it exists."""
+        token_file = Path("oauth_tokens.json")
+        if token_file.exists():
+            try:
+                with open(token_file, "r") as f:
+                    data = json.load(f)
+                    self.access_token = data.get("access_token")
+                    self.refresh_token = data.get("refresh_token")
+            except Exception as e:
+                print(f"Error loading tokens: {e}")
+    
+    def _get_headers(self) -> Dict[str, str]:
+        """Get headers with authorization."""
+        headers = {"Content-Type": "application/json"}
+        if self.access_token:
+            headers["Authorization"] = f"Bearer {self.access_token}"
+        return headers
+    
+    def _get(self, endpoint: str, params: Optional[Dict] = None) -> requests.Response:
+        """Make a GET request."""
+        url = f"{self.base_url}{endpoint}"
+        return requests.get(url, headers=self._get_headers(), params=params)
+    
+    def _post(self, endpoint: str, json: Optional[Dict] = None) -> requests.Response:
+        """Make a POST request."""
+        url = f"{self.base_url}{endpoint}"
+        return requests.post(url, headers=self._get_headers(), json=json)
+    
+    def _put(self, endpoint: str, json: Optional[Dict] = None) -> requests.Response:
+        """Make a PUT request."""
+        url = f"{self.base_url}{endpoint}"
+        return requests.put(url, headers=self._get_headers(), json=json)
+    
+    def get_current_user(self) -> User:
+        """Get current user info."""
+        resp = self._get("/user")
+        data = resp.json()
+        return User(**data)
+    
+    def get_timeline(self, limit: int = 50) -> List[Post]:
+        """Get the user's timeline/feed."""
+        resp = self._get(f"/timeline?limit={limit}")
+        return [Post(**p) for p in resp.json()]
+
+    def get_discover_posts(self, limit: int = 50) -> List[Post]:
+        """Get discover/explore posts."""
+        resp = self._get(f"/discover?limit={limit}")
+        return [Post(**p) for p in resp.json()]
+
     def get_conversations(self) -> List[Conversation]:
-        return self.conversations
+        """Get all conversations for the current user."""
+        resp = self._get("/conversations")
+        return [Conversation(**c) for c in resp.json()]
 
     def get_conversation_messages(self, conversation_id: str) -> List[Message]:
-        return self.messages.get(conversation_id, [])
+        """Get all messages in a specific conversation."""
+        resp = self._get(f"/conversations/{conversation_id}/messages")
+        return [Message(**m) for m in resp.json()]
 
     def send_message(self, conversation_id: str, content: str) -> Message:
-        msg = Message(
-            id=f"m{random.randint(1000, 9999)}",
-            sender="yourname",
-            content=content,
-            timestamp=datetime.now(),
-            is_read=True,
-        )
-        self.messages.setdefault(conversation_id, []).append(msg)
-        # update preview in conversations list
-        for c in self.conversations:
-            if c.id == conversation_id:
-                c.last_message = content
-                c.timestamp = datetime.now()
-                break
-        return msg
+        """Send a message in a conversation."""
+        data = {"content": content}
+        resp = self._post(f"/conversations/{conversation_id}/messages", json=data)
+        return Message(**resp.json())
 
-    # --- Notifications ---
     def get_notifications(self, unread_only: bool = False) -> List[Notification]:
-        return [n for n in self.notifications if not n.read] if unread_only else self.notifications
+        """Get notifications for the current user."""
+        params = {"unread_only": unread_only} if unread_only else {}
+        resp = self._get("/notifications", params=params)
+        return [Notification(**n) for n in resp.json()]
 
     def mark_notification_read(self, notification_id: str) -> bool:
-        for n in self.notifications:
-            if n.id == notification_id:
-                n.read = True
-                return True
-        return False
+        """Mark a notification as read."""
+        try:
+            self._put(f"/notifications/{notification_id}/read")
+            return True
+        except Exception:
+            return False
 
-    # --- Comments ---
-    def get_comments(self, post_id: str) -> List[Dict[str, Any]]:
-        return list(self.comments.get(post_id, []))
+    def get_user_settings(self) -> UserSettings:
+        """Get user settings."""
+        resp = self._get("/user/settings")
+        return UserSettings(**resp.json())
+
+    def update_user_settings(self, settings: UserSettings) -> bool:
+        """Update user settings."""
+        try:
+            data = settings.__dict__
+            self._put("/user/settings", json=data)
+            return True
+        except Exception:
+            return False
+
+    def create_post(self, content: str, image_path=None, video_path=None) -> bool:
+        """Create a new post with optional media."""
+        url = f"{self.base_url}/posts"
+        files = {}
+        data = {"content": content}
+        
+        try:
+            if image_path:
+                files["image"] = open(image_path, "rb")
+            if video_path:
+                files["video"] = open(video_path, "rb")
+
+            headers = {"Authorization": f"Bearer {self.access_token}"}
+            resp = requests.post(url, headers=headers, data=data, files=files or None)
+            
+            return resp.status_code in [200, 201]
+        except Exception as e:
+            print(f"Error creating post: {e}")
+            return False
+        finally:
+            for f in files.values():
+                f.close()
+
+    def like_post(self, post_id: str) -> bool:
+        """Like a post."""
+        try:
+            self._post(f"/posts/{post_id}/like")
+            return True
+        except Exception:
+            return False
+
+    def repost(self, post_id: str) -> bool:
+        """Repost/share a post."""
+        try:
+            self._post(f"/posts/{post_id}/repost")
+            return True
+        except Exception:
+            return False
 
     def add_comment(self, post_id: str, text: str) -> Dict[str, Any]:
         entry = {"user": "yourname", "text": text}
