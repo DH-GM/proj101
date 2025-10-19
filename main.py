@@ -89,12 +89,12 @@ class ConversationItem(Static):
     def on_click(self) -> None:
         """Handle click to open conversation"""
         # Find the parent MessagesScreen
-        screen = self.ancestors_with_class(MessagesScreen)
-        if screen:
-            # Get the first matching screen
-            messages_screen = screen[0]
-            # Open this conversation
-            messages_screen.open_conversation(self.conversation)
+        # Use proper ancestors method with a filter to find parent
+        for ancestor in self.ancestors:
+            if isinstance(ancestor, MessagesScreen):
+                # Open this conversation
+                ancestor.open_conversation(self.conversation)
+                break
 
 
 class ChatMessage(Static):
@@ -817,12 +817,13 @@ class ConversationsList(VerticalScroll):
             if 0 <= self.cursor_position < len(items):
                 # Get the current conversation item
                 item = items[self.cursor_position]
-                # Find the parent MessagesScreen
-                screen = self.ancestors_with_class(MessagesScreen)
-                if screen:
-                    # Open this conversation
-                    screen[0].open_conversation(item.conversation)
-                    event.prevent_default()
+                # Find the parent MessagesScreen using proper ancestors property
+                for ancestor in self.ancestors:
+                    if isinstance(ancestor, MessagesScreen):
+                        # Open this conversation
+                        ancestor.open_conversation(item.conversation)
+                        event.prevent_default()
+                        break
 
 
 class ChatView(VerticalScroll):
