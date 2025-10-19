@@ -19,7 +19,7 @@ class User:
     followers: int
     following: int
     posts_count: int
-    avatar_ascii: str = ""
+    ascii_pic: str = ""
 
 
 @dataclass
@@ -76,6 +76,7 @@ class UserSettings:
     gitlab_connected: bool = False
     google_connected: bool = False
     discord_connected: bool = False
+    ascii_pic: str = ""
 
 
 # === API interface ===
@@ -108,7 +109,7 @@ class FakeAPI(APIInterface):
             followers=891,
             following=328,
             posts_count=142,
-            avatar_ascii="[@#$&●*]",
+            ascii_pic=""
         )
         self._init_fake_data()
 

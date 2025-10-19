@@ -19,6 +19,7 @@ import requests
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
 import socketserver
+import os
 
 
 from datetime import datetime
@@ -311,7 +312,7 @@ class TimelineFeed(SelectableFeed):
         
         # Add ASCII video if frames exist
         if Path("subway_ascii_frames").exists():
-            yield Static("@yourname • just now (Tip: press Alt+Enter to go full screen for better video)", classes="post-author")
+            yield Static("@yourname • just now (Tip: press Cmd+Ctrl+F to go full screen for better video)", classes="post-author")
             yield ASCIIVideoPlayer("subway_ascii_frames", fps=2, classes="ascii-video")
             yield Static("🚇 Subway ride in ASCII! ♥ 0  ⇄ 0  💬 0", classes="post-stats")
         
@@ -486,10 +487,12 @@ class SettingsPanel(VerticalScroll):
     def compose(self) -> ComposeResult:
         settings = api.get_user_settings()
         yield Static("settings.profile | line 1", classes="panel-header")
-        yield Static("\n→ Profile Picture (ASCII)", classes="settings-section-header")
-        yield Static(" Your profile picture is automatically generated from your username.", classes="settings-help")
-        yield Static(f" {api.get_current_user().avatar_ascii}", classes="ascii-avatar")
-        yield Static(" [:r] Regenerate", classes="settings-action")
+        yield Static("Make ASCII Profile Picture from image file", classes="settings-section-header")
+        yield Button("Upload file", id="upload-profile-picture", classes="upload-profile-picture")
+        # yield Static("      Your profile picture is automatically generated from your username.", classes="settings-help")
+        # yield Static(f"    [@#$&●*]\n    |+ YY =|\n    |$%&++=|", classes="ascii-avatar")
+        # yield Static("      [:r] Regenerate", classes="settings-action")
+        yield Static(f"{settings.ascii_pic}", id="profile-picture-display", classes="ascii-avatar")
         yield Static("\n→ Account Information", classes="settings-section-header")
         yield Static(f"  Username:\n  @{settings.username}", classes="settings-field")
         yield Static(f"\n  Display Name:\n  {settings.display_name}", classes="settings-field")
@@ -572,7 +575,7 @@ class SettingsPanel(VerticalScroll):
                     "--output-text", output_text,
                     "--output-image", output_image,
                     "--font", font_path,
-                    "--font-size", "12",
+                    "--font-size", "24",
                     file_path  # Use cropped image instead of original
                 ]
                 
@@ -616,15 +619,12 @@ class SettingsPanel(VerticalScroll):
                 Path("oauth_tokens.json").unlink(missing_ok=True)
             except Exception:
                 pass
-            # Navigate to auth-only screen after the current event cycle
-            self.app.call_after_refresh(self.app.show_auth_only)
+            # Quit the app on sign-out
             try:
-                self.app.notify("Signed out.", severity="information")
+                self.app.exit()
             except Exception:
                 pass
-        yield Static(f" Username:\n @{s.username}", classes="settings-field")
-        yield Static(f"\n Display Name:\n {s.display_name}", classes="settings-field")
-        yield Static(f"\n Bio:\n {s.bio}", classes="settings-field")
+
 
 
 class SettingsScreen(Container):
@@ -665,8 +665,8 @@ class ThreadingHTTPServer(socketserver.ThreadingMixIn, HTTPServer):
 class AuthScreen(Container):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        self._poll_timer = None
         self._file_timer = None
+        self._server_process = None
     def compose(self) -> ComposeResult:
         # Minimal auth screen: centered sign-in button, no sidebar/header/footer
         with Container(id="auth-center"):
@@ -692,82 +692,22 @@ class AuthScreen(Container):
                 pass
     
     def _start_oauth_flow(self) -> None:
-        """Start the OAuth flow - called after button press event completes."""
-        print("Starting OAuth server...")
-        
-        # Reset code state
-        OAuthCallbackHandler.code = None
-        
-        # Start local HTTP server in a separate thread with select-based timeout
-        def run_server():
-            try:
-                import select
-                server = ThreadingHTTPServer(("", 5173), OAuthCallbackHandler)
-                server.timeout = 0.1  # Very short timeout
-                end_time = datetime.now() + timedelta(seconds=60)
-                
-                print("Server listening on port 5173...")
-                while datetime.now() < end_time and OAuthCallbackHandler.code is None:
-                    # Use select to avoid blocking
-                    ready, _, _ = select.select([server.socket], [], [], 0.1)
-                    if ready:
-                        server.handle_request()
-                
-                print("Server loop ended")
-                server.server_close()
-            except Exception as e:
-                print(f"Server error: {e}")
-        
-        thread = threading.Thread(target=run_server, daemon=True)
-        thread.start()
-        
+        """Open Cognito Hosted UI and poll for tokens.
+        Note: OAuth callback server is started by start_tuitter.sh, not here.
+        """
+        print("Starting OAuth flow (browser only)...")
         # Open browser to Cognito hosted UI
         print("Opening browser...")
         webbrowser.open(COGNITO_AUTH_URL)
         
         # Update status
         try:
-            self.query_one("#oauth-status", Static).update("Status: Waiting for sign-in...")
+            self.query_one("#oauth-status", Static).update("Status: Waiting for sign-in... (check your browser)")
         except Exception:
             pass
         
-        # Poll for code and tokens file
-        self._poll_timer = self.set_interval(0.5, self._check_code)
+        # Poll for tokens file only
         self._file_timer = self.set_interval(0.5, self._check_tokens_file)
-
-    def _check_code(self) -> None:
-        code = OAuthCallbackHandler.code
-        if code:
-            # Exchange code for tokens
-            try:
-                data = {
-                    "grant_type": "authorization_code",
-                    "client_id": COGNITO_CLIENT_ID,
-                    "code": code,
-                    "redirect_uri": REDIRECT_URI,
-                }
-                headers = {"Content-Type": "application/x-www-form-urlencoded"}
-                resp = requests.post(COGNITO_TOKEN_URL, data=data, headers=headers)
-                if resp.ok:
-                    tokens = resp.json()
-                    # Persist in a simple file for demo
-                    Path("oauth_tokens.json").write_text(json.dumps(tokens, indent=2))
-                    self.query_one("#oauth-status", Static).update("Status: Signed in (tokens saved to oauth_tokens.json)")
-                    # Switch to main app layout
-                    try:
-                        # stop timers
-                        if self._poll_timer:
-                            self._poll_timer.pause()
-                        if self._file_timer:
-                            self._file_timer.pause()
-                        self.app.show_main_app()
-                    except Exception:
-                        pass
-                else:
-                    self.query_one("#oauth-status", Static).update(f"Status: Token exchange failed {resp.status_code}")
-            except Exception as e:
-                self.query_one("#oauth-status", Static).update(f"Status: Error {e}")
-        # else keep polling via interval
 
     def _check_tokens_file(self) -> None:
         try:
@@ -1115,4 +1055,15 @@ class Proj101App(App):
 
 
 if __name__ == "__main__":
-    Proj101App().run()
+    # Write PID so oauth_server can restart us
+    pid_file = Path(".main_app_pid")
+    pid_file.write_text(str(os.getpid()))
+    try:
+        app = Proj101App()
+        app.run()
+    finally:
+        # Clean up PID file on exit
+        try:
+            pid_file.unlink()
+        except Exception:
+            pass

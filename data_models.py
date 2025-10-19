@@ -16,7 +16,7 @@ class User:
     followers: int
     following: int
     posts_count: int
-    avatar_ascii: str = ""
+    ascii_pic: str = ""
 
 
 @dataclass

@@ -8,8 +8,8 @@
 }
 
 #auth-title {
-    padding: 2 4;
-    margin: 2 10;   /* add horizontal margin */
+    padding: 1 4;
+    margin: 1 10;   /* add horizontal margin */
 }
 
 Button#oauth-signin {
@@ -188,6 +188,16 @@ TimelineScreen, DiscoverScreen, NotificationsScreen, MessagesScreen, SettingsScr
     margin-top: 1;
     background:rgb(88, 88, 88);
     color: rgb(255, 255, 255);
+}
+
+.ascii-avatar {
+    margin-top: 1;
+}
+
+.upload-profile-picture {
+    margin-top: 1;
+    background:rgb(152, 147, 147);
+    color: rgb(0,0,0);
 }
 
 .ascii-avatar {
