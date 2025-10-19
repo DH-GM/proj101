@@ -33,14 +33,25 @@ class NavigationItem(Static):
         self.label_text = label
         self.screen_name = screen_name
         self.active = active
+        if active:
+            self.add_class("active")
     
     def render(self) -> str:
-        prefix = "▸ " if self.active else "▸ "
+        prefix = "▾ " if self.active else "▸ "
         return f"{prefix}{self.label_text}"
     
     def on_click(self) -> None:
         """Handle click event."""
         self.app.switch_screen(self.screen_name)
+    
+    def set_active(self, is_active: bool) -> None:
+        """Update the active state of this navigation item."""
+        self.active = is_active
+        if is_active:
+            self.add_class("active")
+        else:
+            self.remove_class("active")
+        self.refresh()
 
 
 class CommandItem(Static):
@@ -187,9 +198,16 @@ class Sidebar(Container):
     def update_active(self, screen_name: str):
         """Update which navigation item is active."""
         self.current_screen = screen_name
+        # Update all navigation items
+        nav_ids = ["nav-timeline", "nav-discover", "nav-notifications", "nav-messages", "nav-settings"]
+        for nav_id in nav_ids:
+            try:
+                nav_item = self.query_one(f"#{nav_id}", NavigationItem)
+                nav_item.set_active(nav_item.screen_name == screen_name)
+            except:
+                pass
 
 
-# ==================== TIMELINE SCREEN ====================
 
 class TimelineFeed(VerticalScroll):
     """Timeline feed with posts from following."""
@@ -445,6 +463,13 @@ class Proj101App(App):
             self.query_one("#app-header", Static).update(f"proj101 [{screen_name}] @yourname")
             self.query_one("#app-footer", Static).update(footer_text)
             self.current_screen_name = screen_name
+            
+            # Update sidebar navigation arrows
+            try:
+                sidebar = self.query_one("#sidebar", Sidebar)
+                sidebar.update_active(screen_name)
+            except:
+                pass
     
     def action_quit(self) -> None:
         """Quit the application."""
