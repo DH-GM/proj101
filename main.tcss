@@ -85,42 +85,44 @@ TimelineScreen, DiscoverScreen, NotificationsScreen, MessagesScreen, SettingsScr
 
 /* Vim-style cursor */
 .vim-cursor {
-    background: #2a4a6a;
+    background: #184070;
     color: #ffffff;
-    border: solid #4a9eff;
+    border: heavy #4a9eff;
+    text-style: bold;
 }
 
 .vim-cursor .post-text {
     color: #ffffff;
-    background: #2a4a6a;
 }
 
 .vim-cursor .post-stats {
     color: #ffffff;
-    background: #2a4a6a;
 }
 
 /* Chat message cursor */
 .chat-message.vim-cursor {
-    background: #2a4a6a;
+    background: #184070;
     color: #ffffff;
-    border: solid #4a9eff;
+    border-left: heavy #4a9eff;
+    border-right: heavy #4a9eff;
 }
 
 /* Settings panel cursor */
 .oauth-item.vim-cursor,
 .checkbox-item.vim-cursor,
 .upload-profile-picture.vim-cursor {
-    background: #2a4a6a;
+    background: #184070;
     color: #ffffff;
-    border: solid #4a9eff;
+    border-left: heavy #4a9eff;
+    border-right: heavy #4a9eff;
 }
 
 /* Profile panel cursor */
 .profile-stat-item.vim-cursor {
-    background: #2a4a6a;
+    background: #184070;
     color: #ffffff;
-    border: solid #4a9eff;
+    border-left: heavy #4a9eff;
+    border-right: heavy #4a9eff;
 }
 
 *:focus {
@@ -131,10 +133,18 @@ TimelineScreen, DiscoverScreen, NotificationsScreen, MessagesScreen, SettingsScr
     border: thick #4a9eff;
 }
 
-TimelineFeed:focus, DiscoverFeed:focus, NotificationsFeed:focus, ChatView:focus, SettingsPanel:focus, ProfilePanel:focus {
+TimelineFeed:focus, DiscoverFeed:focus, NotificationsFeed:focus, ChatView:focus, SettingsPanel:focus, ProfilePanel:focus, ConversationsList:focus {
     border-subtitle-align: center;
     border-subtitle-color: #4a9eff;
     border-subtitle-style: bold;
+    border: round #4a9eff;
+    background: #11223a;
+}
+
+.vim-mode-active {
+    border-title-color: #4a9eff;
+    border-title-style: bold;
+    border-title-align: left;
 }
 
 /* Sidebar */
@@ -217,10 +227,10 @@ TimelineFeed:focus, DiscoverFeed:focus, NotificationsFeed:focus, ChatView:focus,
 
 .nav-item.active {
     color: #ffffff;
+    background: #184070;
     text-style: bold;
-    border: round cyan;
-    border-title-color: cyan;
-    border-title-style: bold;
+    border-left: solid #4a9eff;
+    padding-left: 1;
 }
 
 /* Command items */
@@ -238,7 +248,7 @@ TimelineFeed:focus, DiscoverFeed:focus, NotificationsFeed:focus, ChatView:focus,
 
 /* Hover effects for items */
 .nav-item:hover {
-    background: #252525;
+    background: #183050;
     color: #ffffff;
 }
 
@@ -356,6 +366,15 @@ TimelineFeed:focus, DiscoverFeed:focus, NotificationsFeed:focus, ChatView:focus,
     border-right: solid #333333;
     padding: 1 2;
     height: 100%;
+    border-title-align: center;
+}
+
+/* Conversation cursor */
+.conversation-item.vim-cursor {
+    background: #184070;
+    color: #ffffff;
+    border: heavy #4a9eff;
+    text-style: bold;
 }
 
 .panel-header {

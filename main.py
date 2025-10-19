@@ -42,8 +42,10 @@ class NavigationItem(Static):
             self.add_class("active")
 
     def render(self) -> str:
-        prefix = "▾ " if self.active else "▸ "
-        return f"{prefix}[{self.number}] {self.label_text}"
+        if self.active:
+            return f"[bold #4a9eff]{self.number}:[/] {self.label_text}"
+        else:
+            return f"{self.number}: {self.label_text}"
 
     def on_click(self) -> None:
         self.app.switch_screen(self.screen_name)
@@ -512,22 +514,21 @@ class TimelineFeed(VerticalScroll):
 
             # Add cursor to focused item
             if 0 <= self.cursor_position < len(items):
-                items[self.cursor_position].add_class("vim-cursor")
+                item = items[self.cursor_position]
+                item.add_class("vim-cursor")
                 # Ensure the cursor is visible
-                self.scroll_to_widget(items[self.cursor_position], top=True)
-                self.app.notify(f"Post {self.cursor_position+1}/{len(items)}", severity="information")
+                self.scroll_to_widget(item, top=True)
         except Exception:
             pass
 
     def on_focus(self) -> None:
         """When the feed gets focus"""
-        self.border_subtitle = "VIM MODE"
         self.cursor_position = 0
         self._update_cursor()
 
     def on_blur(self) -> None:
         """When feed loses focus"""
-        self.border_subtitle = ""
+        pass
 
     def key_j(self) -> None:
         """Move down with j key"""
@@ -703,12 +704,94 @@ class NotificationsScreen(Container):
 
 
 class ConversationsList(VerticalScroll):
+    cursor_position = reactive(0)
+
     def compose(self) -> ComposeResult:
         conversations = api.get_conversations()
         unread_count = len([c for c in conversations if c.unread])
         yield Static(f"conversations | {unread_count} unread", classes="panel-header")
-        for conv in conversations:
-            yield ConversationItem(conv, classes="conversation-item")
+        for i, conv in enumerate(conversations):
+            item = ConversationItem(conv, classes="conversation-item", id=f"conv-{i}")
+            if i == 0:
+                item.add_class("vim-cursor")
+            yield item
+
+    def on_mount(self) -> None:
+        """Watch for cursor position changes"""
+        self.watch(self, "cursor_position", self._update_cursor)
+
+    def _update_cursor(self) -> None:
+        """Update the cursor position"""
+        try:
+            # Find all conversation items
+            items = list(self.query(".conversation-item"))
+
+            # Remove cursor from all items
+            for item in items:
+                item.remove_class("vim-cursor")
+
+            # Add cursor to focused item
+            if 0 <= self.cursor_position < len(items):
+                item = items[self.cursor_position]
+                item.add_class("vim-cursor")
+                # Ensure the cursor is visible
+                self.scroll_to_widget(item, top=True)
+        except Exception:
+            pass
+
+    def on_focus(self) -> None:
+        """When the list gets focus"""
+        self.cursor_position = 0
+        self._update_cursor()
+
+    def on_blur(self) -> None:
+        """When list loses focus"""
+        pass
+
+    def key_j(self) -> None:
+        """Move down with j key"""
+        items = list(self.query(".conversation-item"))
+        if self.cursor_position < len(items) - 1:
+            self.cursor_position += 1
+
+    def key_k(self) -> None:
+        """Move up with k key"""
+        if self.cursor_position > 0:
+            self.cursor_position -= 1
+
+    def key_g(self) -> None:
+        """Go to top with gg"""
+        # g is handled in on_key for double-press
+        pass
+
+    def key_G(self) -> None:
+        """Go to bottom with G"""
+        items = list(self.query(".conversation-item"))
+        self.cursor_position = len(items) - 1
+
+    def key_ctrl_d(self) -> None:
+        """Half page down"""
+        items = list(self.query(".conversation-item"))
+        self.cursor_position = min(self.cursor_position + 5, len(items) - 1)
+
+    def key_ctrl_u(self) -> None:
+        """Half page up"""
+        self.cursor_position = max(self.cursor_position - 5, 0)
+
+    def key_w(self) -> None:
+        """Word forward - move down by 3"""
+        items = list(self.query(".conversation-item"))
+        self.cursor_position = min(self.cursor_position + 3, len(items) - 1)
+
+    def key_b(self) -> None:
+        """Word backward - move up by 3"""
+        self.cursor_position = max(self.cursor_position - 3, 0)
+
+    def on_key(self, event) -> None:
+        """Handle g+g key combination for top"""
+        if event.key == "g" and event.is_repeat:
+            self.cursor_position = 0
+            event.prevent_default()
 
 
 class ChatView(VerticalScroll):
@@ -751,6 +834,7 @@ class ChatView(VerticalScroll):
         if new_position < len(messages):
             new_msg = messages[new_position]
             new_msg.add_class("vim-cursor")
+
             self.scroll_to_widget(new_msg)
 
     def key_j(self) -> None:
@@ -779,6 +863,12 @@ class MessagesScreen(Container):
         yield Sidebar(current="messages", id="sidebar")
         yield ConversationsList(id="conversations")
         yield ChatView(id="chat")
+
+    def on_mount(self) -> None:
+        """Add border to conversations list"""
+        conversations = self.query_one("#conversations", ConversationsList)
+        conversations.border_title = "Messages [6]"
+        conversations.border = "round #4a9eff"
 
 
 class SettingsPanel(VerticalScroll):
@@ -1039,6 +1129,7 @@ class Proj101App(App):
         Binding("3", "show_notifications", "Notifications", show=False),
         Binding("4", "show_messages", "Messages", show=False),
         Binding("5", "show_settings", "Settings", show=False),
+        Binding("6", "focus_messages", "Messages List", show=False),
         Binding("shift+n", "focus_navigation", "Nav Focus", show=False),
         Binding("colon", "show_command_bar", "Command", show=False),
 
@@ -1055,6 +1146,11 @@ class Proj101App(App):
         Binding("ctrl+u", "vim_half_page_up", "Half Page Up", show=False),
         Binding("ctrl+f", "vim_page_down", "Page Down", show=False),
         Binding("ctrl+b", "vim_page_up", "Page Up", show=False),
+        Binding("/", "vim_search", "Search", show=False),
+        Binding("n", "vim_next_search", "Next Search", show=False),
+        Binding("N", "vim_prev_search", "Previous Search", show=False),
+        Binding("$", "vim_line_end", "End of Line", show=False),
+        Binding("^", "vim_line_start", "Start of Line", show=False),
     ]
 
     current_screen_name = reactive("timeline")
@@ -1073,7 +1169,7 @@ class Proj101App(App):
             "timeline": (TimelineScreen, ":[0] Main [1-5] Sidebar [↑↓] Navigate [n] New Post [f] Follow [/] Search [?] Help"),
             "discover": (DiscoverScreen, ":[0] Main [1-5] Sidebar [/] Search [f] Follow [↑↓] Navigate [Enter] Open [?] Help"),
             "notifications": (NotificationsScreen, ":[0] Main [1-5] Sidebar [↑] Previous [n] Next [m] Mark Read [Enter] Open [q] Quit"),
-            "messages": (MessagesScreen, ":[0] Main [1-5] Sidebar [i] Insert mode [↑↓] Navigate [Enter] Open [Esc] Exit"),
+            "messages": (MessagesScreen, ":[0] Chat [6] Messages [1-5] Sidebar [i] Insert [j/k] Navigate [Enter] Open [Esc] Exit"),
             "profile": (ProfileScreen, ":[0] Main [1-5] Sidebar [:e] Edit Profile [Esc] Back"),
             "settings": (SettingsScreen, ":[0] Main [1-5] Sidebar [w] Save [:e] Edit field [Tab] Next field [Esc] Cancel"),
         }
@@ -1148,12 +1244,22 @@ class Proj101App(App):
 
             if target_id:
                 panel = self.query_one(target_id)
-                panel.border_subtitle = "VIM MODE"
+                panel.border_title = f"{panel.border_title.split('[')[0]}[0]"
+                panel.add_class("vim-mode-active")
                 panel.focus()
-                self.notify(f"Focused: {self.current_screen_name.title()}", severity="information")
 
-        except Exception as e:
-            self.notify(f"Error focusing main content: {str(e)}", severity="error")
+        except Exception:
+            pass
+
+    def action_focus_messages(self) -> None:
+        """Focus the messages list when pressing 6"""
+        try:
+            if self.current_screen_name == "messages":
+                conversations = self.query_one("#conversations", ConversationsList)
+                conversations.add_class("vim-mode-active")
+                conversations.focus()
+        except Exception:
+            pass
 
     # Vim-style navigation actions - these forward to focused widget
     def action_vim_down(self) -> None:
@@ -1214,6 +1320,38 @@ class Proj101App(App):
     def action_vim_page_up(self) -> None:
         """Move one page up (Ctrl+b)"""
         # The key will be handled by the focused widget's key_ctrl_b method if it exists
+        pass
+
+    def action_vim_search(self) -> None:
+        """Start a search (/ key)"""
+        try:
+            command_input = self.query_one("#command-input", Input)
+            command_input.styles.display = "block"
+            command_input.value = "/"
+            self.command_mode = True
+            command_input.focus()
+            self.call_after_refresh(self._focus_command_input)
+        except Exception:
+            pass
+
+    def action_vim_next_search(self) -> None:
+        """Find next search match (n key)"""
+        # Will be implemented in the content panels
+        pass
+
+    def action_vim_prev_search(self) -> None:
+        """Find previous search match (N key)"""
+        # Will be implemented in the content panels
+        pass
+
+    def action_vim_line_start(self) -> None:
+        """Go to start of line (^ key)"""
+        # Will be implemented in the content panels
+        pass
+
+    def action_vim_line_end(self) -> None:
+        """Go to end of line ($ key)"""
+        # Will be implemented in the content panels
         pass
 
     def action_show_command_bar(self) -> None:
