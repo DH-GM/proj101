@@ -3,18 +3,18 @@
     width: 1fr;
     height: 1fr;
     align: center middle;
-    padding: 0 10;   /* horizontal padding */
-    margin: 0 10;    /* horizontal margin */
+    padding: 0 10;
+    margin: 0 10;
 }
 
 #auth-title {
     padding: 1 4;
-    margin: 1 10;   /* add horizontal margin */
+    margin: 1 10;
 }
 
 Button#oauth-signin {
     padding: 2 6;
-    margin: 2 10;   /* add horizontal margin */
+    margin: 2 10;
     border: solid #4a9eff;
 }
 
@@ -28,8 +28,9 @@ Button.danger {
 
 #oauth-status {
     padding: 1 2;
-    margin: 1 10;   /* add horizontal margin */
+    margin: 1 10;
 }
+
 /* Global Styles */
 Screen {
     background: #1a1a1a;
@@ -186,7 +187,7 @@ TimelineScreen, DiscoverScreen, NotificationsScreen, MessagesScreen, SettingsScr
 
 .upload-profile-picture:hover {
     margin-top: 1;
-    background:rgb(88, 88, 88);
+    background: rgb(88, 88, 88);
     color: rgb(255, 255, 255);
 }
 
@@ -196,20 +197,11 @@ TimelineScreen, DiscoverScreen, NotificationsScreen, MessagesScreen, SettingsScr
 
 .upload-profile-picture {
     margin-top: 1;
-    background:rgb(152, 147, 147);
-    color: rgb(0,0,0);
+    background: rgb(152, 147, 147);
+    color: rgb(0, 0, 0);
 }
 
-.ascii-avatar {
-    margin-top: 1;
-}
-
-.upload-profile-picture {
-    margin-top: 1;
-    background:rgb(152, 147, 147);
-    color: rgb(0,0,0);
-}
-/* ---------------- Timeline Feed Container ---------------- */
+/* Timeline Feed Container */
 #timeline-feed {
     width: 1fr;
     background: #1a1a1a;
@@ -219,7 +211,7 @@ TimelineScreen, DiscoverScreen, NotificationsScreen, MessagesScreen, SettingsScr
     overflow: auto;
 }
 
-/* ---------------- Individual Post Items ---------------- */
+/* Individual Post Items */
 .post-item {
     width: 100%;
     height: auto;
@@ -229,19 +221,18 @@ TimelineScreen, DiscoverScreen, NotificationsScreen, MessagesScreen, SettingsScr
     color: #cccccc;
     border: solid #2a2a2a;
 }
-/* ---------------- Hover Effect ---------------- */
+
 .post-item:hover {
     border: solid #555555;
 }
 
-/* ---------------- Scrollbar ---------------- */
+/* Scrollbar */
 #timeline-feed VerticalScroll {
     scrollbar-color: #444444;
     scrollbar-color-hover: #666666;
     scrollbar-color-active: #888888;
     scrollbar-background: #1a1a1a;
 }
-
 
 /* Discover Feed */
 #discover-feed {
@@ -301,10 +292,10 @@ TimelineScreen, DiscoverScreen, NotificationsScreen, MessagesScreen, SettingsScr
 .panel-header {
     background: #252525;
     color: #cccccc;
-    padding: 1 1; 
+    padding: 1 1;
     overflow: ellipsis;
     width: 100%;
-    box-sizing: border-box; 
+    box-sizing: border-box;
     overflow: hidden;
 }
 
@@ -721,3 +712,149 @@ Button.-error:hover {
     border: solid #ff5a5a;
 }
 
+/* ========== NEW POST DIALOG STYLES ========== */
+
+/* New Post Dialog Container */
+NewPostDialog {
+    align: center middle;
+}
+
+#dialog-container {
+    width: 90;
+    height: auto;
+    background: #1a1a1a;
+    border: round cyan;
+    border-title-align: center;
+    padding: 2;
+}
+
+#dialog-title {
+    color: cyan;
+    text-style: bold;
+    text-align: center;
+    margin-bottom: 1;
+}
+
+#post-textarea {
+    width: 100%;
+    height: 10;
+    margin-bottom: 1;
+    background: #252525;
+    color: #ffffff;
+    border: solid #444444;
+}
+
+#post-textarea:focus {
+    border: solid cyan;
+}
+
+/* Media Section Styles */
+#media-section {
+    width: 100%;
+    height: auto;
+    margin-bottom: 1;
+    padding: 1;
+    border: solid #333333;
+    background: #0a0a0a;
+}
+
+#media-label {
+    color: #888888;
+    text-style: bold;
+    margin-bottom: 1;
+}
+
+#media-buttons {
+    width: 100%;
+    height: auto;
+    layout: horizontal;
+    margin-bottom: 1;
+}
+
+#media-buttons Button {
+    margin-right: 1;
+    background: #2a2a2a;
+    color: #ffffff;
+    border: solid #444444;
+}
+
+#media-buttons Button:hover {
+    background: #3a3a3a;
+    border: solid #666666;
+}
+
+#add-photo-button {
+    background: #2a3a2a;
+    border: solid #4a6a4a;
+}
+
+#add-photo-button:hover {
+    background: #3a4a3a;
+    border: solid #5a7a5a;
+}
+
+#add-video-button {
+    background: #2a2a3a;
+    border: solid #4a4a6a;
+}
+
+#add-video-button:hover {
+    background: #3a3a4a;
+    border: solid #5a5a7a;
+}
+
+#remove-media-button {
+    background: #3a2a2a;
+    border: solid #6a4a4a;
+}
+
+#remove-media-button:hover {
+    background: #4a3a3a;
+    border: solid #7a5a5a;
+}
+
+#media-preview {
+    color: #00ff00;
+    padding: 1;
+    border: solid #00ff00;
+    margin-top: 1;
+    background: #0a0a0a;
+    display: none;
+}
+
+/* Dialog Buttons */
+#dialog-buttons {
+    width: 100%;
+    height: auto;
+    align: center middle;
+    layout: horizontal;
+}
+
+#dialog-buttons Button {
+    margin: 0 1;
+    padding: 1 4;
+    width: 20;
+}
+
+#post-button {
+    background: #4a9eff;
+    color: #ffffff;
+    border: solid #4a9eff;
+}
+
+#post-button:hover {
+    background: #5aaeff;
+    border: solid #5aaeff;
+}
+
+#cancel-button {
+    background: #2a2a2a;
+    color: #ffffff;
+    border: none;
+    padding: 0 1;
+}
+
+#cancel-button:hover {
+    background: #3a3a3a;
+    border: none;
+}
