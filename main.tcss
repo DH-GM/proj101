@@ -1,3 +1,35 @@
+/* Auth screen layout */
+#auth-center {
+    width: 1fr;
+    height: 1fr;
+    align: center middle;
+    padding: 0 10;   /* horizontal padding */
+    margin: 0 10;    /* horizontal margin */
+}
+
+#auth-title {
+    padding: 2 4;
+    margin: 2 10;   /* add horizontal margin */
+}
+
+Button#oauth-signin {
+    padding: 2 6;
+    margin: 2 10;   /* add horizontal margin */
+    border: solid #4a9eff;
+}
+
+Button.danger {
+    border: solid #aa3333;
+    color: #ffcccc;
+    background: #331111;
+    padding: 1 4;
+    margin: 1 2;
+}
+
+#oauth-status {
+    padding: 1 2;
+    margin: 1 10;   /* add horizontal margin */
+}
 /* Global Styles */
 Screen {
     background: #1a1a1a;
@@ -106,12 +138,15 @@ TimelineScreen, DiscoverScreen, NotificationsScreen, MessagesScreen, SettingsScr
 /* Navigation items */
 .nav-item {
     color: #888888;
-    padding: 0 1;
+    padding: 1 1;
 }
 
 .nav-item.active {
     color: #ffffff;
     text-style: bold;
+    border: round cyan;
+    border-title-color: cyan;
+    border-title-style: bold;
 }
 
 /* Command items */
@@ -276,20 +311,12 @@ TimelineScreen, DiscoverScreen, NotificationsScreen, MessagesScreen, SettingsScr
     border: solid #2a3a2a;
 }
 
-.chat-message.received:hover {
-    border: solid #4a5a4a;
-}
-
 .chat-message.sent {
     background: #1a1a1a;
     color: #e0e0e0;
     align: right top;
     margin-left: 15;
     border: solid #3a2a2a;
-}
-
-.chat-message.sent:hover {
-    border: solid #5a4a4a;
 }
 
 .mode-indicator {
@@ -397,6 +424,38 @@ VerticalScroll {
     scrollbar-color-hover: #666666;
     scrollbar-color-active: #888888;
     scrollbar-background: #1a1a1a;
+}
+
+/* ASCII Video Player */
+.ascii-video {
+    background: #0a0a0a;
+    color: #00ff00;
+    border: solid #00ff00;
+    padding: 1 2;
+    margin: 1 2;
+}
+
+.ascii-video:hover {
+    border: solid #00ff00;
+}
+
+.post-author {
+    color: #aaaaaa;
+    padding: 0 2;
+    margin: 1 2 0 2;
+}
+
+.post-stats {
+    color: #888888;
+    padding: 1 2;
+    margin: 0 2 1 2;
+}
+
+.video-controls {
+    color: #aaaaaa;
+    background: #1e1e1e;
+    padding: 1 2;
+    text-align: center;
 }
 
 /* Input Focus */

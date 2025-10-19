@@ -80,4 +80,3 @@ class UserSettings:
     gitlab_connected: bool = False
     google_connected: bool = False
     discord_connected: bool = False
-

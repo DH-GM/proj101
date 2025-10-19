@@ -2,3 +2,5 @@ textual
 textual-web
 requests
 Pillow
+opencv-python
+textual-imageview

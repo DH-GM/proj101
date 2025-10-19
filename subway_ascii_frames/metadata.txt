@@ -1,0 +1,2 @@
+total_frames=40
+fps=4

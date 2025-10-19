@@ -11,6 +11,14 @@ from pathlib import Path
 import tkinter as tk
 from tkinter import filedialog
 from PIL import Image
+from ascii_video_widget import ASCIIVideoPlayer
+import threading
+import webbrowser
+import json
+import requests
+from http.server import HTTPServer, BaseHTTPRequestHandler
+from urllib.parse import urlparse, parse_qs
+import socketserver
 
 
 def format_time_ago(dt: datetime) -> str:
@@ -237,6 +245,12 @@ class TimelineFeed(VerticalScroll):
         
         yield Static(f"timeline.home | {unread_count} new posts | line 1", classes="panel-header")
         
+        # Add ASCII video if frames exist
+        if Path("subway_ascii_frames").exists():
+            yield Static("@yourname • just now (Tip: press Alt+Enter to go full screen for better video)", classes="post-author")
+            yield ASCIIVideoPlayer("subway_ascii_frames", fps=2, classes="ascii-video")
+            yield Static("🚇 Subway ride in ASCII! ♥ 0  ⇄ 0  💬 0", classes="post-stats")
+        
         for post in posts:
             yield PostItem(post, classes="post-item")
 
@@ -275,6 +289,13 @@ class DiscoverFeed(VerticalScroll):
 
     def compose(self) -> ComposeResult:
         yield Input(placeholder="Search posts, people, tags...", classes="message-input", id="discover-search")
+        
+        # Add ASCII video at top of discover if frames exist
+        if Path("subway_ascii_frames").exists():
+            yield Static("@yourname • just now", classes="post-author")
+            yield ASCIIVideoPlayer("subway_ascii_frames", fps=2, classes="ascii-video")
+            yield Static("🚇 Subway ride in ASCII! ♥ 0  ⇄ 0  💬 0", classes="post-stats")
+        
         yield Container(id="posts-container")
         yield Static("\n→ Suggested Follow", classes="section-header")
         yield Static(
@@ -420,6 +441,10 @@ class SettingsPanel(VerticalScroll):
         
         yield Static("\n  [:w] Save Changes     [:q] Cancel", classes="settings-actions")
         yield Static("\n:w - save  [:e] Edit field  [Tab] Next field  [Esc] Cancel", classes="help-text")
+        
+        # Session
+        yield Static("\n→ Session", classes="settings-section-header")
+        yield Button("Sign Out", id="settings-signout", classes="danger")
     
     def on_button_pressed(self, event: Button.Pressed) -> None:
         """Handle button press events."""
@@ -469,7 +494,7 @@ class SettingsPanel(VerticalScroll):
                     "--output-text", output_text,
                     "--output-image", output_image,
                     "--font", font_path,
-                    "--font-size", "24",
+                    "--font-size", "12",
                     file_path  # Use cropped image instead of original
                 ]
                 
@@ -508,6 +533,17 @@ class SettingsPanel(VerticalScroll):
                     self.app.notify("Output file not generated", severity="error")
             except Exception as e:
                 pass
+        elif event.button.id == "settings-signout":
+            try:
+                Path("oauth_tokens.json").unlink(missing_ok=True)
+            except Exception:
+                pass
+            # Navigate to auth-only screen after the current event cycle
+            self.app.call_after_refresh(self.app.show_auth_only)
+            try:
+                self.app.notify("Signed out.", severity="information")
+            except Exception:
+                pass
 
 
 class SettingsScreen(Container):
@@ -516,6 +552,159 @@ class SettingsScreen(Container):
     def compose(self) -> ComposeResult:
         yield Sidebar(current="settings", id="sidebar")
         yield SettingsPanel(id="settings-panel")
+
+
+# ==================== AUTH SCREEN ====================
+
+COGNITO_AUTH_URL = "https://us-east-2tgj9o2fop.auth.us-east-2.amazoncognito.com/login?client_id=jtcdok2taaq48rj50lerhp51v&response_type=code&scope=email+openid+phone&redirect_uri=http%3A%2F%2Flocalhost%3A5173%2Fcallback"
+COGNITO_TOKEN_URL = "https://us-east-2tgj9o2fop.auth.us-east-2.amazoncognito.com/oauth2/token"
+COGNITO_CLIENT_ID = "jtcdok2taaq48rj50lerhp51v"
+REDIRECT_URI = "http://localhost:5173/callback"
+
+
+class OAuthCallbackHandler(BaseHTTPRequestHandler):
+    code: str | None = None
+
+    def do_GET(self):
+        parsed = urlparse(self.path)
+        if parsed.path == "/callback":
+            qs = parse_qs(parsed.query)
+            OAuthCallbackHandler.code = (qs.get("code", [None])[0])
+            self.send_response(200)
+            self.send_header("Content-Type", "text/plain")
+            self.end_headers()
+            self.wfile.write(b"You can close this window and return to the app.")
+        else:
+            self.send_response(404)
+            self.end_headers()
+
+
+class ThreadingHTTPServer(socketserver.ThreadingMixIn, HTTPServer):
+    daemon_threads = True
+
+
+class AuthScreen(Container):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self._poll_timer = None
+        self._file_timer = None
+    def compose(self) -> ComposeResult:
+        # Minimal auth screen: centered sign-in button, no sidebar/header/footer
+        with Container(id="auth-center"):
+            yield Static("Sign in with Cognito (OAuth2)", id="auth-title", classes="signin")
+            yield Button("Sign In", id="oauth-signin", classes="upload-profile-picture")
+            yield Static("press q to quit", id="oauth-status", classes="signin")
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "oauth-signin":
+            # Update status immediately so button releases
+            try:
+                self.query_one("#oauth-status", Static).update("Status: Opening browser...")
+            except Exception:
+                pass
+            
+            # Schedule the server/browser opening for after this event
+            self.call_after_refresh(self._start_oauth_flow)
+        elif event.button.id == "oauth-signout":
+            try:
+                Path("oauth_tokens.json").unlink(missing_ok=True)
+                self.query_one("#oauth-status", Static).update("Status: Signed out")
+            except Exception:
+                pass
+    
+    def _start_oauth_flow(self) -> None:
+        """Start the OAuth flow - called after button press event completes."""
+        print("Starting OAuth server...")
+        
+        # Reset code state
+        OAuthCallbackHandler.code = None
+        
+        # Start local HTTP server in a separate thread with select-based timeout
+        def run_server():
+            try:
+                import select
+                server = ThreadingHTTPServer(("", 5173), OAuthCallbackHandler)
+                server.timeout = 0.1  # Very short timeout
+                end_time = datetime.now() + timedelta(seconds=60)
+                
+                print("Server listening on port 5173...")
+                while datetime.now() < end_time and OAuthCallbackHandler.code is None:
+                    # Use select to avoid blocking
+                    ready, _, _ = select.select([server.socket], [], [], 0.1)
+                    if ready:
+                        server.handle_request()
+                
+                print("Server loop ended")
+                server.server_close()
+            except Exception as e:
+                print(f"Server error: {e}")
+        
+        thread = threading.Thread(target=run_server, daemon=True)
+        thread.start()
+        
+        # Open browser to Cognito hosted UI
+        print("Opening browser...")
+        webbrowser.open(COGNITO_AUTH_URL)
+        
+        # Update status
+        try:
+            self.query_one("#oauth-status", Static).update("Status: Waiting for sign-in...")
+        except Exception:
+            pass
+        
+        # Poll for code and tokens file
+        self._poll_timer = self.set_interval(0.5, self._check_code)
+        self._file_timer = self.set_interval(0.5, self._check_tokens_file)
+
+    def _check_code(self) -> None:
+        code = OAuthCallbackHandler.code
+        if code:
+            # Exchange code for tokens
+            try:
+                data = {
+                    "grant_type": "authorization_code",
+                    "client_id": COGNITO_CLIENT_ID,
+                    "code": code,
+                    "redirect_uri": REDIRECT_URI,
+                }
+                headers = {"Content-Type": "application/x-www-form-urlencoded"}
+                resp = requests.post(COGNITO_TOKEN_URL, data=data, headers=headers)
+                if resp.ok:
+                    tokens = resp.json()
+                    # Persist in a simple file for demo
+                    Path("oauth_tokens.json").write_text(json.dumps(tokens, indent=2))
+                    self.query_one("#oauth-status", Static).update("Status: Signed in (tokens saved to oauth_tokens.json)")
+                    # Switch to main app layout
+                    try:
+                        # stop timers
+                        if self._poll_timer:
+                            self._poll_timer.pause()
+                        if self._file_timer:
+                            self._file_timer.pause()
+                        self.app.show_main_app()
+                    except Exception:
+                        pass
+                else:
+                    self.query_one("#oauth-status", Static).update(f"Status: Token exchange failed {resp.status_code}")
+            except Exception as e:
+                self.query_one("#oauth-status", Static).update(f"Status: Error {e}")
+        # else keep polling via interval
+
+    def _check_tokens_file(self) -> None:
+        try:
+            p = Path("oauth_tokens.json")
+            if p.exists():
+                data = json.loads(p.read_text() or "{}")
+                # naive check for an access_token
+                if isinstance(data, dict) and ("access_token" in data or "id_token" in data):
+                    if self._poll_timer:
+                        self._poll_timer.pause()
+                    if self._file_timer:
+                        self._file_timer.pause()
+                    self.query_one("#oauth-status", Static).update("Status: Signed in (tokens detected)")
+                    self.app.show_main_app()
+        except Exception:
+            pass
 
 
 # ==================== MAIN APP ====================
@@ -542,10 +731,14 @@ class Proj101App(App):
     command_mode = reactive(False)
     
     def compose(self) -> ComposeResult:
-        yield Static("proj101 [timeline] @yourname", id="app-header")
-        yield TimelineScreen(id="screen-container")
-        yield Static(":↑↓ Navigate [n] New Post [f] Follow [/] Search [?] Help", id="app-footer")
-        yield Input(id="command-input", classes="command-bar")
+        # If we don't have tokens, show auth-first experience
+        if not Path("oauth_tokens.json").exists():
+            yield AuthScreen(id="screen-container")
+        else:
+            yield Static("proj101 [timeline] @yourname", id="app-header")
+            yield TimelineScreen(id="screen-container")
+            yield Static(":↑↓ Navigate [n] New Post [f] Follow [/] Search [?] Help", id="app-footer")
+            yield Input(id="command-input", classes="command-bar")
     
     def switch_screen(self, screen_name: str):
         """Switch to a different screen."""
@@ -582,6 +775,29 @@ class Proj101App(App):
                 sidebar.update_active(screen_name)
             except:
                 pass
+
+    def show_main_app(self) -> None:
+        # Clear current content and mount full app layout after auth
+        try:
+            for w in list(self.children):
+                w.remove()
+        except Exception:
+            pass
+        self.mount(Static("proj101 [timeline] @yourname", id="app-header"))
+        self.mount(TimelineScreen(id="screen-container"))
+        self.mount(Static(":↑↓ Navigate [n] New Post [f] Follow [/] Search [?] Help", id="app-footer"))
+        self.mount(Input(id="command-input", classes="command-bar"))
+        self.current_screen_name = "timeline"
+
+    def show_auth_only(self) -> None:
+        # Reset UI to auth first screen
+        try:
+            for w in list(self.children):
+                w.remove()
+        except Exception:
+            pass
+        self.mount(AuthScreen(id="screen-container"))
+        self.current_screen_name = "auth"
     
     def action_quit(self) -> None:
         """Quit the application."""
