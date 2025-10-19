@@ -61,12 +61,16 @@ class CommandItem(Static):
         return f"{self.shortcut} - {self.description}"
 
 
-class StatsDisplay(Static):
+class ProfileDisplay(Static):
+    """Display user profile."""
+    
     def compose(self) -> ComposeResult:
         user = api.get_current_user()
-        yield Static(f"Posts {user.posts_count}", classes="stat-item")
-        yield Static(f"Following {user.following}", classes="stat-item")
-        yield Static(f"Followers {user.followers}", classes="stat-item")
+        yield Static(f"@{user.username}", classes="profile-username")
+        yield Static(f"{user.display_name}", classes="profile-name")
+        yield Static(f"\nPosts {user.posts_count}", classes="profile-stat")
+        yield Static(f"Following {user.following}", classes="profile-stat")
+        yield Static(f"Followers {user.followers}", classes="profile-stat")
 
 
 class ConversationItem(Static):
@@ -101,6 +105,11 @@ class PostItem(Static):
         time_ago = format_time_ago(self.post.timestamp)
         like_symbol = "♥" if self.post.liked_by_user else "♡"
         repost_symbol = "⇄" if self.post.reposted_by_user else "⇄"
+        return (
+            f"@{self.post.author} • {time_ago}\n\n"
+            f"{self.post.content}\n\n"
+            f"{like_symbol} {self.post.likes}  {repost_symbol} {self.post.reposts}  💬 {self.post.comments}"
+        )
         return (
             f"@{self.post.author} • {time_ago}\n\n"
             f"{self.post.content}\n\n"
@@ -141,7 +150,7 @@ class Sidebar(Container):
 
     def compose(self) -> ComposeResult:
         nav_container = Container(classes="navigation-box")
-        nav_container.border_title = "Navigation"
+        nav_container.border_title = "Navigation [N]"
         with nav_container:
             yield NavigationItem("Timeline", "timeline", 0, self.current_screen == "timeline", classes="nav-item", id="nav-timeline")
             yield NavigationItem("Discover", "discover", 1, self.current_screen == "discover", classes="nav-item", id="nav-discover")
@@ -149,13 +158,15 @@ class Sidebar(Container):
             yield NavigationItem("Messages", "messages", 3, self.current_screen == "messages", classes="nav-item", id="nav-messages")
             yield NavigationItem("Settings", "settings", 4, self.current_screen == "settings", classes="nav-item", id="nav-settings")
         yield nav_container
-
-        stats_container = Container(classes="stats-box")
-        stats_container.border_title = "Stats"
-        with stats_container:
-            yield StatsDisplay()
-        yield stats_container
-
+        
+        # Profile Section Box
+        profile_container = Container(classes="profile-box")
+        profile_container.border_title = "Profile [:P]"
+        with profile_container:
+            yield ProfileDisplay()
+        yield profile_container
+        
+        # Commands Section Box
         commands_container = Container(classes="commands-box")
         commands_container.border_title = "Commands"
         with commands_container:
@@ -171,6 +182,9 @@ class Sidebar(Container):
                 yield CommandItem(":m", "mark read", classes="command-item")
                 yield CommandItem(":ma", "mark all", classes="command-item")
                 yield CommandItem(":f", "filter", classes="command-item")
+            elif self.current_screen == "profile":
+                yield CommandItem(":e", "edit profile", classes="command-item")
+                yield CommandItem(":f", "follow/unfollow", classes="command-item")
             elif self.current_screen == "settings":
                 yield CommandItem(":w", "save", classes="command-item")
                 yield CommandItem(":q", "quit", classes="command-item")
@@ -178,6 +192,8 @@ class Sidebar(Container):
 
             yield CommandItem(":d", "delete", classes="command-item")
             yield CommandItem(":s", "search", classes="command-item")
+            yield CommandItem("N", "nav focus", classes="command-item")
+            yield CommandItem(":P", "profile", classes="command-item")
         yield commands_container
 
     def update_active(self, screen_name: str):
@@ -449,6 +465,116 @@ class SettingsScreen(Container):
         yield SettingsPanel(id="settings-panel")
 
 
+# ==================== PROFILE SCREEN ====================
+
+class ProfilePanel(VerticalScroll):
+    """Profile panel with large display."""
+    
+    def compose(self) -> ComposeResult:
+        user = api.get_current_user()
+        settings = api.get_user_settings()
+        
+        yield Static("profile | @yourname | line 1", classes="panel-header")
+        
+        # Centered profile container
+        profile_container = Container(classes="profile-center-container")
+        
+        with profile_container:
+            # Profile Picture
+            yield Static(
+                "    [@#$&●*]\n    |+ YY =|\n    |$%&++=|", 
+                classes="profile-avatar-large"
+            )
+            
+            # Display Name
+            yield Static(f"{settings.display_name}", classes="profile-name-large")
+            
+            # Username
+            yield Static(f"@{settings.username}", classes="profile-username-display")
+            
+            # Stats Row
+            stats_row = Container(classes="profile-stats-row")
+            with stats_row:
+                yield Static(f"{user.posts_count}\nPosts", classes="profile-stat-item")
+                yield Static(f"{user.following}\nFollowing", classes="profile-stat-item")
+                yield Static(f"{user.followers}\nFollowers", classes="profile-stat-item")
+            yield stats_row
+            
+            # Bio Section
+            bio_container = Container(classes="profile-bio-container")
+            bio_container.border_title = "Bio"
+            with bio_container:
+                yield Static(f"{settings.bio}", classes="profile-bio-display")
+            yield bio_container
+        
+        yield profile_container
+        
+        yield Static("\n[:e] Edit Profile  [Esc] Back", classes="help-text")
+
+
+class ProfileScreen(Container):
+    """Profile screen layout."""
+    
+    def compose(self) -> ComposeResult:
+        yield Sidebar(current="profile", id="sidebar")
+        yield ProfilePanel(id="profile-panel")
+
+
+# ==================== PROFILE SCREEN ====================
+
+class ProfilePanel(VerticalScroll):
+    """Profile panel with large display."""
+    
+    def compose(self) -> ComposeResult:
+        user = api.get_current_user()
+        settings = api.get_user_settings()
+        
+        yield Static("profile | @yourname | line 1", classes="panel-header")
+        
+        # Centered profile container
+        profile_container = Container(classes="profile-center-container")
+        
+        with profile_container:
+            # Profile Picture
+            yield Static(
+                "    [@#$&●*]\n    |+ YY =|\n    |$%&++=|", 
+                classes="profile-avatar-large"
+            )
+            
+            # Display Name
+            yield Static(f"{settings.display_name}", classes="profile-name-large")
+            
+            # Username
+            yield Static(f"@{settings.username}", classes="profile-username-display")
+            
+            # Stats Row
+            stats_row = Container(classes="profile-stats-row")
+            with stats_row:
+                yield Static(f"{user.posts_count}\nPosts", classes="profile-stat-item")
+                yield Static(f"{user.following}\nFollowing", classes="profile-stat-item")
+                yield Static(f"{user.followers}\nFollowers", classes="profile-stat-item")
+            yield stats_row
+            
+            # Bio Section
+            bio_container = Container(classes="profile-bio-container")
+            bio_container.border_title = "Bio"
+            with bio_container:
+                yield Static(f"{settings.bio}", classes="profile-bio-display")
+            yield bio_container
+        
+        yield profile_container
+        
+        yield Static("\n[:e] Edit Profile  [Esc] Back", classes="help-text")
+
+
+class ProfileScreen(Container):
+    """Profile screen layout."""
+    
+    def compose(self) -> ComposeResult:
+        yield Sidebar(current="profile", id="sidebar")
+        yield ProfilePanel(id="profile-panel")
+
+
 # ───────── App ─────────
 
 class Proj101App(App):
@@ -465,6 +591,7 @@ class Proj101App(App):
         Binding("2", "show_notifications", "Notifications", show=False),
         Binding("3", "show_messages", "Messages", show=False),
         Binding("4", "show_settings", "Settings", show=False),
+        Binding("shift+n", "focus_navigation", "Nav Focus", show=False),
         Binding("colon", "show_command_bar", "Command", show=False),
     ]
 
@@ -485,6 +612,7 @@ class Proj101App(App):
             "discover": (DiscoverScreen, ":/ - search [f] Follow [↑↓] Navigate [Enter] Open [?] Help"),
             "notifications": (NotificationsScreen, ":[↑] Previous [n] Next [m] Mark Read [Enter] Open [q] Quit"),
             "messages": (MessagesScreen, ":i - insert mode [Ctrl+N] New [↑↓] Navigate [Enter] Open [Esc] Exit"),
+            "profile": (ProfileScreen, ":[:e] Edit Profile [Esc] Back"),
             "settings": (SettingsScreen, ":w - save  [:e] Edit field  [Tab] Next field  [Esc] Cancel"),
         }
         if screen_name in screen_map:
@@ -524,6 +652,15 @@ class Proj101App(App):
     def action_show_settings(self) -> None: self.switch_screen("settings")
 
     # Vim-like command bar (unchanged except for cleanup)
+    def action_focus_navigation(self) -> None:
+        """Focus on navigation section."""
+        try:
+            sidebar = self.query_one("#sidebar", Sidebar)
+            nav_item = sidebar.query_one(".nav-item", NavigationItem)
+            nav_item.focus()
+        except:
+            pass
+    
     def action_show_command_bar(self) -> None:
         try:
             command_input = self.query_one("#command-input", Input)
@@ -563,6 +700,8 @@ class Proj101App(App):
                 self.switch_screen(screen_map[command])
             elif command in ("q", "quit"):
                 self.exit()
+            elif command == "P" or command.upper() == "P":
+                self.switch_screen("profile")
 
     def on_key(self, event) -> None:
         if event.key == "escape" and self.command_mode:
