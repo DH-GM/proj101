@@ -1,19 +1,24 @@
 from textual.app import App, ComposeResult
 from textual.binding import Binding
-from textual.containers import Container, Horizontal, Vertical, VerticalScroll, ScrollableContainer
+from textual.containers import (
+    Container,
+    Horizontal,
+    Vertical,
+    VerticalScroll,
+    ScrollableContainer,
+)
 from textual.widgets import Static, Input, Button, TextArea
 from textual.reactive import reactive
 from textual.screen import ModalScreen
 from datetime import datetime
-from api_interface import api
+from .api_interface import api
 import sys
 import subprocess
 from pathlib import Path
 import tkinter as tk
 from tkinter import filedialog
 from PIL import Image
-from ascii_video_widget import ASCIIVideoPlayer
-
+from .ascii_video_widget import ASCIIVideoPlayer
 
 
 def format_time_ago(dt: datetime) -> str:
@@ -31,8 +36,11 @@ def format_time_ago(dt: datetime) -> str:
 
 # ───────── Items ─────────
 
+
 class NavigationItem(Static):
-    def __init__(self, label: str, screen_name: str, number: int, active: bool = False, **kwargs):
+    def __init__(
+        self, label: str, screen_name: str, number: int, active: bool = False, **kwargs
+    ):
         super().__init__(**kwargs)
         self.label_text = label
         self.screen_name = screen_name
@@ -71,8 +79,13 @@ class ProfileDisplay(Static):
 
     def compose(self) -> ComposeResult:
         user = api.get_current_user()
-        yield Static(f"@{user.username} • {user.display_name}", classes="profile-username")
-        yield Static(f"P:{user.posts_count} F:{user.following} F:{user.followers}", classes="profile-stat")
+        yield Static(
+            f"@{user.username} • {user.display_name}", classes="profile-username"
+        )
+        yield Static(
+            f"P:{user.posts_count} F:{user.following} F:{user.followers}",
+            classes="profile-stat",
+        )
 
 
 class ConversationItem(Static):
@@ -104,7 +117,7 @@ class PostItem(Static):
     def __init__(self, post, **kwargs):
         super().__init__(**kwargs)
         self.post = post
-        self.has_video = hasattr(post, 'video_path') and post.video_path
+        self.has_video = hasattr(post, "video_path") and post.video_path
 
     def compose(self) -> ComposeResult:
         """Compose compact post."""
@@ -116,22 +129,22 @@ class PostItem(Static):
         yield Static(
             f"@{self.post.author} • {time_ago}\n{self.post.content}",
             classes="post-text",
-            markup=False
+            markup=False,
         )
 
         # Video player if post has video
         if self.has_video and Path(self.post.video_path).exists():
             yield ASCIIVideoPlayer(
                 frames_dir=self.post.video_path,
-                fps=getattr(self.post, 'video_fps', 2),
-                classes="post-video"
+                fps=getattr(self.post, "video_fps", 2),
+                classes="post-video",
             )
 
         # Post stats - non-interactive
         yield Static(
             f"{like_symbol} {self.post.likes}  {repost_symbol} {self.post.reposts}  💬 {self.post.comments}",
             classes="post-stats",
-            markup=False
+            markup=False,
         )
 
     def watch_has_class(self, has_class: bool) -> None:
@@ -144,6 +157,8 @@ class PostItem(Static):
             # We don't have cursor focus
             self.border = ""
             self.styles.background = ""
+
+
 class NotificationItem(Static):
     def __init__(self, notification, **kwargs):
         super().__init__(**kwargs)
@@ -153,7 +168,13 @@ class NotificationItem(Static):
 
     def render(self) -> str:
         t = format_time_ago(self.notification.timestamp)
-        icon = {"mention": "●", "like": "♥", "repost": "⇄", "follow": "◉", "comment": "💬"}.get(self.notification.type, "●")
+        icon = {
+            "mention": "●",
+            "like": "♥",
+            "repost": "⇄",
+            "follow": "◉",
+            "comment": "💬",
+        }.get(self.notification.type, "●")
         n = self.notification
         if n.type == "mention":
             return f"@{n.actor} mentioned you • {t}\n{n.content}"
@@ -169,7 +190,16 @@ class NotificationItem(Static):
 class UserProfileCard(Static):
     """A user profile card for search results."""
 
-    def __init__(self, username: str, display_name: str, bio: str, followers: int, following: int, ascii_pic: str, **kwargs):
+    def __init__(
+        self,
+        username: str,
+        display_name: str,
+        bio: str,
+        followers: int,
+        following: int,
+        ascii_pic: str,
+        **kwargs,
+    ):
         super().__init__(**kwargs)
         self.username = username
         self.display_name = display_name
@@ -195,15 +225,31 @@ class UserProfileCard(Static):
 
                 stats_container = Container(classes="user-card-stats")
                 with stats_container:
-                    yield Static(f"{self.followers} Followers", classes="user-card-stat")
-                    yield Static(f"{self.following} Following", classes="user-card-stat")
+                    yield Static(
+                        f"{self.followers} Followers", classes="user-card-stat"
+                    )
+                    yield Static(
+                        f"{self.following} Following", classes="user-card-stat"
+                    )
                 yield stats_container
 
                 buttons_container = Container(classes="user-card-buttons")
                 with buttons_container:
-                    yield Button("Follow", id=f"follow-{self.username}", classes="user-card-button")
-                    yield Button("Message", id=f"message-{self.username}", classes="user-card-button")
-                    yield Button("View Profile", id=f"view-{self.username}", classes="user-card-button")
+                    yield Button(
+                        "Follow",
+                        id=f"follow-{self.username}",
+                        classes="user-card-button",
+                    )
+                    yield Button(
+                        "Message",
+                        id=f"message-{self.username}",
+                        classes="user-card-button",
+                    )
+                    yield Button(
+                        "View Profile",
+                        id=f"view-{self.username}",
+                        classes="user-card-button",
+                    )
                 yield buttons_container
             yield info_container
 
@@ -211,6 +257,7 @@ class UserProfileCard(Static):
 
 
 # ───────── Sidebar ─────────
+
 
 class Sidebar(VerticalScroll):
     current_screen = reactive("timeline")
@@ -223,11 +270,46 @@ class Sidebar(VerticalScroll):
         nav_container = Container(classes="navigation-box")
         nav_container.border_title = "Navigation [N]"
         with nav_container:
-            yield NavigationItem("Timeline", "timeline", 1, self.current_screen == "timeline", classes="nav-item", id="nav-timeline")
-            yield NavigationItem("Discover", "discover", 2, self.current_screen == "discover", classes="nav-item", id="nav-discover")
-            yield NavigationItem("Notifs", "notifications", 3, self.current_screen == "notifications", classes="nav-item", id="nav-notifications")
-            yield NavigationItem("Messages", "messages", 4, self.current_screen == "messages", classes="nav-item", id="nav-messages")
-            yield NavigationItem("Settings", "settings", 5, self.current_screen == "settings", classes="nav-item", id="nav-settings")
+            yield NavigationItem(
+                "Timeline",
+                "timeline",
+                1,
+                self.current_screen == "timeline",
+                classes="nav-item",
+                id="nav-timeline",
+            )
+            yield NavigationItem(
+                "Discover",
+                "discover",
+                2,
+                self.current_screen == "discover",
+                classes="nav-item",
+                id="nav-discover",
+            )
+            yield NavigationItem(
+                "Notifs",
+                "notifications",
+                3,
+                self.current_screen == "notifications",
+                classes="nav-item",
+                id="nav-notifications",
+            )
+            yield NavigationItem(
+                "Messages",
+                "messages",
+                4,
+                self.current_screen == "messages",
+                classes="nav-item",
+                id="nav-messages",
+            )
+            yield NavigationItem(
+                "Settings",
+                "settings",
+                5,
+                self.current_screen == "settings",
+                classes="nav-item",
+                id="nav-settings",
+            )
         yield nav_container
 
         profile_container = Container(classes="profile-box")
@@ -264,7 +346,13 @@ class Sidebar(VerticalScroll):
 
     def update_active(self, screen_name: str):
         self.current_screen = screen_name
-        for nav_id in ["nav-timeline", "nav-discover", "nav-notifications", "nav-messages", "nav-settings"]:
+        for nav_id in [
+            "nav-timeline",
+            "nav-discover",
+            "nav-notifications",
+            "nav-messages",
+            "nav-settings",
+        ]:
             try:
                 nav_item = self.query_one(f"#{nav_id}", NavigationItem)
                 nav_item.set_active(nav_item.screen_name == screen_name)
@@ -273,6 +361,7 @@ class Sidebar(VerticalScroll):
 
 
 # ───────── Modal Dialogs ─────────
+
 
 class NewPostDialog(ModalScreen):
     """Modal dialog for creating a new post."""
@@ -403,7 +492,7 @@ class NewPostDialog(ModalScreen):
                 root.withdraw()
                 file_path = filedialog.askopenfilename(
                     title="Select an image",
-                    filetypes=[("Image files", "*.png *.jpg *.jpeg *.gif *.bmp")]
+                    filetypes=[("Image files", "*.png *.jpg *.jpeg *.gif *.bmp")],
                 )
                 root.destroy()
                 if file_path:
@@ -412,7 +501,9 @@ class NewPostDialog(ModalScreen):
                         Image.open(file_path).verify()
                     except Exception:
                         # still allow selecting, but notify user
-                        self.app.notify("Selected file may not be a valid image", severity="warning")
+                        self.app.notify(
+                            "Selected file may not be a valid image", severity="warning"
+                        )
                     self._attachments.append(("photo", file_path))
                     self._update_attachments_display()
             except Exception:
@@ -425,7 +516,7 @@ class NewPostDialog(ModalScreen):
                 root.withdraw()
                 file_path = filedialog.askopenfilename(
                     title="Select a video",
-                    filetypes=[("Video files", "*.mp4 *.mov *.avi *.mkv *.webm")]
+                    filetypes=[("Video files", "*.mp4 *.mov *.avi *.mkv *.webm")],
                 )
                 root.destroy()
                 if file_path:
@@ -474,7 +565,7 @@ class NewPostDialog(ModalScreen):
             if not self._attachments:
                 widget.update("")
                 return
-            lines = [f"Attachments:" ]
+            lines = [f"Attachments:"]
             for i, (t, p) in enumerate(self._attachments, start=1):
                 short = Path(p).name
                 lines.append(f"  {i}. [{t}] {short}")
@@ -485,14 +576,21 @@ class NewPostDialog(ModalScreen):
 
 # ───────── Screens ─────────
 
+
 class TimelineFeed(VerticalScroll):
     cursor_position = reactive(0)
 
     def compose(self) -> ComposeResult:
         posts = api.get_timeline()
-        unread_count = len([p for p in posts if (datetime.now() - p.timestamp).seconds < 3600])
+        unread_count = len(
+            [p for p in posts if (datetime.now() - p.timestamp).seconds < 3600]
+        )
         self.border_title = "Main Timeline [0]"
-        yield Static(f"timeline.home | {unread_count} new posts | line 1", classes="panel-header", markup=False)
+        yield Static(
+            f"timeline.home | {unread_count} new posts | line 1",
+            classes="panel-header",
+            markup=False,
+        )
         for i, post in enumerate(posts):
             post_item = PostItem(post, classes="post-item", id=f"post-{i}")
             if i == 0:
@@ -596,7 +694,7 @@ class DiscoverFeed(Container):
                 "bio": "Software engineer and coffee enthusiast ☕ | Building cool stuff",
                 "followers": 1543,
                 "following": 892,
-                "ascii_pic": "  [●▓▓●]\n  |≈ ◡ ≈|\n  |▓███▓|"
+                "ascii_pic": "  [●▓▓●]\n  |≈ ◡ ≈|\n  |▓███▓|",
             },
             "jane smith": {
                 "username": "janesmith",
@@ -604,7 +702,7 @@ class DiscoverFeed(Container):
                 "bio": "Designer | Creative thinker | Love minimalism 🎨",
                 "followers": 2341,
                 "following": 456,
-                "ascii_pic": "  [◉▓▓◉]\n  |^ ▽ ^|\n  |▓███▓|"
+                "ascii_pic": "  [◉▓▓◉]\n  |^ ▽ ^|\n  |▓███▓|",
             },
             "alice wonder": {
                 "username": "alicewonder",
@@ -612,8 +710,8 @@ class DiscoverFeed(Container):
                 "bio": "Explorer of digital worlds | Tech blogger | Cat lover 🐱",
                 "followers": 987,
                 "following": 234,
-                "ascii_pic": "  [●▓▓●]\n  |◡ ω ◡|\n  |▓███▓|"
-            }
+                "ascii_pic": "  [●▓▓●]\n  |◡ ω ◡|\n  |▓███▓|",
+            },
         }
 
     def on_mount(self) -> None:
@@ -623,7 +721,11 @@ class DiscoverFeed(Container):
         if not self.query_text:
             return self._all_posts
         q = self.query_text.lower()
-        return [p for p in self._all_posts if q in p.author.lower() or q in p.content.lower()]
+        return [
+            p
+            for p in self._all_posts
+            if q in p.author.lower() or q in p.content.lower()
+        ]
 
     def _search_users(self):
         if not self.query_text:
@@ -631,12 +733,20 @@ class DiscoverFeed(Container):
         q = self.query_text.lower()
         matching_users = []
         for name, data in self._dummy_users.items():
-            if q in name or q in data["username"].lower() or q in data["display_name"].lower():
+            if (
+                q in name
+                or q in data["username"].lower()
+                or q in data["display_name"].lower()
+            ):
                 matching_users.append(data)
         return matching_users
 
     def compose(self) -> ComposeResult:
-        yield Input(placeholder="Search posts, people, tags...", classes="message-input", id="discover-search")
+        yield Input(
+            placeholder="Search posts, people, tags...",
+            classes="message-input",
+            id="discover-search",
+        )
         yield VerticalScroll(id="search-results-container")
         yield Static("\n→ Suggested Follow", classes="section-header")
         yield Static(
@@ -662,7 +772,7 @@ class DiscoverFeed(Container):
                         followers=user_data["followers"],
                         following=user_data["following"],
                         ascii_pic=user_data["ascii_pic"],
-                        classes="user-profile-card"
+                        classes="user-profile-card",
                     )
                     container.mount(card)
 
@@ -691,10 +801,17 @@ class NotificationsFeed(VerticalScroll):
         notifications = api.get_notifications()
         unread_count = len([n for n in notifications if not n.read])
         self.border_title = "Notifications [0]"
-        yield Static(f"notifications.all | {unread_count} unread | line 1", classes="panel-header")
+        yield Static(
+            f"notifications.all | {unread_count} unread | line 1",
+            classes="panel-header",
+        )
         for notif in notifications:
             yield NotificationItem(notif, classes="notification-item")
-        yield Static("\n[↑] Previous [n] Next [m] Mark Read [Enter] Open [q] Quit", classes="help-text", markup=False)
+        yield Static(
+            "\n[↑] Previous [n] Next [m] Mark Read [Enter] Open [q] Quit",
+            classes="help-text",
+            markup=False,
+        )
 
 
 class NotificationsScreen(Container):
@@ -805,8 +922,11 @@ class ChatView(VerticalScroll):
         for msg in messages:
             yield ChatMessage(msg, classes="chat-message")
         yield Static("-- INSERT --", classes="mode-indicator")
-        yield Input(placeholder="Type message and press Enter… (Esc to cancel)",
-                    classes="message-input", id="message-input")
+        yield Input(
+            placeholder="Type message and press Enter… (Esc to cancel)",
+            classes="message-input",
+            id="message-input",
+        )
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
         if event.input.id != "message-input":
@@ -880,22 +1000,42 @@ class SettingsPanel(VerticalScroll):
         yield Static("settings.profile | line 1", classes="panel-header")
         yield Static("\n→ Profile Picture (ASCII)", classes="settings-section-header")
         yield Static("Make ASCII Profile Picture from image file")
-        yield Button("Upload file", id="upload-profile-picture", classes="upload-profile-picture")
-        yield Static(f"{settings.ascii_pic}", id="profile-picture-display", classes="ascii-avatar")
+        yield Button(
+            "Upload file", id="upload-profile-picture", classes="upload-profile-picture"
+        )
+        yield Static(
+            f"{settings.ascii_pic}",
+            id="profile-picture-display",
+            classes="ascii-avatar",
+        )
 
         yield Static("\n→ Account Information", classes="settings-section-header")
         yield Static(f"  Username:\n  @{settings.username}", classes="settings-field")
-        yield Static(f"\n  Display Name:\n  {settings.display_name}", classes="settings-field")
+        yield Static(
+            f"\n  Display Name:\n  {settings.display_name}", classes="settings-field"
+        )
         yield Static(f"\n  Bio:\n  {settings.bio}", classes="settings-field")
         yield Static("\n→ OAuth Connections", classes="settings-section-header")
         github_status = "Connected" if settings.github_connected else "[:c] Connect"
         gitlab_status = "Connected" if settings.gitlab_connected else "[:c] Connect"
         google_status = "Connected" if settings.google_connected else "[:c] Connect"
         discord_status = "Connected" if settings.discord_connected else "[:c] Connect"
-        yield Static(f"  [●] GitHub                                              {github_status}", classes="oauth-item")
-        yield Static(f"  [○] GitLab                                              {gitlab_status}", classes="oauth-item")
-        yield Static(f"  [○] Google                                              {google_status}", classes="oauth-item")
-        yield Static(f"  [○] Discord                                             {discord_status}", classes="oauth-item")
+        yield Static(
+            f"  [●] GitHub                                              {github_status}",
+            classes="oauth-item",
+        )
+        yield Static(
+            f"  [○] GitLab                                              {gitlab_status}",
+            classes="oauth-item",
+        )
+        yield Static(
+            f"  [○] Google                                              {google_status}",
+            classes="oauth-item",
+        )
+        yield Static(
+            f"  [○] Discord                                             {discord_status}",
+            classes="oauth-item",
+        )
         yield Static("\n→ Preferences", classes="settings-section-header")
         email_check = "☑" if settings.email_notifications else "☐"
         online_check = "☑" if settings.show_online_status else "☐"
@@ -903,13 +1043,23 @@ class SettingsPanel(VerticalScroll):
         yield Static(f"  {email_check} Email notifications", classes="checkbox-item")
         yield Static(f"  {online_check} Show online status", classes="checkbox-item")
         yield Static(f"  {private_check} Private account", classes="checkbox-item")
-        yield Static("\n  [:w] Save Changes     [:q] Cancel", classes="settings-actions")
-        yield Static("\n:w - save  [:e] Edit field  [Tab] Next field  [Esc] Cancel", classes="help-text", markup=False)
+        yield Static(
+            "\n  [:w] Save Changes     [:q] Cancel", classes="settings-actions"
+        )
+        yield Static(
+            "\n:w - save  [:e] Edit field  [Tab] Next field  [Esc] Cancel",
+            classes="help-text",
+            markup=False,
+        )
 
     def watch_cursor_position(self, old_position: int, new_position: int) -> None:
         """Update the cursor when position changes"""
         # We'll consider settings items that can be selected for cursor movement:
-        selectable_classes = [".upload-profile-picture", ".oauth-item", ".checkbox-item"]
+        selectable_classes = [
+            ".upload-profile-picture",
+            ".oauth-item",
+            ".checkbox-item",
+        ]
 
         items = []
         for cls in selectable_classes:
@@ -929,7 +1079,11 @@ class SettingsPanel(VerticalScroll):
 
     def key_j(self) -> None:
         """Vim-style down navigation"""
-        selectable_classes = [".upload-profile-picture", ".oauth-item", ".checkbox-item"]
+        selectable_classes = [
+            ".upload-profile-picture",
+            ".oauth-item",
+            ".checkbox-item",
+        ]
         items = []
         for cls in selectable_classes:
             items.extend(list(self.query(cls)))
@@ -948,7 +1102,11 @@ class SettingsPanel(VerticalScroll):
 
     def key_G(self) -> None:
         """Vim-style go to bottom"""
-        selectable_classes = [".upload-profile-picture", ".oauth-item", ".checkbox-item"]
+        selectable_classes = [
+            ".upload-profile-picture",
+            ".oauth-item",
+            ".checkbox-item",
+        ]
         items = []
         for cls in selectable_classes:
             items.extend(list(self.query(cls)))
@@ -961,7 +1119,7 @@ class SettingsPanel(VerticalScroll):
                 root.withdraw()
                 file_path = filedialog.askopenfilename(
                     title="Select an Image",
-                    filetypes=[("Image files", "*.png *.jpg *.jpeg")]
+                    filetypes=[("Image files", "*.png *.jpg *.jpeg")],
                 )
                 root.destroy()
 
@@ -980,11 +1138,15 @@ class SettingsPanel(VerticalScroll):
                 cmd = [
                     sys.executable,
                     str(script_path),
-                    "--output-text", output_text,
-                    "--output-image", output_image,
-                    "--font", font_path,
-                    "--font-size", "24",
-                    file_path
+                    "--output-text",
+                    output_text,
+                    "--output-image",
+                    output_image,
+                    "--font",
+                    font_path,
+                    "--font-size",
+                    "24",
+                    file_path,
                 ]
 
                 result = subprocess.run(cmd, capture_output=True, text=True)
@@ -1043,8 +1205,12 @@ class ProfilePanel(VerticalScroll):
             stats_row = Container(classes="profile-stats-row")
             with stats_row:
                 yield Static(f"{user.posts_count}\nPosts", classes="profile-stat-item")
-                yield Static(f"{user.following}\nFollowing", classes="profile-stat-item")
-                yield Static(f"{user.followers}\nFollowers", classes="profile-stat-item")
+                yield Static(
+                    f"{user.following}\nFollowing", classes="profile-stat-item"
+                )
+                yield Static(
+                    f"{user.followers}\nFollowers", classes="profile-stat-item"
+                )
             yield stats_row
 
             bio_container = Container(classes="profile-bio-container")
@@ -1054,7 +1220,9 @@ class ProfilePanel(VerticalScroll):
             yield bio_container
 
         yield profile_container
-        yield Static("\n[:e] Edit Profile  [Esc] Back", classes="help-text", markup=False)
+        yield Static(
+            "\n[:e] Edit Profile  [Esc] Back", classes="help-text", markup=False
+        )
 
     def watch_cursor_position(self, old_position: int, new_position: int) -> None:
         """Update the cursor when position changes"""
@@ -1121,7 +1289,6 @@ class Proj101App(App):
         Binding("i", "insert_mode", "Insert", show=True),
         Binding("escape", "normal_mode", "Normal", show=False),
         Binding("d", "toggle_dark", "Dark", show=True),
-
         # Screen navigation
         Binding("0", "focus_main_content", "Main Content", show=False),
         Binding("1", "show_timeline", "Timeline", show=False),
@@ -1132,7 +1299,6 @@ class Proj101App(App):
         Binding("6", "focus_messages", "Messages List", show=False),
         Binding("shift+n", "focus_navigation", "Nav Focus", show=False),
         Binding("colon", "show_command_bar", "Command", show=False),
-
         # Vim-style navigation bindings
         Binding("j", "vim_down", "Down", show=False),
         Binding("k", "vim_up", "Up", show=False),
@@ -1159,26 +1325,50 @@ class Proj101App(App):
     def compose(self) -> ComposeResult:
         yield Static("proj101 [timeline] @yourname", id="app-header", markup=False)
         yield TimelineScreen(id="screen-container")
-        yield Static(":↑↓ Navigate [0] Main [1-5] Sidebar [n] New Post [f] Follow [/] Search [?] Help", id="app-footer", markup=False)
+        yield Static(
+            ":↑↓ Navigate [0] Main [1-5] Sidebar [n] New Post [f] Follow [/] Search [?] Help",
+            id="app-footer",
+            markup=False,
+        )
         yield Input(id="command-input", classes="command-bar")
 
     def switch_screen(self, screen_name: str):
         if screen_name == self.current_screen_name:
             return
         screen_map = {
-            "timeline": (TimelineScreen, ":[0] Main [1-5] Sidebar [↑↓] Navigate [n] New Post [f] Follow [/] Search [?] Help"),
-            "discover": (DiscoverScreen, ":[0] Main [1-5] Sidebar [/] Search [f] Follow [↑↓] Navigate [Enter] Open [?] Help"),
-            "notifications": (NotificationsScreen, ":[0] Main [1-5] Sidebar [↑] Previous [n] Next [m] Mark Read [Enter] Open [q] Quit"),
-            "messages": (MessagesScreen, ":[0] Chat [6] Messages [1-5] Sidebar [i] Insert [j/k] Navigate [Enter] Open [Esc] Exit"),
-            "profile": (ProfileScreen, ":[0] Main [1-5] Sidebar [:e] Edit Profile [Esc] Back"),
-            "settings": (SettingsScreen, ":[0] Main [1-5] Sidebar [w] Save [:e] Edit field [Tab] Next field [Esc] Cancel"),
+            "timeline": (
+                TimelineScreen,
+                ":[0] Main [1-5] Sidebar [↑↓] Navigate [n] New Post [f] Follow [/] Search [?] Help",
+            ),
+            "discover": (
+                DiscoverScreen,
+                ":[0] Main [1-5] Sidebar [/] Search [f] Follow [↑↓] Navigate [Enter] Open [?] Help",
+            ),
+            "notifications": (
+                NotificationsScreen,
+                ":[0] Main [1-5] Sidebar [↑] Previous [n] Next [m] Mark Read [Enter] Open [q] Quit",
+            ),
+            "messages": (
+                MessagesScreen,
+                ":[0] Chat [6] Messages [1-5] Sidebar [i] Insert [j/k] Navigate [Enter] Open [Esc] Exit",
+            ),
+            "profile": (
+                ProfileScreen,
+                ":[0] Main [1-5] Sidebar [:e] Edit Profile [Esc] Back",
+            ),
+            "settings": (
+                SettingsScreen,
+                ":[0] Main [1-5] Sidebar [w] Save [:e] Edit field [Tab] Next field [Esc] Cancel",
+            ),
         }
         if screen_name in screen_map:
             for container in self.query("#screen-container"):
                 container.remove()
             ScreenClass, footer_text = screen_map[screen_name]
             self.call_after_refresh(self.mount, ScreenClass(id="screen-container"))
-            self.query_one("#app-header", Static).update(f"proj101 [{screen_name}] @yourname")
+            self.query_one("#app-header", Static).update(
+                f"proj101 [{screen_name}] @yourname"
+            )
             self.query_one("#app-footer", Static).update(footer_text)
             self.current_screen_name = screen_name
             try:
@@ -1191,7 +1381,9 @@ class Proj101App(App):
         self.exit()
 
     def action_toggle_dark(self) -> None:
-        self.theme = "textual-dark" if self.theme == "textual-light" else "textual-light"
+        self.theme = (
+            "textual-dark" if self.theme == "textual-light" else "textual-light"
+        )
 
     def action_insert_mode(self) -> None:
         try:
@@ -1397,7 +1589,13 @@ class Proj101App(App):
             self.command_mode = False
             if command.startswith(":"):
                 command = command[1:]
-            screen_map = {"1": "timeline", "2": "discover", "3": "notifications", "4": "messages", "5": "settings"}
+            screen_map = {
+                "1": "timeline",
+                "2": "discover",
+                "3": "notifications",
+                "4": "messages",
+                "5": "settings",
+            }
             if command in screen_map:
                 self.switch_screen(screen_map[command])
             elif command in ("q", "quit"):
@@ -1409,6 +1607,7 @@ class Proj101App(App):
 
     def action_new_post(self) -> None:
         """Show the new post dialog."""
+
         def check_refresh(result):
             if result:
                 if self.current_screen_name == "timeline":
@@ -1428,5 +1627,9 @@ class Proj101App(App):
                 pass
 
 
-if __name__ == "__main__":
+def main():
     Proj101App().run()
+
+
+if __name__ == "__main__":
+    main()

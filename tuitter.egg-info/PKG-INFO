@@ -1,0 +1,28 @@
+Metadata-Version: 2.4
+Name: tuitter
+Version: 0.1.0
+Summary: A beautiful TUI-based social media client for the modern terminal
+Author-email: tuitter Team <team@tuitter.com>
+License: MIT
+Project-URL: Homepage, https://github.com/kazakhpunk/tuitter
+Project-URL: Repository, https://github.com/kazakhpunk/tuitter
+Project-URL: Bug Tracker, https://github.com/kazakhpunk/tuitter/issues
+Keywords: tui,social-media,terminal,ascii-art
+Classifier: Development Status :: 3 - Alpha
+Classifier: Environment :: Console
+Classifier: Intended Audience :: End Users/Desktop
+Classifier: License :: OSI Approved :: MIT License
+Classifier: Operating System :: OS Independent
+Classifier: Programming Language :: Python :: 3
+Classifier: Programming Language :: Python :: 3.8
+Classifier: Programming Language :: Python :: 3.9
+Classifier: Programming Language :: Python :: 3.10
+Classifier: Programming Language :: Python :: 3.11
+Classifier: Topic :: Internet :: WWW/HTTP :: Dynamic Content
+Classifier: Topic :: Terminals
+Requires-Python: >=3.8
+Description-Content-Type: text/markdown
+Requires-Dist: textual>=0.40.0
+Requires-Dist: requests>=2.28.0
+Requires-Dist: Pillow>=9.0.0
+Requires-Dist: textual-imageview>=0.1.0
