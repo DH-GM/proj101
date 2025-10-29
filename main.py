@@ -13,7 +13,10 @@ import tkinter as tk
 from tkinter import filedialog
 from PIL import Image
 from ascii_video_widget import ASCIIVideoPlayer
-
+import webbrowser
+import json
+import time
+import os
 
 
 def format_time_ago(dt: datetime) -> str:
@@ -27,6 +30,66 @@ def format_time_ago(dt: datetime) -> str:
     if diff.seconds < 3600:
         return f"{diff.seconds // 60}m ago"
     return f"{diff.seconds // 3600}h ago"
+
+
+# ───────── OAuth Constants ─────────
+COGNITO_AUTH_URL = "https://us-east-2tgj9o2fop.auth.us-east-2.amazoncognito.com/login?client_id=jtcdok2taaq48rj50lerhp51v&response_type=code&scope=email+openid+phone&redirect_uri=http%3A%2F%2Flocalhost%3A5173%2Fcallback"
+
+
+# ───────── Auth Screen ─────────
+class AuthScreen(Container):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self._file_timer = None
+
+    def compose(self) -> ComposeResult:
+        # Minimal auth screen: centered sign-in button
+        with Container(id="auth-center"):
+            yield Static("Sign in with Cognito (OAuth2)", id="auth-title", classes="signin")
+            yield Button("Sign In", id="oauth-signin", classes="upload-profile-picture")
+            yield Static("press q to quit", id="oauth-status", classes="signin")
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "oauth-signin":
+            # Update status immediately
+            try:
+                self.query_one("#oauth-status", Static).update("Status: Opening browser...")
+            except Exception:
+                pass
+            
+            # Schedule the OAuth flow
+            self.call_after_refresh(self._start_oauth_flow)
+
+    def _start_oauth_flow(self) -> None:
+        """Open Cognito Hosted UI and poll for tokens."""
+        print("Starting OAuth flow...")
+        
+        # Open browser to Cognito hosted UI
+        print("Opening browser...")
+        webbrowser.open(COGNITO_AUTH_URL)
+        
+        # Update status
+        try:
+            self.query_one("#oauth-status", Static).update("Status: Waiting for sign-in... (check your browser)")
+        except Exception:
+            pass
+        
+        # Poll for tokens file
+        self._file_timer = self.set_interval(0.5, self._check_tokens_file)
+
+    def _check_tokens_file(self) -> None:
+        try:
+            p = Path("oauth_tokens.json")
+            if p.exists():
+                data = json.loads(p.read_text() or "{}")
+                # Check for valid tokens
+                if isinstance(data, dict) and ("access_token" in data or "id_token" in data):
+                    if self._file_timer:
+                        self._file_timer.pause()
+                    self.query_one("#oauth-status", Static).update("Status: Signed in (tokens detected)")
+                    self.app.show_main_app()
+        except Exception:
+            pass
 
 
 # ───────── Items ─────────
@@ -137,13 +200,13 @@ class PostItem(Static):
     def watch_has_class(self, has_class: bool) -> None:
         """Watch for class changes to handle cursor"""
         if has_class and "vim-cursor" in self.classes:
-            # We have cursor focus
             self.border = "ascii"
             self.styles.background = "darkblue"
         else:
-            # We don't have cursor focus
             self.border = ""
             self.styles.background = ""
+
+
 class NotificationItem(Static):
     def __init__(self, notification, **kwargs):
         super().__init__(**kwargs)
@@ -239,7 +302,6 @@ class Sidebar(VerticalScroll):
         commands_container = Container(classes="commands-box")
         commands_container.border_title = "Commands"
         with commands_container:
-            # Show only screen-specific commands to save space
             if self.current_screen == "messages":
                 yield CommandItem(":n", "new msg", classes="command-item")
                 yield CommandItem(":r", "reply", classes="command-item")
@@ -257,7 +319,6 @@ class Sidebar(VerticalScroll):
                 yield CommandItem(":w", "save", classes="command-item")
                 yield CommandItem(":e", "edit", classes="command-item")
 
-            # Common commands (limited to save space)
             yield CommandItem(":s", "search", classes="command-item")
             yield CommandItem("0", "main", classes="command-item")
         yield commands_container
@@ -376,7 +437,6 @@ class NewPostDialog(ModalScreen):
         with Container(id="dialog-container"):
             yield Static("New Post", id="dialog-title")
             yield TextArea(id="post-textarea")
-            # area to show selected attachments
             yield Static("", id="attachments-list", classes="attachments-list")
 
             with Container(id="action-buttons"):
@@ -390,14 +450,12 @@ class NewPostDialog(ModalScreen):
     def on_mount(self) -> None:
         """Focus the textarea when dialog opens."""
         self.query_one("#post-textarea", TextArea).focus()
-        # initialize attachments container on the instance
-        self._attachments = []  # list of (type, path) tuples, type in ('photo','video')
+        self._attachments = []
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         btn_id = getattr(event.button, "id", None)
 
         if btn_id == "attach-photo":
-            # open file dialog to select image
             try:
                 root = tk.Tk()
                 root.withdraw()
@@ -407,11 +465,9 @@ class NewPostDialog(ModalScreen):
                 )
                 root.destroy()
                 if file_path:
-                    # optionally validate image via PIL
                     try:
                         Image.open(file_path).verify()
                     except Exception:
-                        # still allow selecting, but notify user
                         self.app.notify("Selected file may not be a valid image", severity="warning")
                     self._attachments.append(("photo", file_path))
                     self._update_attachments_display()
@@ -419,7 +475,6 @@ class NewPostDialog(ModalScreen):
                 pass
 
         elif btn_id == "attach-video":
-            # open file dialog to select video file
             try:
                 root = tk.Tk()
                 root.withdraw()
@@ -442,21 +497,16 @@ class NewPostDialog(ModalScreen):
                 self.app.notify("Post cannot be empty", severity="warning")
                 return
 
-            # prepare attachments payload (paths) for API
             attachments_payload = [
                 {"type": t, "path": p} for (t, p) in self._attachments
             ]
 
-            # attempt to call API with attachments, fall back if signature differs
             try:
-                # prefer create_post(content, attachments=...)
                 new_post = api.create_post(content, attachments=attachments_payload)
             except TypeError:
                 try:
-                    # fallback: create_post(content, files)
                     new_post = api.create_post(content, attachments_payload)
                 except Exception:
-                    # last resort: call without attachments
                     new_post = api.create_post(content)
 
             try:
@@ -505,18 +555,12 @@ class TimelineFeed(VerticalScroll):
     def _update_cursor(self) -> None:
         """Update the cursor position"""
         try:
-            # Find all post items
             items = list(self.query(".post-item"))
-
-            # Remove cursor from all items
             for i, item in enumerate(items):
                 item.remove_class("vim-cursor")
-
-            # Add cursor to focused item
             if 0 <= self.cursor_position < len(items):
                 item = items[self.cursor_position]
                 item.add_class("vim-cursor")
-                # Ensure the cursor is visible
                 self.scroll_to_widget(item, top=True)
         except Exception:
             pass
@@ -543,7 +587,6 @@ class TimelineFeed(VerticalScroll):
 
     def key_g(self) -> None:
         """Go to top with gg"""
-        # g is handled in on_key for double-press
         pass
 
     def key_G(self) -> None:
@@ -723,18 +766,12 @@ class ConversationsList(VerticalScroll):
     def _update_cursor(self) -> None:
         """Update the cursor position"""
         try:
-            # Find all conversation items
             items = list(self.query(".conversation-item"))
-
-            # Remove cursor from all items
             for item in items:
                 item.remove_class("vim-cursor")
-
-            # Add cursor to focused item
             if 0 <= self.cursor_position < len(items):
                 item = items[self.cursor_position]
                 item.add_class("vim-cursor")
-                # Ensure the cursor is visible
                 self.scroll_to_widget(item, top=True)
         except Exception:
             pass
@@ -761,7 +798,6 @@ class ConversationsList(VerticalScroll):
 
     def key_g(self) -> None:
         """Go to top with gg"""
-        # g is handled in on_key for double-press
         pass
 
     def key_G(self) -> None:
@@ -823,18 +859,15 @@ class ChatView(VerticalScroll):
 
     def watch_cursor_position(self, old_position: int, new_position: int) -> None:
         """Update the cursor when position changes"""
-        # Remove cursor from old position
         messages = self.query(".chat-message")
         if old_position < len(messages):
             old_msg = messages[old_position]
             if "vim-cursor" in old_msg.classes:
                 old_msg.remove_class("vim-cursor")
 
-        # Add cursor to new position
         if new_position < len(messages):
             new_msg = messages[new_position]
             new_msg.add_class("vim-cursor")
-
             self.scroll_to_widget(new_msg)
 
     def key_j(self) -> None:
@@ -905,23 +938,24 @@ class SettingsPanel(VerticalScroll):
         yield Static(f"  {private_check} Private account", classes="checkbox-item")
         yield Static("\n  [:w] Save Changes     [:q] Cancel", classes="settings-actions")
         yield Static("\n:w - save  [:e] Edit field  [Tab] Next field  [Esc] Cancel", classes="help-text", markup=False)
+        
+        # Sign Out button
+        yield Static("\n→ Session", classes="settings-section-header")
+        yield Button("Sign Out", id="settings-signout", classes="danger")
 
     def watch_cursor_position(self, old_position: int, new_position: int) -> None:
         """Update the cursor when position changes"""
-        # We'll consider settings items that can be selected for cursor movement:
         selectable_classes = [".upload-profile-picture", ".oauth-item", ".checkbox-item"]
 
         items = []
         for cls in selectable_classes:
             items.extend(list(self.query(cls)))
 
-        # Remove cursor from old position
         if old_position < len(items):
             old_item = items[old_position]
             if "vim-cursor" in old_item.classes:
                 old_item.remove_class("vim-cursor")
 
-        # Add cursor to new position
         if new_position < len(items):
             new_item = items[new_position]
             new_item.add_class("vim-cursor")
@@ -1015,6 +1049,16 @@ class SettingsPanel(VerticalScroll):
                     self.app.notify("Output file not generated", severity="error")
             except Exception:
                 pass
+        elif event.button.id == "settings-signout":
+            # Delete tokens file and exit
+            try:
+                Path("oauth_tokens.json").unlink(missing_ok=True)
+            except Exception:
+                pass
+            try:
+                self.app.exit()
+            except Exception:
+                pass
 
 
 class SettingsScreen(Container):
@@ -1058,16 +1102,13 @@ class ProfilePanel(VerticalScroll):
 
     def watch_cursor_position(self, old_position: int, new_position: int) -> None:
         """Update the cursor when position changes"""
-        # For profile panel, we'll treat the profile-stat-item elements as navigable
         items = list(self.query(".profile-stat-item"))
 
-        # Remove cursor from old position
         if old_position < len(items):
             old_item = items[old_position]
             if "vim-cursor" in old_item.classes:
                 old_item.remove_class("vim-cursor")
 
-        # Add cursor to new position
         if new_position < len(items):
             new_item = items[new_position]
             new_item.add_class("vim-cursor")
@@ -1116,13 +1157,10 @@ class Proj101App(App):
     CSS_PATH = "main.tcss"
 
     BINDINGS = [
-        # Basic app controls
         Binding("q", "quit", "Quit", show=False),
         Binding("i", "insert_mode", "Insert", show=True),
         Binding("escape", "normal_mode", "Normal", show=False),
         Binding("d", "toggle_dark", "Dark", show=True),
-
-        # Screen navigation
         Binding("0", "focus_main_content", "Main Content", show=False),
         Binding("1", "show_timeline", "Timeline", show=False),
         Binding("2", "show_discover", "Discover", show=False),
@@ -1132,8 +1170,6 @@ class Proj101App(App):
         Binding("6", "focus_messages", "Messages List", show=False),
         Binding("shift+n", "focus_navigation", "Nav Focus", show=False),
         Binding("colon", "show_command_bar", "Command", show=False),
-
-        # Vim-style navigation bindings
         Binding("j", "vim_down", "Down", show=False),
         Binding("k", "vim_up", "Up", show=False),
         Binding("h", "vim_left", "Left", show=False),
@@ -1157,10 +1193,28 @@ class Proj101App(App):
     command_mode = reactive(False)
 
     def compose(self) -> ComposeResult:
-        yield Static("proj101 [timeline] @yourname", id="app-header", markup=False)
-        yield TimelineScreen(id="screen-container")
-        yield Static(":↑↓ Navigate [0] Main [1-5] Sidebar [n] New Post [f] Follow [/] Search [?] Help", id="app-footer", markup=False)
-        yield Input(id="command-input", classes="command-bar")
+        # Check if tokens exist - if not, show auth screen
+        if not Path("oauth_tokens.json").exists():
+            yield AuthScreen(id="screen-container")
+        else:
+            yield Static("proj101 [timeline] @yourname", id="app-header", markup=False)
+            yield TimelineScreen(id="screen-container")
+            yield Static(":↑↓ Navigate [0] Main [1-5] Sidebar [n] New Post [f] Follow [/] Search [?] Help", id="app-footer", markup=False)
+            yield Input(id="command-input", classes="command-bar")
+
+    def show_main_app(self) -> None:
+        """Transition from auth screen to main app after authentication."""
+        try:
+            for w in list(self.children):
+                w.remove()
+        except Exception:
+            pass
+        
+        self.mount(Static("proj101 [timeline] @yourname", id="app-header", markup=False))
+        self.mount(TimelineScreen(id="screen-container"))
+        self.mount(Static(":↑↓ Navigate [0] Main [1-5] Sidebar [n] New Post [f] Follow [/] Search [?] Help", id="app-footer", markup=False))
+        self.mount(Input(id="command-input", classes="command-bar"))
+        self.current_screen_name = "timeline"
 
     def switch_screen(self, screen_name: str):
         if screen_name == self.current_screen_name:
@@ -1264,75 +1318,48 @@ class Proj101App(App):
                 conversations.border_title = "Messages [6]"
                 conversations.add_class("vim-mode-active")
                 conversations.focus()
-                # Reset cursor position to ensure it's visible
                 conversations.cursor_position = 0
                 conversations._update_cursor()
         except Exception:
             pass
 
-    # Vim-style navigation actions - these forward to focused widget
     def action_vim_down(self) -> None:
-        """Move down (j key)"""
-        # The key will be handled by the focused widget's key_j method if it exists
         pass
 
     def action_vim_up(self) -> None:
-        """Move up (k key)"""
-        # The key will be handled by the focused widget's key_k method if it exists
         pass
 
     def action_vim_left(self) -> None:
-        """Move left (h key)"""
-        # The key will be handled by the focused widget's key_h method if it exists
         pass
 
     def action_vim_right(self) -> None:
-        """Move right (l key)"""
-        # The key will be handled by the focused widget's key_l method if it exists
         pass
 
     def action_vim_word_forward(self) -> None:
-        """Move forward one word (w key)"""
-        # The key will be handled by the focused widget's key_w method if it exists
         pass
 
     def action_vim_word_backward(self) -> None:
-        """Move backward one word (b key)"""
-        # The key will be handled by the focused widget's key_b method if it exists
         pass
 
     def action_vim_top(self) -> None:
-        """Move to the top (gg key)"""
-        # This is handled by the on_key method for the double-g press
         pass
 
     def action_vim_bottom(self) -> None:
-        """Move to the bottom (G key)"""
-        # The key will be handled by the focused widget's key_G method if it exists
         pass
 
     def action_vim_half_page_down(self) -> None:
-        """Move half page down (Ctrl+d)"""
-        # The key will be handled by the focused widget's key_ctrl_d method if it exists
         pass
 
     def action_vim_half_page_up(self) -> None:
-        """Move half page up (Ctrl+u)"""
-        # The key will be handled by the focused widget's key_ctrl_u method if it exists
         pass
 
     def action_vim_page_down(self) -> None:
-        """Move one page down (Ctrl+f)"""
-        # The key will be handled by the focused widget's key_ctrl_f method if it exists
         pass
 
     def action_vim_page_up(self) -> None:
-        """Move one page up (Ctrl+b)"""
-        # The key will be handled by the focused widget's key_ctrl_b method if it exists
         pass
 
     def action_vim_search(self) -> None:
-        """Start a search (/ key)"""
         try:
             command_input = self.query_one("#command-input", Input)
             command_input.styles.display = "block"
@@ -1344,23 +1371,15 @@ class Proj101App(App):
             pass
 
     def action_vim_next_search(self) -> None:
-        """Find next search match (n key)"""
-        # Will be implemented in the content panels
         pass
 
     def action_vim_prev_search(self) -> None:
-        """Find previous search match (N key)"""
-        # Will be implemented in the content panels
         pass
 
     def action_vim_line_start(self) -> None:
-        """Go to start of line (^ key)"""
-        # Will be implemented in the content panels
         pass
 
     def action_vim_line_end(self) -> None:
-        """Go to end of line ($ key)"""
-        # Will be implemented in the content panels
         pass
 
     def action_show_command_bar(self) -> None:
@@ -1429,4 +1448,13 @@ class Proj101App(App):
 
 
 if __name__ == "__main__":
-    Proj101App().run()
+    pid_file = Path(".main_app_pid")
+    pid_file.write_text(str(os.getpid()))
+    try:
+        app = Proj101App()
+        app.run()
+    finally:
+        try:
+            pid_file.unlink()
+        except Exception:
+            pass
