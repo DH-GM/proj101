@@ -2,9 +2,9 @@ name: Publish to PyPI
 
 on:
   push:
-    branches:
-      - "main"
-
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
 jobs:
   build-and-publish:
     runs-on: ubuntu-latest
