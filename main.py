@@ -4,6 +4,7 @@ from textual.containers import Container, Horizontal, Vertical, VerticalScroll, 
 from textual.widgets import Static, Input, Button, TextArea
 from textual.reactive import reactive
 from textual.screen import ModalScreen
+from textual.message import Message
 from datetime import datetime
 from api_interface import api
 import sys
@@ -13,8 +14,75 @@ import tkinter as tk
 from tkinter import filedialog
 from PIL import Image
 from ascii_video_widget import ASCIIVideoPlayer
+import json
+from typing import List, Dict
 
+# Custom message for draft updates
+class DraftsUpdated(Message):
+    """Posted when drafts are updated."""
+    pass
 
+# Drafts file path
+DRAFTS_FILE = Path.home() / ".proj101_drafts.json"
+
+def load_drafts() -> List[Dict]:
+    """Load drafts from local storage."""
+    if not DRAFTS_FILE.exists():
+        return []
+    try:
+        with open(DRAFTS_FILE, 'r') as f:
+            drafts = json.load(f)
+            # Convert timestamp strings back to datetime objects
+            for draft in drafts:
+                draft['timestamp'] = datetime.fromisoformat(draft['timestamp'])
+            return drafts
+    except Exception:
+        return []
+
+def save_drafts(drafts: List[Dict]) -> None:
+    """Save drafts to local storage."""
+    try:
+        # Convert datetime objects to ISO format strings
+        drafts_to_save = []
+        for draft in drafts:
+            draft_copy = draft.copy()
+            draft_copy['timestamp'] = draft['timestamp'].isoformat()
+            drafts_to_save.append(draft_copy)
+        
+        with open(DRAFTS_FILE, 'w') as f:
+            json.dump(drafts_to_save, f, indent=2)
+    except Exception as e:
+        print(f"Error saving drafts: {e}")
+
+def add_draft(content: str, attachments: List = None) -> None:
+    """Add a new draft and maintain max 2 drafts."""
+    drafts = load_drafts()
+    
+    # Create new draft
+    new_draft = {
+        "content": content,
+        "attachments": attachments or [],
+        "timestamp": datetime.now()
+    }
+    
+    # Add new draft
+    drafts.append(new_draft)
+    
+    # Sort by timestamp (oldest first)
+    drafts.sort(key=lambda x: x['timestamp'])
+    
+    # Keep only the 2 most recent drafts
+    if len(drafts) > 2:
+        drafts = drafts[-2:]
+    
+    save_drafts(drafts)
+
+def delete_draft(index: int) -> None:
+    """Delete a specific draft by index."""
+    drafts = load_drafts()
+    if 0 <= index < len(drafts):
+        drafts.pop(index)
+        save_drafts(drafts)
 
 def format_time_ago(dt: datetime) -> str:
     """Format datetime as 'time ago' string."""
@@ -27,7 +95,6 @@ def format_time_ago(dt: datetime) -> str:
     if diff.seconds < 3600:
         return f"{diff.seconds // 60}m ago"
     return f"{diff.seconds // 3600}h ago"
-
 
 # ───────── Items ─────────
 
@@ -55,7 +122,6 @@ class NavigationItem(Static):
         (self.add_class if is_active else self.remove_class)("active")
         self.refresh()
 
-
 class CommandItem(Static):
     def __init__(self, shortcut: str, description: str, **kwargs):
         super().__init__(**kwargs)
@@ -65,6 +131,28 @@ class CommandItem(Static):
     def render(self) -> str:
         return f"{self.shortcut} - {self.description}"
 
+class DraftItem(Static):
+    """Display a saved draft in sidebar."""
+    
+    def __init__(self, draft: Dict, index: int, **kwargs):
+        super().__init__(**kwargs)
+        self.draft = draft
+        self.draft_index = index
+        self.border = "round"
+        self.border_title = f"Draft {index + 1}"
+    
+    def render(self) -> str:
+        """Render the draft item as text."""
+        content = self.draft['content'][:40] + "..." if len(self.draft['content']) > 40 else self.draft['content']
+        time_ago = format_time_ago(self.draft['timestamp'])
+        attachments_count = len(self.draft.get('attachments', []))
+        attach_text = f" 📎{attachments_count}" if attachments_count > 0 else ""
+        
+        return f"⏰ {time_ago}\n{content}{attach_text}\n\n✏️ Open  🗑️ Delete"
+    
+    def on_click(self) -> None:
+        """Handle click on draft item - for now just open it."""
+        self.app.action_open_draft(self.draft_index)
 
 class ProfileDisplay(Static):
     """Display user profile."""
@@ -74,18 +162,16 @@ class ProfileDisplay(Static):
         yield Static(f"@{user.username} • {user.display_name}", classes="profile-username")
         yield Static(f"P:{user.posts_count} F:{user.following} F:{user.followers}", classes="profile-stat")
 
-
 class ConversationItem(Static):
     def __init__(self, conversation, **kwargs):
         super().__init__(**kwargs)
         self.conversation = conversation
 
     def render(self) -> str:
-        unread_marker = "• " if self.conversation.unread else "  "
+        unread_marker = "🔵 " if self.conversation.unread else "  "
         time_ago = format_time_ago(self.conversation.timestamp)
-        unread_text = "• unread" if self.conversation.unread else ""
+        unread_text = "🔵 unread" if self.conversation.unread else ""
         return f"{unread_marker}@{self.conversation.username}\n  {self.conversation.last_message}\n  {time_ago} {unread_text}"
-
 
 class ChatMessage(Static):
     def __init__(self, message, current_user: str = "yourname", **kwargs):
@@ -96,7 +182,6 @@ class ChatMessage(Static):
 
     def render(self) -> str:
         return f"{self.message.content}\n{format_time_ago(self.message.timestamp)}"
-
 
 class PostItem(Static):
     """Simple non-interactive post display."""
@@ -109,8 +194,8 @@ class PostItem(Static):
     def compose(self) -> ComposeResult:
         """Compose compact post."""
         time_ago = format_time_ago(self.post.timestamp)
-        like_symbol = "♥" if self.post.liked_by_user else "♡"
-        repost_symbol = "⇄" if self.post.reposted_by_user else "⇄"
+        like_symbol = "❤️" if self.post.liked_by_user else "🤍"
+        repost_symbol = "🔁" if self.post.reposted_by_user else "🔁"
 
         # Post header and content
         yield Static(
@@ -144,6 +229,7 @@ class PostItem(Static):
             # We don't have cursor focus
             self.border = ""
             self.styles.background = ""
+
 class NotificationItem(Static):
     def __init__(self, notification, **kwargs):
         super().__init__(**kwargs)
@@ -153,7 +239,7 @@ class NotificationItem(Static):
 
     def render(self) -> str:
         t = format_time_ago(self.notification.timestamp)
-        icon = {"mention": "●", "like": "♥", "repost": "⇄", "follow": "◉", "comment": "💬"}.get(self.notification.type, "●")
+        icon = {"mention": "📢", "like": "❤️", "repost": "🔁", "follow": "👥", "comment": "💬"}.get(self.notification.type, "🔵")
         n = self.notification
         if n.type == "mention":
             return f"@{n.actor} mentioned you • {t}\n{n.content}"
@@ -164,7 +250,6 @@ class NotificationItem(Static):
         if n.type == "follow":
             return f"{icon} @{n.actor} started following you • {t}"
         return f"{icon} @{n.actor} • {t}\n{n.content}"
-
 
 class UserProfileCard(Static):
     """A user profile card for search results."""
@@ -190,7 +275,9 @@ class UserProfileCard(Static):
             info_container = Container(classes="user-card-info")
             with info_container:
                 yield Static(self.display_name, classes="user-card-name")
-                yield Static(f"@{self.username}", classes="user-card-username")
+                # Make username clickable as a button-like widget
+                yield Button(f"@{self.username}", id=f"username-{self.username}", classes="user-card-username-btn")
+                
                 yield Static(self.bio, classes="user-card-bio")
 
                 stats_container = Container(classes="user-card-stats")
@@ -208,7 +295,21 @@ class UserProfileCard(Static):
             yield info_container
 
         yield card_container
-
+    
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        """Handle button clicks."""
+        btn_id = event.button.id
+        
+        if btn_id == f"view-{self.username}" or btn_id == f"username-{self.username}":
+            self.app.action_view_user_profile(self.username)
+        elif btn_id == f"follow-{self.username}":
+            try:
+                self.app.notify(f"✓ Following @{self.username}!", severity="success")
+            except:
+                pass
+        elif btn_id == f"message-{self.username}":
+            # Open messages screen with this user
+            self.app.action_open_dm(self.username)
 
 # ───────── Sidebar ─────────
 
@@ -223,11 +324,11 @@ class Sidebar(VerticalScroll):
         nav_container = Container(classes="navigation-box")
         nav_container.border_title = "Navigation [N]"
         with nav_container:
-            yield NavigationItem("Timeline", "timeline", 1, self.current_screen == "timeline", classes="nav-item", id="nav-timeline")
-            yield NavigationItem("Discover", "discover", 2, self.current_screen == "discover", classes="nav-item", id="nav-discover")
-            yield NavigationItem("Notifs", "notifications", 3, self.current_screen == "notifications", classes="nav-item", id="nav-notifications")
-            yield NavigationItem("Messages", "messages", 4, self.current_screen == "messages", classes="nav-item", id="nav-messages")
-            yield NavigationItem("Settings", "settings", 5, self.current_screen == "settings", classes="nav-item", id="nav-settings")
+            yield NavigationItem("Timeline", "timeline", 1, self.current_screen == "timeline", classes="nav-item")
+            yield NavigationItem("Discover", "discover", 2, self.current_screen == "discover", classes="nav-item")
+            yield NavigationItem("Notifs", "notifications", 3, self.current_screen == "notifications", classes="nav-item")
+            yield NavigationItem("Messages", "messages", 4, self.current_screen == "messages", classes="nav-item")
+            yield NavigationItem("Settings", "settings", 5, self.current_screen == "settings", classes="nav-item")
         yield nav_container
 
         profile_container = Container(classes="profile-box")
@@ -235,6 +336,19 @@ class Sidebar(VerticalScroll):
         with profile_container:
             yield ProfileDisplay()
         yield profile_container
+
+        # Drafts section
+        drafts_container = Container(classes="drafts-box")
+        drafts_container.border_title = "Drafts [:D]"
+        with drafts_container:
+            drafts = load_drafts()
+            if drafts:
+                # Show most recent first
+                for i, draft in enumerate(reversed(drafts)):
+                    yield DraftItem(draft, len(drafts) - 1 - i, classes="draft-item")
+            else:
+                yield Static("No drafts\n\nPress :n to create", classes="no-drafts-text")
+        yield drafts_container
 
         commands_container = Container(classes="commands-box")
         commands_container.border_title = "Commands"
@@ -259,145 +373,115 @@ class Sidebar(VerticalScroll):
 
             # Common commands (limited to save space)
             yield CommandItem(":s", "search", classes="command-item")
+            yield CommandItem(":D", "drafts", classes="command-item")
             yield CommandItem("0", "main", classes="command-item")
         yield commands_container
 
     def update_active(self, screen_name: str):
         self.current_screen = screen_name
-        for nav_id in ["nav-timeline", "nav-discover", "nav-notifications", "nav-messages", "nav-settings"]:
+        for nav_item in self.query(".nav-item"):
             try:
-                nav_item = self.query_one(f"#{nav_id}", NavigationItem)
                 nav_item.set_active(nav_item.screen_name == screen_name)
             except Exception:
                 pass
-
+    
+    def refresh_drafts(self):
+        """Refresh the drafts display."""
+        try:
+            # Find drafts container by class
+            drafts_container = self.query_one(".drafts-box", Container)
+            # Remove all draft items
+            for item in drafts_container.query(".draft-item, .no-drafts-text"):
+                item.remove()
+            
+            # Add updated drafts
+            drafts = load_drafts()
+            if drafts:
+                # Show most recent first
+                for i, draft in enumerate(reversed(drafts)):
+                    drafts_container.mount(DraftItem(draft, len(drafts) - 1 - i, classes="draft-item"))
+            else:
+                drafts_container.mount(Static("No drafts\n\nPress :n to create", classes="no-drafts-text"))
+        except Exception as e:
+            print(f"Error refreshing drafts: {e}")
+    
+    def on_drafts_updated(self, message: DraftsUpdated) -> None:
+        """Handle drafts updated message."""
+        self.refresh_drafts()
 
 # ───────── Modal Dialogs ─────────
 
 class NewPostDialog(ModalScreen):
     """Modal dialog for creating a new post."""
 
-    CSS = """
-    NewPostDialog {
-        align: center middle;
-    }
-
-    #dialog-container {
-        width: 80;
-        height: auto;
-        background: #1a1a1a;
-        border: round cyan;
-        padding: 2;
-    }
-
-    #dialog-title {
-        color: cyan;
-        text-style: bold;
-        text-align: center;
-        margin-bottom: 1;
-    }
-
-    #post-textarea {
-        width: 100%;
-        height: 10;
-        margin-bottom: 1;
-    }
-
-    #action-buttons {
-        width: 100%;
-        height: auto;
-        align: center middle;
-        layout: horizontal;
-        margin: 1 0;
-    }
-
-    #media-buttons {
-        width: 100%;
-        height: auto;
-        align: center middle;
-        layout: horizontal;
-        margin: 1 0;
-    }
-
-    #action-buttons Button, #media-buttons Button {
-        width: 1fr;
-        margin: 0 1;
-        min-width: 20;
-        height: 3;
-        padding: 1 2;
-        border: none;
-        background: #2a2a2a;
-    }
-
-    #action-buttons Button:hover, #media-buttons Button:hover {
-        background: #3a3a3a;
-        border: none;
-    }
-
-    #action-buttons, #media-buttons {
-        margin: 1;
-        padding: 0 2;
-    }
-
-    Button#attach-photo, Button#attach-video {
-        background: #2a2a2a;
-    }
-
-    Button#attach-photo:hover, Button#attach-video:hover {
-        background: #3a3a3a;
-    }
-
-    Button#post-button {
-        background: #4a9eff;
-        border: none;
-    }
-
-    Button#post-button:hover {
-        background: #5aaeff;
-        border: none;
-    }
-
-    Button#cancel-button {
-        border: none;
-    }
-
-    Button#cancel-button:hover {
-        background: #3a3a3a;
-        border: none;
-    }
-
-    .attachments-list {
-        margin: 1 0;
-        color: #888888;
-    }
-    """
+    def __init__(self, draft_content: str = "", draft_attachments: List = None):
+        super().__init__()
+        self.draft_content = draft_content
+        self.draft_attachments = draft_attachments or []
 
     def compose(self) -> ComposeResult:
         with Container(id="dialog-container"):
-            yield Static("New Post", id="dialog-title")
+            yield Static("✨ Create New Post", id="dialog-title")
             yield TextArea(id="post-textarea")
-            # area to show selected attachments
+            # Status/attachments display area
             yield Static("", id="attachments-list", classes="attachments-list")
+            yield Static("", id="status-message", classes="status-message")
 
-            with Container(id="action-buttons"):
-                yield Button("Post", variant="primary", id="post-button")
-                yield Button("Cancel", variant="default", id="cancel-button")
-
+            # Media attachment buttons
             with Container(id="media-buttons"):
-                yield Button("📷 Photo", id="attach-photo")
-                yield Button("📹 Video", id="attach-video")
+                yield Button("📁 Files", id="attach-files")
+                yield Button("🖼️ Photo", id="attach-photo")
+
+            # Action buttons
+            with Container(id="action-buttons"):
+                yield Button("📤 Post", variant="primary", id="post-button")
+                yield Button("💾 Draft", id="draft-button")
+                yield Button("❌ Cancel", id="cancel-button")
 
     def on_mount(self) -> None:
         """Focus the textarea when dialog opens."""
-        self.query_one("#post-textarea", TextArea).focus()
-        # initialize attachments container on the instance
-        self._attachments = []  # list of (type, path) tuples, type in ('photo','video')
+        textarea = self.query_one("#post-textarea", TextArea)
+        
+        # Load draft content if provided
+        if self.draft_content:
+            textarea.text = self.draft_content
+        
+        # Initialize attachments list
+        self._attachments = self.draft_attachments.copy() if self.draft_attachments else []
+        
+        # Update attachments display
+        self._update_attachments_display()
+        
+        textarea.focus()
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         btn_id = getattr(event.button, "id", None)
 
-        if btn_id == "attach-photo":
-            # open file dialog to select image
+        if btn_id == "attach-files":
+            self._show_status("📁 Opening file browser...")
+            # Implement camera capture here
+            # For now, we'll just open a file dialog as placeholder
+            try:
+                root = tk.Tk()
+                root.withdraw()
+                file_path = filedialog.askopenfilename(
+                    title="Select a file",
+                    filetypes=[
+                        ("All files", "*.*"),
+                        ("Images", "*.png *.jpg *.jpeg *.gif *.bmp"),
+                        ("Documents", "*.pdf *.doc *.docx *.txt")
+                    ]
+                )
+                root.destroy()
+                if file_path:
+                    self._attachments.append(("file", file_path))
+                    self._update_attachments_display()
+                    self._show_status("✓ File added!")
+            except Exception as e:
+                self._show_status(f"⚠ Error: {str(e)}", error=True)
+
+        elif btn_id == "attach-photo":
+            self._show_status("🖼️ Opening photo selector...")
             try:
                 root = tk.Tk()
                 root.withdraw()
@@ -407,81 +491,157 @@ class NewPostDialog(ModalScreen):
                 )
                 root.destroy()
                 if file_path:
-                    # optionally validate image via PIL
                     try:
                         Image.open(file_path).verify()
+                        self._attachments.append(("photo", file_path))
+                        self._update_attachments_display()
+                        self._show_status("✓ Photo added!")
                     except Exception:
-                        # still allow selecting, but notify user
-                        self.app.notify("Selected file may not be a valid image", severity="warning")
-                    self._attachments.append(("photo", file_path))
-                    self._update_attachments_display()
-            except Exception:
-                pass
-
-        elif btn_id == "attach-video":
-            # open file dialog to select video file
-            try:
-                root = tk.Tk()
-                root.withdraw()
-                file_path = filedialog.askopenfilename(
-                    title="Select a video",
-                    filetypes=[("Video files", "*.mp4 *.mov *.avi *.mkv *.webm")]
-                )
-                root.destroy()
-                if file_path:
-                    self._attachments.append(("video", file_path))
-                    self._update_attachments_display()
-            except Exception:
-                pass
+                        self._show_status("⚠ Invalid image file", error=True)
+            except Exception as e:
+                self._show_status(f"⚠ Error: {str(e)}", error=True)
 
         elif btn_id == "post-button":
-            textarea = self.query_one("#post-textarea", TextArea)
-            content = textarea.text.strip()
+            self._handle_post()
 
-            if not content and not self._attachments:
-                self.app.notify("Post cannot be empty", severity="warning")
-                return
-
-            # prepare attachments payload (paths) for API
-            attachments_payload = [
-                {"type": t, "path": p} for (t, p) in self._attachments
-            ]
-
-            # attempt to call API with attachments, fall back if signature differs
-            try:
-                # prefer create_post(content, attachments=...)
-                new_post = api.create_post(content, attachments=attachments_payload)
-            except TypeError:
-                try:
-                    # fallback: create_post(content, files)
-                    new_post = api.create_post(content, attachments_payload)
-                except Exception:
-                    # last resort: call without attachments
-                    new_post = api.create_post(content)
-
-            try:
-                self.app.notify("Post created successfully!", severity="success")
-            except Exception:
-                pass
-            self.dismiss(True)
+        elif btn_id == "draft-button":
+            self._handle_save_draft()
 
         elif btn_id == "cancel-button":
             self.dismiss(False)
 
+    def _handle_post(self) -> None:
+        """Handle posting the content."""
+        textarea = self.query_one("#post-textarea", TextArea)
+        content = textarea.text.strip()
+
+        if not content and not self._attachments:
+            self._show_status("⚠ Post cannot be empty!", error=True)
+            return
+
+        self._show_status("📤 Publishing post...")
+
+        # Prepare attachments payload
+        attachments_payload = [
+            {"type": t, "path": p} for (t, p) in self._attachments
+        ]
+
+        # Call API to create post
+        try:
+            new_post = api.create_post(content, attachments=attachments_payload)
+            self._show_status("✓ Post published successfully!")
+            try:
+                self.app.notify("📤 Post published!", severity="success")
+            except:
+                pass
+            self.dismiss(True)
+        except TypeError:
+            try:
+                new_post = api.create_post(content, attachments_payload)
+                self._show_status("✓ Post published successfully!")
+                try:
+                    self.app.notify("📤 Post published!", severity="success")
+                except:
+                    pass
+                self.dismiss(True)
+            except Exception as e:
+                # Fallback without attachments
+                try:
+                    new_post = api.create_post(content)
+                    self._show_status("✓ Post published (without attachments)")
+                    try:
+                        self.app.notify("📤 Post published!", severity="warning")
+                    except:
+                        pass
+                    self.dismiss(True)
+                except Exception as e:
+                    self._show_status(f"⚠ Error: {str(e)}", error=True)
+
+    def _handle_save_draft(self) -> None:
+        """Handle saving the post as a draft."""
+        textarea = self.query_one("#post-textarea", TextArea)
+        content = textarea.text.strip()
+
+        if not content and not self._attachments:
+            self._show_status("⚠ Draft cannot be empty!", error=True)
+            return
+
+        self._show_status("💾 Saving draft...")
+
+        # Save draft using the add_draft function
+        try:
+            add_draft(content, self._attachments)
+            self._show_status("✓ Draft saved!")
+            try:
+                self.app.notify("💾 Draft saved successfully!", severity="success")
+                # Post a custom message to refresh drafts everywhere
+                self.app.post_message(DraftsUpdated())
+            except:
+                pass
+            self.dismiss(False)
+        except Exception as e:
+            self._show_status(f"⚠ Error: {str(e)}", error=True)
+
     def _update_attachments_display(self) -> None:
+        """Update the attachments display area."""
         try:
             widget = self.query_one("#attachments-list", Static)
             if not self._attachments:
                 widget.update("")
                 return
-            lines = [f"Attachments:" ]
+            lines = ["📎 Attachments:"]
             for i, (t, p) in enumerate(self._attachments, start=1):
                 short = Path(p).name
-                lines.append(f"  {i}. [{t}] {short}")
+                icon = {"file": "📁", "photo": "🖼️"}.get(t, "📎")
+                lines.append(f"  {i}. {icon} {short}")
             widget.update("\n".join(lines))
         except Exception:
             pass
 
+    def _show_status(self, message: str, error: bool = False) -> None:
+        """Show a status message."""
+        try:
+            widget = self.query_one("#status-message", Static)
+            if error:
+                widget.styles.color = "#ff4444"
+            else:
+                widget.styles.color = "#4a9eff"
+            widget.update(message)
+            # Clear status after 3 seconds
+            self.set_timer(3, lambda: widget.update(""))
+        except Exception:
+            pass
+
+class DeleteDraftDialog(ModalScreen):
+    """Modal dialog for confirming draft deletion."""
+    
+    def __init__(self, draft_index: int):
+        super().__init__()
+        self.draft_index = draft_index
+    
+    def compose(self) -> ComposeResult:
+        with Container(id="dialog-container"):
+            yield Static("🗑️ Delete Draft?", id="dialog-title")
+            yield Static("Are you sure you want to delete this draft?", classes="dialog-message")
+            
+            with Container(id="action-buttons"):
+                yield Button("✓ Yes, Delete", variant="error", id="confirm-delete")
+                yield Button("❌ Cancel", id="cancel-delete")
+    
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        btn_id = getattr(event.button, "id", None)
+        
+        if btn_id == "confirm-delete":
+            delete_draft(self.draft_index)
+            try:
+                self.app.notify("🗑️ Draft deleted!", severity="success")
+                # Post message to refresh drafts everywhere
+                self.app.post_message(DraftsUpdated())
+            except:
+                pass
+            self.dismiss(True)
+        elif btn_id == "cancel-delete":
+            self.dismiss(False)
 
 # ───────── Screens ─────────
 
@@ -575,12 +735,10 @@ class TimelineFeed(VerticalScroll):
             self.cursor_position = 0
             event.prevent_default()
 
-
 class TimelineScreen(Container):
     def compose(self) -> ComposeResult:
         yield Sidebar(current="timeline", id="sidebar")
         yield TimelineFeed(id="timeline-feed")
-
 
 class DiscoverFeed(Container):
     query_text = reactive("")
@@ -596,7 +754,7 @@ class DiscoverFeed(Container):
                 "bio": "Software engineer and coffee enthusiast ☕ | Building cool stuff",
                 "followers": 1543,
                 "following": 892,
-                "ascii_pic": "  [●▓▓●]\n  |≈ ◡ ≈|\n  |▓███▓|"
+                "ascii_pic": "  [👀]\n  |≈ ◡ ≈|\n  |▓███▓|"
             },
             "jane smith": {
                 "username": "janesmith",
@@ -604,7 +762,7 @@ class DiscoverFeed(Container):
                 "bio": "Designer | Creative thinker | Love minimalism 🎨",
                 "followers": 2341,
                 "following": 456,
-                "ascii_pic": "  [◉▓▓◉]\n  |^ ▽ ^|\n  |▓███▓|"
+                "ascii_pic": "  [👀]\n  |^ ▽ ^|\n  |▓███▓|"
             },
             "alice wonder": {
                 "username": "alicewonder",
@@ -612,7 +770,7 @@ class DiscoverFeed(Container):
                 "bio": "Explorer of digital worlds | Tech blogger | Cat lover 🐱",
                 "followers": 987,
                 "following": 234,
-                "ascii_pic": "  [●▓▓●]\n  |◡ ω ◡|\n  |▓███▓|"
+                "ascii_pic": "  [👀]\n  |◡ ω ◡|\n  |▓███▓|"
             }
         }
 
@@ -679,12 +837,10 @@ class DiscoverFeed(Container):
         if event.input.id == "discover-search":
             self.query_text = event.value
 
-
 class DiscoverScreen(Container):
     def compose(self) -> ComposeResult:
         yield Sidebar(current="discover", id="sidebar")
         yield DiscoverFeed(id="discover-feed")
-
 
 class NotificationsFeed(VerticalScroll):
     def compose(self) -> ComposeResult:
@@ -696,12 +852,10 @@ class NotificationsFeed(VerticalScroll):
             yield NotificationItem(notif, classes="notification-item")
         yield Static("\n[↑] Previous [n] Next [m] Mark Read [Enter] Open [q] Quit", classes="help-text", markup=False)
 
-
 class NotificationsScreen(Container):
     def compose(self) -> ComposeResult:
         yield Sidebar(current="notifications", id="sidebar")
         yield NotificationsFeed(id="notifications-feed")
-
 
 class ConversationsList(VerticalScroll):
     cursor_position = reactive(0)
@@ -793,15 +947,20 @@ class ConversationsList(VerticalScroll):
             self.cursor_position = 0
             event.prevent_default()
 
-
 class ChatView(VerticalScroll):
-    conversation_id = "c1"
+    conversation_id = reactive("c1")
+    conversation_username = reactive("alice")
     cursor_position = reactive(0)
+
+    def __init__(self, conversation_id: str = "c1", username: str = "alice", **kwargs):
+        super().__init__(**kwargs)
+        self.conversation_id = conversation_id
+        self.conversation_username = username
 
     def compose(self) -> ComposeResult:
         self.border_title = "Chat [0]"
         messages = api.get_conversation_messages(self.conversation_id)
-        yield Static("@alice | conversation", classes="panel-header")
+        yield Static(f"@{self.conversation_username} | conversation", classes="panel-header")
         for msg in messages:
             yield ChatMessage(msg, classes="chat-message")
         yield Static("-- INSERT --", classes="mode-indicator")
@@ -857,19 +1016,49 @@ class ChatView(VerticalScroll):
         messages = self.query(".chat-message")
         self.cursor_position = max(0, len(messages) - 1)
 
-
 class MessagesScreen(Container):
+    def __init__(self, username: str = None, **kwargs):
+        super().__init__(**kwargs)
+        self.dm_username = username
+    
     def compose(self) -> ComposeResult:
         yield Sidebar(current="messages", id="sidebar")
         yield ConversationsList(id="conversations")
-        yield ChatView(id="chat")
+        
+        # If a specific username is provided, open chat with them
+        if self.dm_username:
+            # Create a new conversation ID for this user
+            conv_id = f"dm-{self.dm_username}"
+            yield ChatView(conversation_id=conv_id, username=self.dm_username, id="chat")
+        else:
+            yield ChatView(id="chat")
 
     def on_mount(self) -> None:
-        """Add border to conversations list"""
+        """Add border to conversations list and update chat if DM"""
         conversations = self.query_one("#conversations", ConversationsList)
         conversations.border_title = "Messages [6]"
         conversations.border = "round #4a9eff"
-
+        
+        # If opening a DM, update the chat header
+        if self.dm_username:
+            try:
+                chat = self.query_one("#chat", ChatView)
+                # Update the header to show we're chatting with this user
+                header = chat.query_one(".panel-header", Static)
+                header.update(f"@{self.dm_username} | new conversation")
+                
+                # Focus the message input
+                self.call_after_refresh(self._focus_message_input)
+            except:
+                pass
+    
+    def _focus_message_input(self):
+        """Focus the message input for new DM"""
+        try:
+            msg_input = self.query_one("#message-input", Input)
+            msg_input.focus()
+        except:
+            pass
 
 class SettingsPanel(VerticalScroll):
     cursor_position = reactive(0)
@@ -892,14 +1081,14 @@ class SettingsPanel(VerticalScroll):
         gitlab_status = "Connected" if settings.gitlab_connected else "[:c] Connect"
         google_status = "Connected" if settings.google_connected else "[:c] Connect"
         discord_status = "Connected" if settings.discord_connected else "[:c] Connect"
-        yield Static(f"  [●] GitHub                                              {github_status}", classes="oauth-item")
-        yield Static(f"  [○] GitLab                                              {gitlab_status}", classes="oauth-item")
-        yield Static(f"  [○] Google                                              {google_status}", classes="oauth-item")
-        yield Static(f"  [○] Discord                                             {discord_status}", classes="oauth-item")
+        yield Static(f"  [🟢] GitHub                                              {github_status}", classes="oauth-item")
+        yield Static(f"  [⚪] GitLab                                              {gitlab_status}", classes="oauth-item")
+        yield Static(f"  [⚪] Google                                              {google_status}", classes="oauth-item")
+        yield Static(f"  [⚪] Discord                                             {discord_status}", classes="oauth-item")
         yield Static("\n→ Preferences", classes="settings-section-header")
-        email_check = "☑" if settings.email_notifications else "☐"
-        online_check = "☑" if settings.show_online_status else "☐"
-        private_check = "☑" if settings.private_account else "☐"
+        email_check = "✅" if settings.email_notifications else "⬜"
+        online_check = "✅" if settings.show_online_status else "⬜"
+        private_check = "✅" if settings.private_account else "⬜"
         yield Static(f"  {email_check} Email notifications", classes="checkbox-item")
         yield Static(f"  {online_check} Show online status", classes="checkbox-item")
         yield Static(f"  {private_check} Private account", classes="checkbox-item")
@@ -1016,12 +1205,10 @@ class SettingsPanel(VerticalScroll):
             except Exception:
                 pass
 
-
 class SettingsScreen(Container):
     def compose(self) -> ComposeResult:
         yield Sidebar(current="settings", id="sidebar")
         yield SettingsPanel(id="settings-panel")
-
 
 class ProfilePanel(VerticalScroll):
     cursor_position = reactive(0)
@@ -1105,12 +1292,246 @@ class ProfilePanel(VerticalScroll):
         items = list(self.query(".profile-stat-item"))
         self.cursor_position = max(0, len(items) - 1)
 
-
 class ProfileScreen(Container):
     def compose(self) -> ComposeResult:
         yield Sidebar(current="profile", id="sidebar")
         yield ProfilePanel(id="profile-panel")
 
+class UserProfileViewPanel(VerticalScroll):
+    """Panel for viewing another user's profile."""
+    
+    is_following = reactive(False)
+    
+    def __init__(self, username: str, **kwargs):
+        super().__init__(**kwargs)
+        self.username = username
+    
+    def compose(self) -> ComposeResult:
+        self.border_title = f"@{self.username} [0]"
+        
+        # Get user data from the dummy users or generate fake data
+        user_data = self._get_user_data()
+        
+        yield Static(f"profile | @{self.username} | line 1", classes="panel-header")
+        
+        profile_container = Container(classes="profile-center-container")
+        
+        with profile_container:
+            yield Static(user_data['ascii_pic'], classes="profile-avatar-large")
+            yield Static(f"{user_data['display_name']}", classes="profile-name-large")
+            yield Static(f"@{self.username}", classes="profile-username-display")
+            
+            stats_row = Container(classes="profile-stats-row")
+            with stats_row:
+                yield Static(f"{user_data['posts_count']}\nPosts", classes="profile-stat-item")
+                yield Static(f"{user_data['following']}\nFollowing", classes="profile-stat-item")
+                yield Static(f"{user_data['followers']}\nFollowers", classes="profile-stat-item")
+            yield stats_row
+            
+            bio_container = Container(classes="profile-bio-container")
+            bio_container.border_title = "Bio"
+            with bio_container:
+                yield Static(f"{user_data['bio']}", classes="profile-bio-display")
+            yield bio_container
+            
+            # Action buttons
+            buttons_container = Container(classes="profile-action-buttons")
+            with buttons_container:
+                follow_btn = Button("👥 Follow", id="follow-user-btn", classes="profile-action-btn")
+                yield follow_btn
+                yield Button("💬 Message", id="message-user-btn", classes="profile-action-btn")
+            yield buttons_container
+        
+        yield profile_container
+        
+        # Recent posts section
+        yield Static("\n→ Recent Posts", classes="section-header")
+        posts = self._get_user_posts()
+        for post in posts:
+            yield PostItem(post, classes="post-item")
+        
+        yield Static("\n[Esc] Back  [:f] Follow  [:m] Message", classes="help-text", markup=False)
+    
+    def _get_user_data(self) -> Dict:
+        """Get or generate user data."""
+        # Check if this is one of our dummy users
+        try:
+            discover_feed = self.app.query_one("#discover-feed", DiscoverFeed)
+            
+            for name, data in discover_feed._dummy_users.items():
+                if data['username'] == self.username:
+                    return {
+                        'display_name': data['display_name'],
+                        'bio': data['bio'],
+                        'followers': data['followers'],
+                        'following': data['following'],
+                        'ascii_pic': data['ascii_pic'],
+                        'posts_count': 42  # Fake post count
+                    }
+        except:
+            pass
+        
+        # Generate fake data for other users
+        return {
+            'display_name': self.username.replace('_', ' ').title(),
+            'bio': f"Hi! I'm {self.username}. Welcome to my profile! 👋",
+            'followers': 156,
+            'following': 89,
+            'ascii_pic': "  [👀]\n  |◠ ◡ ◠|\n  |▓███▓|",
+            'posts_count': 28
+        }
+    
+    def _get_user_posts(self) -> List:
+        """Get fake posts from this user."""
+        from api_interface import Post
+        
+        # Generate 3 fake posts
+        posts = []
+        for i in range(3):
+            post = Post(
+                id=f"fake-{self.username}-{i}",
+                author=self.username,
+                content=f"This is a sample post from @{self.username}! Post #{i+1}",
+                timestamp=datetime.now(),
+                likes=10 + i * 5,
+                reposts=2 + i,
+                comments=3 + i,
+                liked_by_user=False,
+                reposted_by_user=False
+            )
+            posts.append(post)
+        
+        return posts
+    
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        """Handle button presses."""
+        btn_id = event.button.id
+        
+        if btn_id == "follow-user-btn":
+            # Toggle follow state
+            self.is_following = not self.is_following
+            
+            # Update button text and styling
+            try:
+                follow_btn = self.query_one("#follow-user-btn", Button)
+                if self.is_following:
+                    follow_btn.label = "✓ Following"
+                    follow_btn.add_class("following")
+                    # Increment following count in user profile
+                    current_user = api.get_current_user()
+                    current_user.following += 1
+                    self.app.notify(f"✓ Following @{self.username}!", severity="success")
+                else:
+                    follow_btn.label = "👥 Follow"
+                    follow_btn.remove_class("following")
+                    # Decrement following count in user profile
+                    current_user = api.get_current_user()
+                    current_user.following -= 1
+                    self.app.notify(f"Unfollowed @{self.username}", severity="info")
+            except:
+                pass
+        elif btn_id == "message-user-btn":
+            # Open DM with this user
+            self.app.action_open_dm(self.username)
+
+class UserProfileViewScreen(Container):
+    """Screen for viewing another user's profile."""
+    
+    def __init__(self, username: str, **kwargs):
+        super().__init__(**kwargs)
+        self.username = username
+    
+    def compose(self) -> ComposeResult:
+        yield Sidebar(current="discover", id="sidebar")
+        yield UserProfileViewPanel(username=self.username, id="user-profile-panel")
+
+class DraftsPanel(VerticalScroll):
+    """Main panel for viewing all drafts."""
+    
+    def compose(self) -> ComposeResult:
+        self.border_title = "Drafts [0]"
+        drafts = load_drafts()
+        
+        yield Static(f"drafts.all | {len(drafts)} saved | line 1", classes="panel-header")
+        
+        if not drafts:
+            yield Static("\n📝 No drafts saved yet\n\nPress :n to create a new post", 
+                        classes="no-drafts-message")
+        else:
+            # Show most recent first
+            for i, draft in enumerate(reversed(drafts)):
+                actual_index = len(drafts) - 1 - i
+                yield self._create_draft_box(draft, actual_index)
+        
+        yield Static("\n[:o#] Open draft  [:x#] Delete draft  [Esc] Back", 
+                    classes="help-text", markup=False)
+    
+    def _create_draft_box(self, draft: Dict, index: int) -> Container:
+        """Create a nice box for displaying a draft."""
+        box = Container(classes="draft-box")
+        box.border = "round"
+        box.border_title = f"💾 Draft {index + 1}"
+        
+        # Header with timestamp
+        time_ago = format_time_ago(draft['timestamp'])
+        box.mount(Static(f"⏰ Saved {time_ago}", classes="draft-timestamp"))
+        
+        # Content preview
+        content = draft['content']
+        preview = content if len(content) <= 200 else content[:200] + "..."
+        box.mount(Static(preview, classes="draft-content-preview"))
+        
+        # Attachments info
+        attachments = draft.get('attachments', [])
+        if attachments:
+            attach_text = f"📎 {len(attachments)} attachment(s)"
+            box.mount(Static(attach_text, classes="draft-attachments-info"))
+        
+        # Action buttons
+        actions_container = Container(classes="draft-actions")
+        actions_container.mount(Button(f"✏️ Open", id=f"open-draft-{index}", classes="draft-action-btn"))
+        actions_container.mount(Button(f"🗑️ Delete", id=f"delete-draft-{index}", classes="draft-action-btn-delete"))
+        box.mount(actions_container)
+        
+        return box
+    
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        """Handle draft action buttons."""
+        btn_id = event.button.id
+        
+        if btn_id and btn_id.startswith("open-draft-"):
+            index = int(btn_id.split("-")[-1])
+            self.app.action_open_draft(index)
+        elif btn_id and btn_id.startswith("delete-draft-"):
+            index = int(btn_id.split("-")[-1])
+            self.app.push_screen(DeleteDraftDialog(index))
+    
+    def on_drafts_updated(self, message: DraftsUpdated) -> None:
+        """Handle drafts updated message - refresh the panel."""
+        # Remove all children and re-compose
+        self.remove_children()
+        drafts = load_drafts()
+        
+        self.mount(Static(f"drafts.all | {len(drafts)} saved | line 1", classes="panel-header"))
+        
+        if not drafts:
+            self.mount(Static("\n📝 No drafts saved yet\n\nPress :n to create a new post", 
+                        classes="no-drafts-message"))
+        else:
+            # Show most recent first
+            for i, draft in enumerate(reversed(drafts)):
+                actual_index = len(drafts) - 1 - i
+                self.mount(self._create_draft_box(draft, actual_index))
+        
+        self.mount(Static("\n[:o#] Open draft  [:x#] Delete draft  [Esc] Back", 
+                    classes="help-text", markup=False))
+
+class DraftsScreen(Container):
+    """Screen for viewing and managing all drafts."""
+    
+    def compose(self) -> ComposeResult:
+        yield Sidebar(current="drafts", id="sidebar")
+        yield DraftsPanel(id="drafts-panel")
 
 class Proj101App(App):
     CSS_PATH = "main.tcss"
@@ -1162,8 +1583,8 @@ class Proj101App(App):
         yield Static(":↑↓ Navigate [0] Main [1-5] Sidebar [n] New Post [f] Follow [/] Search [?] Help", id="app-footer", markup=False)
         yield Input(id="command-input", classes="command-bar")
 
-    def switch_screen(self, screen_name: str):
-        if screen_name == self.current_screen_name:
+    def switch_screen(self, screen_name: str, **kwargs):
+        if screen_name == self.current_screen_name and not kwargs:
             return
         screen_map = {
             "timeline": (TimelineScreen, ":[0] Main [1-5] Sidebar [↑↓] Navigate [n] New Post [f] Follow [/] Search [?] Help"),
@@ -1172,18 +1593,34 @@ class Proj101App(App):
             "messages": (MessagesScreen, ":[0] Chat [6] Messages [1-5] Sidebar [i] Insert [j/k] Navigate [Enter] Open [Esc] Exit"),
             "profile": (ProfileScreen, ":[0] Main [1-5] Sidebar [:e] Edit Profile [Esc] Back"),
             "settings": (SettingsScreen, ":[0] Main [1-5] Sidebar [w] Save [:e] Edit field [Tab] Next field [Esc] Cancel"),
+            "drafts": (DraftsScreen, ":[0] Main [:D] View Drafts [:o#] Open [:x#] Delete [Esc] Back"),
+            "user_profile": (UserProfileViewScreen, ":[0] Main [1-5] Sidebar [:f] Follow [:m] Message [Esc] Back"),
         }
         if screen_name in screen_map:
             for container in self.query("#screen-container"):
                 container.remove()
             ScreenClass, footer_text = screen_map[screen_name]
-            self.call_after_refresh(self.mount, ScreenClass(id="screen-container"))
-            self.query_one("#app-header", Static).update(f"proj101 [{screen_name}] @yourname")
+            self.call_after_refresh(self.mount, ScreenClass(id="screen-container", **kwargs))
+            
+            # Update header based on screen
+            if screen_name == "user_profile" and 'username' in kwargs:
+                self.query_one("#app-header", Static).update(f"proj101 [@{kwargs['username']}] @yourname")
+            elif screen_name == "messages" and 'username' in kwargs:
+                self.query_one("#app-header", Static).update(f"proj101 [dm:@{kwargs['username']}] @yourname")
+            else:
+                self.query_one("#app-header", Static).update(f"proj101 [{screen_name}] @yourname")
+            
             self.query_one("#app-footer", Static).update(footer_text)
             self.current_screen_name = screen_name
             try:
                 sidebar = self.query_one("#sidebar", Sidebar)
-                sidebar.update_active(screen_name)
+                # For user profile view, highlight discover in sidebar
+                if screen_name == "user_profile":
+                    sidebar.update_active("discover")
+                elif screen_name == "messages":
+                    sidebar.update_active("messages")
+                else:
+                    sidebar.update_active(screen_name)
             except Exception:
                 pass
 
@@ -1221,6 +1658,28 @@ class Proj101App(App):
     def action_show_settings(self) -> None:
         self.switch_screen("settings")
         self.action_focus_main_content()
+    
+    def action_show_drafts(self) -> None:
+        """Show the drafts screen."""
+        self.switch_screen("drafts")
+        self.action_focus_main_content()
+    
+    def action_view_user_profile(self, username: str) -> None:
+        """View another user's profile."""
+        self.switch_screen("user_profile", username=username)
+        self.action_focus_main_content()
+    
+    def action_open_dm(self, username: str) -> None:
+        """Open a DM with a specific user."""
+        try:
+            self.notify(f"💬 Opening chat with @{username}...", severity="info")
+        except:
+            pass
+        
+        # Switch to messages screen with this specific user
+        self.switch_screen("messages", username=username)
+        
+        # Focus will be set in MessagesScreen.on_mount()
 
     def action_focus_navigation(self) -> None:
         try:
@@ -1246,6 +1705,10 @@ class Proj101App(App):
                 target_id = "#settings-panel"
             elif self.current_screen_name == "profile":
                 target_id = "#profile-panel"
+            elif self.current_screen_name == "drafts":
+                target_id = "#drafts-panel"
+            elif self.current_screen_name == "user_profile":
+                target_id = "#user-profile-panel"
 
             if target_id:
                 panel = self.query_one(target_id)
@@ -1406,6 +1869,23 @@ class Proj101App(App):
                 self.switch_screen("profile")
             elif command == "n":
                 self.action_new_post()
+            elif command == "D" or command.upper() == "D":
+                # Open drafts screen
+                self.action_show_drafts()
+            elif command.startswith("o") and len(command) > 1:
+                # Open draft by index (e.g., :o0, :o1)
+                try:
+                    draft_index = int(command[1:])
+                    self.action_open_draft(draft_index)
+                except:
+                    self.notify("Invalid draft index", severity="error")
+            elif command.startswith("x") and len(command) > 1:
+                # Delete draft by index (e.g., :x0, :x1)
+                try:
+                    draft_index = int(command[1:])
+                    self.push_screen(DeleteDraftDialog(draft_index))
+                except:
+                    self.notify("Invalid draft index", severity="error")
 
     def action_new_post(self) -> None:
         """Show the new post dialog."""
@@ -1415,6 +1895,49 @@ class Proj101App(App):
                     self.switch_screen("timeline")
 
         self.push_screen(NewPostDialog(), check_refresh)
+    
+    def action_open_draft(self, draft_index: int) -> None:
+        """Open a draft in the new post dialog."""
+        try:
+            drafts = load_drafts()
+            if 0 <= draft_index < len(drafts):
+                draft = drafts[draft_index]
+                
+                def check_refresh(result):
+                    if result:
+                        # Post was published, delete the draft
+                        delete_draft(draft_index)
+                        try:
+                            # Post message to refresh drafts everywhere
+                            self.post_message(DraftsUpdated())
+                        except:
+                            pass
+                        if self.current_screen_name == "timeline":
+                            self.switch_screen("timeline")
+                        elif self.current_screen_name == "drafts":
+                            self.switch_screen("drafts")
+                    else:
+                        # Dialog was closed without posting, refresh drafts in case it was saved
+                        try:
+                            # Post message to refresh drafts everywhere
+                            self.post_message(DraftsUpdated())
+                        except:
+                            pass
+                        # Refresh drafts screen if we're on it
+                        if self.current_screen_name == "drafts":
+                            self.switch_screen("drafts")
+                
+                self.push_screen(
+                    NewPostDialog(
+                        draft_content=draft['content'],
+                        draft_attachments=draft.get('attachments', [])
+                    ),
+                    check_refresh
+                )
+            else:
+                self.notify("Draft not found", severity="error")
+        except Exception as e:
+            self.notify(f"Error opening draft: {str(e)}", severity="error")
 
     def on_key(self, event) -> None:
         if event.key == "escape" and self.command_mode:
@@ -1426,7 +1949,6 @@ class Proj101App(App):
                 event.prevent_default()
             except Exception:
                 pass
-
 
 if __name__ == "__main__":
     Proj101App().run()
