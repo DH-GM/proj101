@@ -1,21 +1,33 @@
-/* Auth screen layout */
-#auth-center {
-    width: 1fr;
-    height: 1fr;
+#auth-wrapper {
     align: center middle;
-    padding: 0 10;
-    margin: 0 10;
+}
+
+#auth-center {
+    border: ascii white;
+    height: 9;
+    width: 40;
 }
 
 #auth-title {
-    padding: 1 4;
-    margin: 1 10;
+    margin-top: 1;
+    text-align: center;
+    content-align-horizontal: center;
 }
 
-Button#oauth-signin {
-    padding: 2 6;
-    margin: 2 10;
-    border: solid #4a9eff;
+#oauth-signin-container {
+    content-align-horizontal: center;
+    align: center middle;
+    margin-top: 1;
+}
+
+#oauth-signin {
+    background: white;
+    color: black;
+}
+
+#quit-label {
+    align: left bottom;
+    margin: 1 2;
 }
 
 Button.danger {
@@ -26,18 +38,6 @@ Button.danger {
     margin: 1 2;
 }
 
-#oauth-status {
-    padding: 1 2;
-    margin: 1 10;
-}
-
-/* Global Styles */
-Screen {
-    background: #1a1a1a;
-    color: #e0e0e0;
-}
-
-/* App Header */
 #app-header {
     dock: top;
     height: 1;
@@ -48,7 +48,6 @@ Screen {
     text-style: bold;
 }
 
-/* App Footer */
 #app-footer {
     dock: bottom;
     height: 1;
@@ -58,13 +57,11 @@ Screen {
     content-align: left middle;
 }
 
-/* Main Layout Containers */
 TimelineScreen, DiscoverScreen, NotificationsScreen, MessagesScreen, SettingsScreen, ProfileScreen {
     layout: horizontal;
     height: 2fr;
 }
 
-/* Command Bar */
 #command-input {
     dock: bottom;
     height: 1;

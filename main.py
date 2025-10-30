@@ -44,10 +44,13 @@ class AuthScreen(Container):
 
     def compose(self) -> ComposeResult:
         # Minimal auth screen: centered sign-in button
-        with Container(id="auth-center"):
-            yield Static("Sign in with Cognito (OAuth2)", id="auth-title", classes="signin")
-            yield Button("Sign In", id="oauth-signin", classes="upload-profile-picture")
-            yield Static("press q to quit", id="oauth-status", classes="signin")
+        with Container(id="auth-wrapper"):
+            with Container(id="auth-center"):
+                yield Static("Continue in your browser", id="auth-title", classes="signin")
+                with Container(id="oauth-signin-container"):
+                    yield Button("Sign In", id="oauth-signin", classes="signin")
+        
+        yield Static("press q to quit", id="quit-label", classes="signin")
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "oauth-signin":
@@ -1195,7 +1198,7 @@ class Proj101App(App):
     def compose(self) -> ComposeResult:
         # Check if tokens exist - if not, show auth screen
         if not Path("oauth_tokens.json").exists():
-            yield AuthScreen(id="screen-container")
+            yield AuthScreen()
         else:
             yield Static("proj101 [timeline] @yourname", id="app-header", markup=False)
             yield TimelineScreen(id="screen-container")
