@@ -1406,6 +1406,22 @@ class Proj101App(App):
                 self.switch_screen("profile")
             elif command == "n":
                 self.action_new_post()
+            elif command == "l":
+                # Like the currently focused post in timeline
+                if self.current_screen_name == "timeline":
+                    try:
+                        timeline_feed = self.query_one("#timeline-feed")
+                        items = list(timeline_feed.query(".post-item"))
+                        idx = getattr(timeline_feed, "cursor_position", 0)
+                        if 0 <= idx < len(items):
+                            post_item = items[idx]
+                            post = getattr(post_item, "post", None)
+                            if post:
+                                api.like_post(post.id)
+                                # Refresh timeline
+                                self.switch_screen("timeline")
+                    except Exception:
+                        pass
 
     def action_new_post(self) -> None:
         """Show the new post dialog."""
