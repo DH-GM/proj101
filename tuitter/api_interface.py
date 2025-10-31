@@ -14,6 +14,7 @@ from pathlib import Path
 
 # === lightweight data objects used by the UI ===
 from dataclasses import dataclass
+from tuitter.data_models import Notification
 import os
 import requests
 from requests import Session
@@ -64,15 +65,7 @@ class Conversation:
     unread: bool = False
 
 
-@dataclass
-class Notification:
-    id: str
-    type: str  # 'mention', 'like', 'repost', 'follow', 'comment'
-    actor: str
-    content: str
-    timestamp: datetime
-    read: bool = False
-    related_post: Optional[str] = None
+
 
 
 class Comment:
@@ -667,7 +660,9 @@ class RealAPI(APIInterface):
             {"unread_only": str(bool(unread_only)).lower()} if unread_only else None
         )
         data = self._get("/notifications", params=params)
-        return [Notification(**n) for n in data]
+        notif_fields = Notification.__dataclass_fields__.keys()
+        filtered = [{k: v for k, v in n.items() if k in notif_fields} for n in data]
+        return [Notification(**n) for n in filtered]
 
     def mark_notification_read(self, notification_id: str) -> bool:
         self._post(f"/notifications/{notification_id}/read")

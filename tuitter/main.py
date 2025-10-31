@@ -261,7 +261,13 @@ class NotificationItem(Static):
             self.add_class("unread")
 
     def render(self) -> str:
-        t = format_time_ago(self.notification.timestamp)
+        ts = self.notification.timestamp
+        if isinstance(ts, str):
+            try:
+                ts = datetime.fromisoformat(ts)
+            except Exception:
+                ts = datetime.now()
+        t = format_time_ago(ts)
         icon = {
             "mention": "●",
             "like": "♥",
