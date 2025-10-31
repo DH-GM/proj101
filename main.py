@@ -1,7 +1,7 @@
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Container, Horizontal, Vertical, VerticalScroll, ScrollableContainer
-from textual.widgets import Static, Input, Button, TextArea
+from textual.widgets import Static, Input, Button, TextArea, Label, RichLog
 from textual.reactive import reactive
 from textual.screen import ModalScreen
 from textual.message import Message
@@ -16,6 +16,7 @@ from PIL import Image
 from ascii_video_widget import ASCIIVideoPlayer
 import json
 from typing import List, Dict
+from rich.text import Text
 
 # Custom message for draft updates
 class DraftsUpdated(Message):
@@ -48,7 +49,7 @@ def save_drafts(drafts: List[Dict]) -> None:
             draft_copy = draft.copy()
             draft_copy['timestamp'] = draft['timestamp'].isoformat()
             drafts_to_save.append(draft_copy)
-        
+
         with open(DRAFTS_FILE, 'w') as f:
             json.dump(drafts_to_save, f, indent=2)
     except Exception as e:
@@ -57,24 +58,24 @@ def save_drafts(drafts: List[Dict]) -> None:
 def add_draft(content: str, attachments: List = None) -> None:
     """Add a new draft and maintain max 2 drafts."""
     drafts = load_drafts()
-    
+
     # Create new draft
     new_draft = {
         "content": content,
         "attachments": attachments or [],
         "timestamp": datetime.now()
     }
-    
+
     # Add new draft
     drafts.append(new_draft)
-    
+
     # Sort by timestamp (oldest first)
     drafts.sort(key=lambda x: x['timestamp'])
-    
+
     # Keep only the 2 most recent drafts
     if len(drafts) > 2:
         drafts = drafts[-2:]
-    
+
     save_drafts(drafts)
 
 def delete_draft(index: int) -> None:
@@ -133,23 +134,23 @@ class CommandItem(Static):
 
 class DraftItem(Static):
     """Display a saved draft in sidebar."""
-    
+
     def __init__(self, draft: Dict, index: int, **kwargs):
         super().__init__(**kwargs)
         self.draft = draft
         self.draft_index = index
         self.border = "round"
         self.border_title = f"Draft {index + 1}"
-    
+
     def render(self) -> str:
         """Render the draft item as text."""
         content = self.draft['content'][:40] + "..." if len(self.draft['content']) > 40 else self.draft['content']
         time_ago = format_time_ago(self.draft['timestamp'])
         attachments_count = len(self.draft.get('attachments', []))
         attach_text = f" 📎{attachments_count}" if attachments_count > 0 else ""
-        
+
         return f"⏰ {time_ago}\n{content}{attach_text}\n\n✏️ Open  🗑️ Delete"
-    
+
     def on_click(self) -> None:
         """Handle click on draft item - for now just open it."""
         self.app.action_open_draft(self.draft_index)
@@ -277,7 +278,7 @@ class UserProfileCard(Static):
                 yield Static(self.display_name, classes="user-card-name")
                 # Make username clickable as a button-like widget
                 yield Button(f"@{self.username}", id=f"username-{self.username}", classes="user-card-username-btn")
-                
+
                 yield Static(self.bio, classes="user-card-bio")
 
                 stats_container = Container(classes="user-card-stats")
@@ -295,11 +296,11 @@ class UserProfileCard(Static):
             yield info_container
 
         yield card_container
-    
+
     def on_button_pressed(self, event: Button.Pressed) -> None:
         """Handle button clicks."""
         btn_id = event.button.id
-        
+
         if btn_id == f"view-{self.username}" or btn_id == f"username-{self.username}":
             self.app.action_view_user_profile(self.username)
         elif btn_id == f"follow-{self.username}":
@@ -384,7 +385,7 @@ class Sidebar(VerticalScroll):
                 nav_item.set_active(nav_item.screen_name == screen_name)
             except Exception:
                 pass
-    
+
     def refresh_drafts(self):
         """Refresh the drafts display."""
         try:
@@ -393,7 +394,7 @@ class Sidebar(VerticalScroll):
             # Remove all draft items
             for item in drafts_container.query(".draft-item, .no-drafts-text"):
                 item.remove()
-            
+
             # Add updated drafts
             drafts = load_drafts()
             if drafts:
@@ -404,7 +405,7 @@ class Sidebar(VerticalScroll):
                 drafts_container.mount(Static("No drafts\n\nPress :n to create", classes="no-drafts-text"))
         except Exception as e:
             print(f"Error refreshing drafts: {e}")
-    
+
     def on_drafts_updated(self, message: DraftsUpdated) -> None:
         """Handle drafts updated message."""
         self.refresh_drafts()
@@ -441,17 +442,17 @@ class NewPostDialog(ModalScreen):
     def on_mount(self) -> None:
         """Focus the textarea when dialog opens."""
         textarea = self.query_one("#post-textarea", TextArea)
-        
+
         # Load draft content if provided
         if self.draft_content:
             textarea.text = self.draft_content
-        
+
         # Initialize attachments list
         self._attachments = self.draft_attachments.copy() if self.draft_attachments else []
-        
+
         # Update attachments display
         self._update_attachments_display()
-        
+
         textarea.focus()
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
@@ -614,23 +615,23 @@ class NewPostDialog(ModalScreen):
 
 class DeleteDraftDialog(ModalScreen):
     """Modal dialog for confirming draft deletion."""
-    
+
     def __init__(self, draft_index: int):
         super().__init__()
         self.draft_index = draft_index
-    
+
     def compose(self) -> ComposeResult:
         with Container(id="dialog-container"):
             yield Static("🗑️ Delete Draft?", id="dialog-title")
             yield Static("Are you sure you want to delete this draft?", classes="dialog-message")
-            
+
             with Container(id="action-buttons"):
                 yield Button("✓ Yes, Delete", variant="error", id="confirm-delete")
                 yield Button("❌ Cancel", id="cancel-delete")
-    
+
     def on_button_pressed(self, event: Button.Pressed) -> None:
         btn_id = getattr(event.button, "id", None)
-        
+
         if btn_id == "confirm-delete":
             delete_draft(self.draft_index)
             try:
@@ -1020,11 +1021,11 @@ class MessagesScreen(Container):
     def __init__(self, username: str = None, **kwargs):
         super().__init__(**kwargs)
         self.dm_username = username
-    
+
     def compose(self) -> ComposeResult:
         yield Sidebar(current="messages", id="sidebar")
         yield ConversationsList(id="conversations")
-        
+
         # If a specific username is provided, open chat with them
         if self.dm_username:
             # Create a new conversation ID for this user
@@ -1038,7 +1039,7 @@ class MessagesScreen(Container):
         conversations = self.query_one("#conversations", ConversationsList)
         conversations.border_title = "Messages [6]"
         conversations.border = "round #4a9eff"
-        
+
         # If opening a DM, update the chat header
         if self.dm_username:
             try:
@@ -1046,12 +1047,12 @@ class MessagesScreen(Container):
                 # Update the header to show we're chatting with this user
                 header = chat.query_one(".panel-header", Static)
                 header.update(f"@{self.dm_username} | new conversation")
-                
+
                 # Focus the message input
                 self.call_after_refresh(self._focus_message_input)
             except:
                 pass
-    
+
     def _focus_message_input(self):
         """Focus the message input for new DM"""
         try:
@@ -1299,41 +1300,41 @@ class ProfileScreen(Container):
 
 class UserProfileViewPanel(VerticalScroll):
     """Panel for viewing another user's profile."""
-    
+
     is_following = reactive(False)
-    
+
     def __init__(self, username: str, **kwargs):
         super().__init__(**kwargs)
         self.username = username
-    
+
     def compose(self) -> ComposeResult:
         self.border_title = f"@{self.username} [0]"
-        
+
         # Get user data from the dummy users or generate fake data
         user_data = self._get_user_data()
-        
+
         yield Static(f"profile | @{self.username} | line 1", classes="panel-header")
-        
+
         profile_container = Container(classes="profile-center-container")
-        
+
         with profile_container:
             yield Static(user_data['ascii_pic'], classes="profile-avatar-large")
             yield Static(f"{user_data['display_name']}", classes="profile-name-large")
             yield Static(f"@{self.username}", classes="profile-username-display")
-            
+
             stats_row = Container(classes="profile-stats-row")
             with stats_row:
                 yield Static(f"{user_data['posts_count']}\nPosts", classes="profile-stat-item")
                 yield Static(f"{user_data['following']}\nFollowing", classes="profile-stat-item")
                 yield Static(f"{user_data['followers']}\nFollowers", classes="profile-stat-item")
             yield stats_row
-            
+
             bio_container = Container(classes="profile-bio-container")
             bio_container.border_title = "Bio"
             with bio_container:
                 yield Static(f"{user_data['bio']}", classes="profile-bio-display")
             yield bio_container
-            
+
             # Action buttons
             buttons_container = Container(classes="profile-action-buttons")
             with buttons_container:
@@ -1341,23 +1342,23 @@ class UserProfileViewPanel(VerticalScroll):
                 yield follow_btn
                 yield Button("💬 Message", id="message-user-btn", classes="profile-action-btn")
             yield buttons_container
-        
+
         yield profile_container
-        
+
         # Recent posts section
         yield Static("\n→ Recent Posts", classes="section-header")
         posts = self._get_user_posts()
         for post in posts:
             yield PostItem(post, classes="post-item")
-        
+
         yield Static("\n[Esc] Back  [:f] Follow  [:m] Message", classes="help-text", markup=False)
-    
+
     def _get_user_data(self) -> Dict:
         """Get or generate user data."""
         # Check if this is one of our dummy users
         try:
             discover_feed = self.app.query_one("#discover-feed", DiscoverFeed)
-            
+
             for name, data in discover_feed._dummy_users.items():
                 if data['username'] == self.username:
                     return {
@@ -1370,7 +1371,7 @@ class UserProfileViewPanel(VerticalScroll):
                     }
         except:
             pass
-        
+
         # Generate fake data for other users
         return {
             'display_name': self.username.replace('_', ' ').title(),
@@ -1380,11 +1381,11 @@ class UserProfileViewPanel(VerticalScroll):
             'ascii_pic': "  [👀]\n  |◠ ◡ ◠|\n  |▓███▓|",
             'posts_count': 28
         }
-    
+
     def _get_user_posts(self) -> List:
         """Get fake posts from this user."""
         from api_interface import Post
-        
+
         # Generate 3 fake posts
         posts = []
         for i in range(3):
@@ -1400,17 +1401,17 @@ class UserProfileViewPanel(VerticalScroll):
                 reposted_by_user=False
             )
             posts.append(post)
-        
+
         return posts
-    
+
     def on_button_pressed(self, event: Button.Pressed) -> None:
         """Handle button presses."""
         btn_id = event.button.id
-        
+
         if btn_id == "follow-user-btn":
             # Toggle follow state
             self.is_following = not self.is_following
-            
+
             # Update button text and styling
             try:
                 follow_btn = self.query_one("#follow-user-btn", Button)
@@ -1436,99 +1437,99 @@ class UserProfileViewPanel(VerticalScroll):
 
 class UserProfileViewScreen(Container):
     """Screen for viewing another user's profile."""
-    
+
     def __init__(self, username: str, **kwargs):
         super().__init__(**kwargs)
         self.username = username
-    
+
     def compose(self) -> ComposeResult:
         yield Sidebar(current="discover", id="sidebar")
         yield UserProfileViewPanel(username=self.username, id="user-profile-panel")
 
 class DraftsPanel(VerticalScroll):
     """Main panel for viewing all drafts."""
-    
+
     def compose(self) -> ComposeResult:
         self.border_title = "Drafts [0]"
         drafts = load_drafts()
-        
+
         yield Static(f"drafts.all | {len(drafts)} saved | line 1", classes="panel-header")
-        
+
         if not drafts:
-            yield Static("\n📝 No drafts saved yet\n\nPress :n to create a new post", 
+            yield Static("\n📝 No drafts saved yet\n\nPress :n to create a new post",
                         classes="no-drafts-message")
         else:
             # Show most recent first
             for i, draft in enumerate(reversed(drafts)):
                 actual_index = len(drafts) - 1 - i
                 yield self._create_draft_box(draft, actual_index)
-        
-        yield Static("\n[:o#] Open draft  [:x#] Delete draft  [Esc] Back", 
+
+        yield Static("\n[:o#] Open draft  [:x#] Delete draft  [Esc] Back",
                     classes="help-text", markup=False)
-    
+
     def _create_draft_box(self, draft: Dict, index: int) -> Container:
         """Create a nice box for displaying a draft."""
         box = Container(classes="draft-box")
         box.border = "round"
         box.border_title = f"💾 Draft {index + 1}"
-        
+
         # Header with timestamp
         time_ago = format_time_ago(draft['timestamp'])
         box.mount(Static(f"⏰ Saved {time_ago}", classes="draft-timestamp"))
-        
+
         # Content preview
         content = draft['content']
         preview = content if len(content) <= 200 else content[:200] + "..."
         box.mount(Static(preview, classes="draft-content-preview"))
-        
+
         # Attachments info
         attachments = draft.get('attachments', [])
         if attachments:
             attach_text = f"📎 {len(attachments)} attachment(s)"
             box.mount(Static(attach_text, classes="draft-attachments-info"))
-        
+
         # Action buttons
         actions_container = Container(classes="draft-actions")
         actions_container.mount(Button(f"✏️ Open", id=f"open-draft-{index}", classes="draft-action-btn"))
         actions_container.mount(Button(f"🗑️ Delete", id=f"delete-draft-{index}", classes="draft-action-btn-delete"))
         box.mount(actions_container)
-        
+
         return box
-    
+
     def on_button_pressed(self, event: Button.Pressed) -> None:
         """Handle draft action buttons."""
         btn_id = event.button.id
-        
+
         if btn_id and btn_id.startswith("open-draft-"):
             index = int(btn_id.split("-")[-1])
             self.app.action_open_draft(index)
         elif btn_id and btn_id.startswith("delete-draft-"):
             index = int(btn_id.split("-")[-1])
             self.app.push_screen(DeleteDraftDialog(index))
-    
+
     def on_drafts_updated(self, message: DraftsUpdated) -> None:
         """Handle drafts updated message - refresh the panel."""
         # Remove all children and re-compose
         self.remove_children()
         drafts = load_drafts()
-        
+
         self.mount(Static(f"drafts.all | {len(drafts)} saved | line 1", classes="panel-header"))
-        
+
         if not drafts:
-            self.mount(Static("\n📝 No drafts saved yet\n\nPress :n to create a new post", 
+            self.mount(Static("\n📝 No drafts saved yet\n\nPress :n to create a new post",
                         classes="no-drafts-message"))
         else:
             # Show most recent first
             for i, draft in enumerate(reversed(drafts)):
                 actual_index = len(drafts) - 1 - i
                 self.mount(self._create_draft_box(draft, actual_index))
-        
-        self.mount(Static("\n[:o#] Open draft  [:x#] Delete draft  [Esc] Back", 
+
+        self.mount(Static("\n[:o#] Open draft  [:x#] Delete draft  [Esc] Back",
                     classes="help-text", markup=False))
 
 class DraftsScreen(Container):
     """Screen for viewing and managing all drafts."""
-    
+
     def compose(self) -> ComposeResult:
         yield Sidebar(current="drafts", id="sidebar")
         yield DraftsPanel(id="drafts-panel")
@@ -1576,12 +1577,21 @@ class Proj101App(App):
 
     current_screen_name = reactive("timeline")
     command_mode = reactive(False)
+    command_text = reactive("")
+
+    def watch_command_text(self, new_text: str) -> None:
+        """Update command bar whenever command_text changes"""
+        try:
+            command_bar = self.query_one("#command-bar", Static)
+            command_bar.update(new_text)
+        except:
+            pass
 
     def compose(self) -> ComposeResult:
         yield Static("proj101 [timeline] @yourname", id="app-header", markup=False)
         yield TimelineScreen(id="screen-container")
         yield Static(":↑↓ Navigate [0] Main [1-5] Sidebar [n] New Post [f] Follow [/] Search [?] Help", id="app-footer", markup=False)
-        yield Input(id="command-input", classes="command-bar")
+        yield Static("", id="command-bar")
 
     def switch_screen(self, screen_name: str, **kwargs):
         if screen_name == self.current_screen_name and not kwargs:
@@ -1601,7 +1611,7 @@ class Proj101App(App):
                 container.remove()
             ScreenClass, footer_text = screen_map[screen_name]
             self.call_after_refresh(self.mount, ScreenClass(id="screen-container", **kwargs))
-            
+
             # Update header based on screen
             if screen_name == "user_profile" and 'username' in kwargs:
                 self.query_one("#app-header", Static).update(f"proj101 [@{kwargs['username']}] @yourname")
@@ -1609,7 +1619,7 @@ class Proj101App(App):
                 self.query_one("#app-header", Static).update(f"proj101 [dm:@{kwargs['username']}] @yourname")
             else:
                 self.query_one("#app-header", Static).update(f"proj101 [{screen_name}] @yourname")
-            
+
             self.query_one("#app-footer", Static).update(footer_text)
             self.current_screen_name = screen_name
             try:
@@ -1658,27 +1668,27 @@ class Proj101App(App):
     def action_show_settings(self) -> None:
         self.switch_screen("settings")
         self.action_focus_main_content()
-    
+
     def action_show_drafts(self) -> None:
         """Show the drafts screen."""
         self.switch_screen("drafts")
         self.action_focus_main_content()
-    
+
     def action_view_user_profile(self, username: str) -> None:
         """View another user's profile."""
         self.switch_screen("user_profile", username=username)
         self.action_focus_main_content()
-    
+
     def action_open_dm(self, username: str) -> None:
         """Open a DM with a specific user."""
         try:
             self.notify(f"💬 Opening chat with @{username}...", severity="info")
         except:
             pass
-        
+
         # Switch to messages screen with this specific user
         self.switch_screen("messages", username=username)
-        
+
         # Focus will be set in MessagesScreen.on_mount()
 
     def action_focus_navigation(self) -> None:
@@ -1797,12 +1807,10 @@ class Proj101App(App):
     def action_vim_search(self) -> None:
         """Start a search (/ key)"""
         try:
-            command_input = self.query_one("#command-input", Input)
-            command_input.styles.display = "block"
-            command_input.value = "/"
+            command_bar = self.query_one("#command-bar", Static)
+            command_bar.styles.display = "block"
+            self.command_text = "/"
             self.command_mode = True
-            command_input.focus()
-            self.call_after_refresh(self._focus_command_input)
         except Exception:
             pass
 
@@ -1828,64 +1836,16 @@ class Proj101App(App):
 
     def action_show_command_bar(self) -> None:
         try:
-            command_input = self.query_one("#command-input", Input)
-            command_input.styles.display = "block"
-            command_input.value = ":"
+            command_bar = self.query_one("#command-bar", Static)
+            command_bar.styles.display = "block"
+            self.command_text = ":"
             self.command_mode = True
-            command_input.focus()
-            self.call_after_refresh(self._focus_command_input)
-        except Exception:
-            pass
-
-    def _focus_command_input(self) -> None:
-        try:
-            command_input = self.query_one("#command-input", Input)
-            command_input.focus()
-            command_input.cursor_position = len(command_input.value)
         except Exception:
             pass
 
     def on_input_changed(self, event: Input.Changed) -> None:
-        if event.input.id == "command-input" and self.command_mode:
-            if not event.value.startswith(":"):
-                event.input.value = ":" + event.value
-                event.input.cursor_position = len(event.input.value)
-
-    def on_input_submitted(self, event: Input.Submitted) -> None:
-        if event.input.id == "command-input" and self.command_mode:
-            command = event.value.strip()
-            command_input = self.query_one("#command-input", Input)
-            command_input.styles.display = "none"
-            event.input.value = ""
-            self.command_mode = False
-            if command.startswith(":"):
-                command = command[1:]
-            screen_map = {"1": "timeline", "2": "discover", "3": "notifications", "4": "messages", "5": "settings"}
-            if command in screen_map:
-                self.switch_screen(screen_map[command])
-            elif command in ("q", "quit"):
-                self.exit()
-            elif command == "P" or command.upper() == "P":
-                self.switch_screen("profile")
-            elif command == "n":
-                self.action_new_post()
-            elif command == "D" or command.upper() == "D":
-                # Open drafts screen
-                self.action_show_drafts()
-            elif command.startswith("o") and len(command) > 1:
-                # Open draft by index (e.g., :o0, :o1)
-                try:
-                    draft_index = int(command[1:])
-                    self.action_open_draft(draft_index)
-                except:
-                    self.notify("Invalid draft index", severity="error")
-            elif command.startswith("x") and len(command) > 1:
-                # Delete draft by index (e.g., :x0, :x1)
-                try:
-                    draft_index = int(command[1:])
-                    self.push_screen(DeleteDraftDialog(draft_index))
-                except:
-                    self.notify("Invalid draft index", severity="error")
+        # Don't interfere with command input typing
+        pass
 
     def action_new_post(self) -> None:
         """Show the new post dialog."""
@@ -1895,14 +1855,14 @@ class Proj101App(App):
                     self.switch_screen("timeline")
 
         self.push_screen(NewPostDialog(), check_refresh)
-    
+
     def action_open_draft(self, draft_index: int) -> None:
         """Open a draft in the new post dialog."""
         try:
             drafts = load_drafts()
             if 0 <= draft_index < len(drafts):
                 draft = drafts[draft_index]
-                
+
                 def check_refresh(result):
                     if result:
                         # Post was published, delete the draft
@@ -1926,7 +1886,7 @@ class Proj101App(App):
                         # Refresh drafts screen if we're on it
                         if self.current_screen_name == "drafts":
                             self.switch_screen("drafts")
-                
+
                 self.push_screen(
                     NewPostDialog(
                         draft_content=draft['content'],
@@ -1940,15 +1900,65 @@ class Proj101App(App):
             self.notify(f"Error opening draft: {str(e)}", severity="error")
 
     def on_key(self, event) -> None:
-        if event.key == "escape" and self.command_mode:
-            try:
-                command_input = self.query_one("#command-input", Input)
-                command_input.styles.display = "none"
-                command_input.value = ""
+        if self.command_mode:
+            if event.key == "escape":
+                command_bar = self.query_one("#command-bar", Static)
+                command_bar.styles.display = "none"
+                self.command_text = ""
                 self.command_mode = False
                 event.prevent_default()
-            except Exception:
-                pass
+                event.stop()
+            elif event.key == "enter":
+                command = self.command_text.strip()
+                command_bar = self.query_one("#command-bar", Static)
+                command_bar.styles.display = "none"
+                self.command_mode = False
+
+                # Process command
+                if command.startswith(":"):
+                    command = command[1:]
+                elif command.startswith("/"):
+                    command = command[1:]
+
+                screen_map = {"1": "timeline", "2": "discover", "3": "notifications", "4": "messages", "5": "settings"}
+                if command in screen_map:
+                    self.switch_screen(screen_map[command])
+                elif command in ("q", "quit"):
+                    self.exit()
+                elif command.upper() == "P":
+                    self.switch_screen("profile")
+                elif command == "n":
+                    self.action_new_post()
+                elif command.upper() == "D":
+                    self.action_show_drafts()
+                elif command.startswith("o") and len(command) > 1:
+                    try:
+                        draft_index = int(command[1:])
+                        self.action_open_draft(draft_index)
+                    except:
+                        pass
+                elif command.startswith("x") and len(command) > 1:
+                    try:
+                        draft_index = int(command[1:])
+                        self.push_screen(DeleteDraftDialog(draft_index))
+                    except:
+                        pass
+
+                self.command_text = ""
+                event.prevent_default()
+                event.stop()
+            elif event.key == "backspace":
+                if len(self.command_text) > 1:
+                    self.command_text = self.command_text[:-1]
+                event.prevent_default()
+                event.stop()
+            elif len(event.key) == 1 and event.key.isprintable():
+                self.command_text += event.key
+                event.prevent_default()
+                event.stop()
+            else:
+                event.prevent_default()
+            return
 
 if __name__ == "__main__":
     Proj101App().run()

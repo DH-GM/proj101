@@ -232,22 +232,16 @@ TimelineScreen, DiscoverScreen, NotificationsScreen, MessagesScreen, SettingsScr
 }
 
 /* Command Bar */
-#command-input {
+#command-bar {
     dock: bottom;
-    height: 1;
+    height: 3;
     width: 100%;
-    background: #1a1a1a;
-    border: solid #4a9eff;
-    color: #ffffff;
-    padding: 0 1;
+    background: $boost;
+    color: $text;
+    padding: 0 2;
     display: none;
-    offset-y: -1;
-}
-
-#command-input:focus {
-    background: #1a1a1a;
-    color: #ffffff;
-    border: solid #4a9eff;
+    content-align: left middle;
+    text-style: bold;
 }
 
 /* Vim-style cursor */
