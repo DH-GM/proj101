@@ -101,9 +101,10 @@ class ChatMessage(Static):
 class PostItem(Static):
     """Simple non-interactive post display."""
 
-    def __init__(self, post, **kwargs):
+    def __init__(self, post, reposted_by_you=False, **kwargs):
         super().__init__(**kwargs)
         self.post = post
+        self.reposted_by_you = reposted_by_you
         self.has_video = hasattr(post, 'video_path') and post.video_path
 
     def compose(self) -> ComposeResult:
@@ -111,6 +112,10 @@ class PostItem(Static):
         time_ago = format_time_ago(self.post.timestamp)
         like_symbol = "♥" if self.post.liked_by_user else "♡"
         repost_symbol = "⇄" if self.post.reposted_by_user else "⇄"
+
+        # Repost banner if this is a reposted post by you (either client-injected or backend-marked)
+        if getattr(self, "reposted_by_you", False) or getattr(self.post, "reposted_by_user", False):
+            yield Static("🔁 Reposted by you", classes="repost-banner", markup=False)
 
         # Post header and content
         yield Static(
@@ -488,13 +493,19 @@ class NewPostDialog(ModalScreen):
 class TimelineFeed(VerticalScroll):
     cursor_position = reactive(0)
 
+    reposted_posts = reactive([])  # List of (post, timestamp) tuples
+
     def compose(self) -> ComposeResult:
         posts = api.get_timeline()
-        unread_count = len([p for p in posts if (datetime.now() - p.timestamp).seconds < 3600])
+        # Insert reposted posts at the top (most recent first)
+        reposted_sorted = sorted(self.reposted_posts, key=lambda x: x[1], reverse=True)
+        all_posts = [p for p, _ in reposted_sorted] + posts
+        unread_count = len([p for p in all_posts if (datetime.now() - p.timestamp).seconds < 3600])
         self.border_title = "Main Timeline [0]"
         yield Static(f"timeline.home | {unread_count} new posts | line 1", classes="panel-header", markup=False)
-        for i, post in enumerate(posts):
-            post_item = PostItem(post, classes="post-item", id=f"post-{i}")
+        for i, post in enumerate(all_posts):
+            is_repost = i < len(reposted_sorted)
+            post_item = PostItem(post, reposted_by_you=is_repost, classes="post-item", id=f"post-{i}")
             if i == 0:
                 post_item.add_class("vim-cursor")
             yield post_item
@@ -1418,6 +1429,28 @@ class Proj101App(App):
                             post = getattr(post_item, "post", None)
                             if post:
                                 api.like_post(post.id)
+                                # Refresh timeline
+                                self.switch_screen("timeline")
+                    except Exception:
+                        pass
+            elif command == "rt":
+                # Repost the currently focused post in timeline
+                if self.current_screen_name == "timeline":
+                    try:
+                        timeline_feed = self.query_one("#timeline-feed")
+                        items = list(timeline_feed.query(".post-item"))
+                        idx = getattr(timeline_feed, "cursor_position", 0)
+                        if 0 <= idx < len(items):
+                            post_item = items[idx]
+                            post = getattr(post_item, "post", None)
+                            if post:
+                                api.repost(post.id)
+                                # Insert a reposted copy at the top of the timeline
+                                from copy import deepcopy
+                                repost_copy = deepcopy(post)
+                                repost_copy.timestamp = datetime.now()
+                                # Add to reposted_posts in TimelineFeed
+                                timeline_feed.reposted_posts = [(repost_copy, repost_copy.timestamp)] + [p for p in getattr(timeline_feed, 'reposted_posts', [])]
                                 # Refresh timeline
                                 self.switch_screen("timeline")
                     except Exception:
