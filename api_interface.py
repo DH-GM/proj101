@@ -21,7 +21,9 @@ from typing import Iterable
 
 @dataclass
 class User:
+    id: int
     username: str
+    handle: str
     display_name: str
     bio: str
     followers: int
@@ -188,10 +190,10 @@ class FakeAPI(APIInterface):
     # --- User / settings ---
     def get_current_user(self) -> User:
         return self.current_user
-    
+
     def get_user_settings(self) -> UserSettings:
         return self.settings
-    
+
     def update_user_settings(self, settings: UserSettings) -> bool:
         self.settings = settings
         # Update current_user ascii_pic as well
@@ -206,7 +208,7 @@ class FakeAPI(APIInterface):
     def get_discover_posts(self, limit: int = 50) -> List[Post]:
         """Get discover/explore posts."""
         return self.discover_posts[:limit]
-    
+
     def get_post_comments(self, post_id: str, limit: int = 5):
         """Get top comments for a post."""
         # Return fake comments for now
@@ -215,19 +217,19 @@ class FakeAPI(APIInterface):
             Comment("bob", "I totally agree with this", datetime.now() - timedelta(hours=5)),
             Comment("charlie", "Thanks for sharing!", datetime.now() - timedelta(days=1)),
         ][:limit]
-    
+
     def add_comment(self, post_id: str, content: str):
         """Add a new comment to a post."""
         return Comment("yourname", content, datetime.now())
     def get_conversations(self) -> List[Conversation]:
         """Get all conversations for the current user."""
         return self.conversations
-    
+
 
     def get_conversation_messages(self, conversation_id: str) -> List[Message]:
         """Get all messages in a specific conversation."""
         return self.messages.get(conversation_id, [])
-    
+
     def send_message(self, conversation_id: str, content: str) -> Message:
         """Send a message in a conversation."""
         now = datetime.now()
@@ -241,14 +243,14 @@ class FakeAPI(APIInterface):
         if conversation_id not in self.messages:
             self.messages[conversation_id] = []
         self.messages[conversation_id].append(new_msg)
-        
+
         # Update conversation last message
         for conv in self.conversations:
             if conv.id == conversation_id:
                 conv.last_message = content[:30] + "..." if len(content) > 30 else content
                 conv.timestamp = now
                 break
-        
+
         return new_msg
 
     def get_notifications(self, unread_only: bool = False) -> List[Notification]:
@@ -313,16 +315,16 @@ class FakeAPI(APIInterface):
         """Add a comment to a post."""
         if post_id not in self.comments:
             self.comments[post_id] = []
-        
+
         comment = {"user": "yourname", "text": text}
         self.comments[post_id].append(comment)
-        
+
         # Update comment count on post
         for post in self.timeline_posts + self.discover_posts:
             if post.id == post_id:
                 post.comments += 1
                 break
-        
+
         return comment
 
     def get_comments(self, post_id: str) -> List[Dict[str, Any]]:
@@ -337,7 +339,7 @@ class RealAPI(APIInterface):
         self.access_token = None
         self.refresh_token = None
         self._load_tokens()
-    
+
     def _load_tokens(self):
         """Load tokens from oauth_tokens.json if it exists."""
         token_file = Path("oauth_tokens.json")
@@ -349,35 +351,35 @@ class RealAPI(APIInterface):
                     self.refresh_token = data.get("refresh_token")
             except Exception as e:
                 print(f"Error loading tokens: {e}")
-    
+
     def _get_headers(self) -> Dict[str, str]:
         """Get headers with authorization."""
         headers = {"Content-Type": "application/json"}
         if self.access_token:
             headers["Authorization"] = f"Bearer {self.access_token}"
         return headers
-    
+
     def _get(self, endpoint: str, params: Optional[Dict] = None) -> requests.Response:
         """Make a GET request."""
         url = f"{self.base_url}{endpoint}"
         return requests.get(url, headers=self._get_headers(), params=params)
-    
+
     def _post(self, endpoint: str, json: Optional[Dict] = None) -> requests.Response:
         """Make a POST request."""
         url = f"{self.base_url}{endpoint}"
         return requests.post(url, headers=self._get_headers(), json=json)
-    
+
     def _put(self, endpoint: str, json: Optional[Dict] = None) -> requests.Response:
         """Make a PUT request."""
         url = f"{self.base_url}{endpoint}"
         return requests.put(url, headers=self._get_headers(), json=json)
-    
+
     def get_current_user(self) -> User:
         """Get current user info."""
         resp = self._get("/user")
         data = resp.json()
         return User(**data)
-    
+
     def get_timeline(self, limit: int = 50) -> List[Post]:
         """Get the user's timeline/feed."""
         resp = self._get(f"/timeline?limit={limit}")
@@ -437,7 +439,7 @@ class RealAPI(APIInterface):
         url = f"{self.base_url}/posts"
         files = {}
         data = {"content": content}
-        
+
         try:
             if image_path:
                 files["image"] = open(image_path, "rb")
@@ -446,7 +448,7 @@ class RealAPI(APIInterface):
 
             headers = {"Authorization": f"Bearer {self.access_token}"}
             resp = requests.post(url, headers=headers, data=data, files=files or None)
-            
+
             return resp.status_code in [200, 201]
         except Exception as e:
             print(f"Error creating post: {e}")
@@ -489,24 +491,31 @@ class RealAPI(APIInterface):
     It expects a base_url like https://api.example.com and optional
     token-based auth via BACKEND_TOKEN env var.
     """
-    def __init__(self, base_url: str, token: str | None = None, timeout: float = 5.0):
+    def __init__(self, base_url: str, token: str | None = None, timeout: float = 5.0, handle: str = "yourname"):
         self.base_url = base_url.rstrip("/")
         self.token = token
         self.timeout = timeout
+        self.handle = handle
         self.session: Session = requests.Session()
         if self.token:
             self.session.headers.update({"Authorization": f"Bearer {self.token}"})
 
     # --- helpers ---
     def _get(self, path: str, params: Dict[str, Any] | None = None) -> Any:
-        url = f"{self.base_url}/{path.lstrip('/') }"
+        if params is None:
+            params = {}
+        params.setdefault("handle", self.handle)
+        url = f"{self.base_url}/{path.lstrip('/')}"
         resp = self.session.get(url, params=params, timeout=self.timeout)
         resp.raise_for_status()
         return resp.json()
 
-    def _post(self, path: str, json_payload: Dict[str, Any] | None = None) -> Any:
-        url = f"{self.base_url}/{path.lstrip('/') }"
-        resp = self.session.post(url, json=json_payload, timeout=self.timeout)
+    def _post(self, path: str, json_payload: Dict[str, Any] | None = None, params: Dict[str, Any] | None = None) -> Any:
+        if params is None:
+            params = {}
+        params.setdefault("handle", self.handle)
+        url = f"{self.base_url}/{path.lstrip('/')}"
+        resp = self.session.post(url, params=params, json=json_payload, timeout=self.timeout)
         resp.raise_for_status()
         return resp.json()
 
@@ -589,15 +598,13 @@ class RealAPI(APIInterface):
         return out
 
 
-# Global api selection: prefer real backend when BACKEND_URL is set
-_backend_url = os.environ.get("BACKEND_URL")
-_backend_token = os.environ.get("BACKEND_TOKEN")
 
-if _backend_url:
-    try:
-        api = RealAPI(_backend_url, token=_backend_token)
-    except Exception:
-        # Fallback to fake API if real client construction fails
-        api = FakeAPI()
-else:
-    api = FakeAPI()
+# Global API selection: always use official backend
+_BACKEND_URL = "https://voqbyhcnqe.execute-api.us-east-2.amazonaws.com"
+_BACKEND_TOKEN = "eyJraWQiOiJCMWZsQndnUG1IWk10bTAxWXZZVUVrMisrRk5wVVwvRHVDZ2I1QkR4dDFwaz0iLCJhbGciOiJSUzI1NiJ9.eyJzdWIiOiIzMThiODVmMC1iMDcxLTcwNDMtOGIzMy1lMjk2YWM2NTBjYTYiLCJpc3MiOiJodHRwczpcL1wvY29nbml0by1pZHAudXMtZWFzdC0yLmFtYXpvbmF3cy5jb21cL3VzLWVhc3QtMl90Z2o5TzJGb1AiLCJ2ZXJzaW9uIjoyLCJjbGllbnRfaWQiOiJqdGNkb2sydGFhcTQ4cmo1MGxlcmhwNTF2Iiwib3JpZ2luX2p0aSI6IjI5NWE3NDkwLTcxN2MtNGY4ZS04MTU5LWVlNWM1ZjJkODViMSIsInRva2VuX3VzZSI6ImFjY2VzcyIsInNjb3BlIjoicGhvbmUgb3BlbmlkIGVtYWlsIiwiYXV0aF90aW1lIjoxNzYxODY0ODU3LCJleHAiOjE3NjE4Njg0NTcsImlhdCI6MTc2MTg2NDg1NywianRpIjoiZDIzZmE4M2EtZDMwNS00NGY3LTgzMjMtMDVlZjM4MTg2OTg4IiwidXNlcm5hbWUiOiIzMThiODVmMC1iMDcxLTcwNDMtOGIzMy1lMjk2YWM2NTBjYTYifQ.nRS68Pr3laVwWd9bnkSsAkhlU1mpQnH6DgSDX-d9UFWpcU3qwwMdaBnKrMTuOGsyupf8ci7JzR1vQOxoB3qS4jBXc6pZvWc3rZelI5xQU02x_TObcPXD8EF1tF0eoTUgO-7YTaMo-iJufh25BiirnL_ybrFW2nAT30qx8fCc6-6f71w1bXZF5NLYfRZM76_a7rohaPYVcaA1-QcjVckuUHFD57Zw6LJMP8Yi0xFe9IaROb58o7Wr5GhLQ3ZlVL1917IzbSoIiyen3H7CPnBUdCrTErRjtAFz0zHf09hpdlwIXYVuDK2nzrC83qWJiWfEWhf1g16iIBWyusWUkZjU7w"
+
+try:
+    api = RealAPI(_BACKEND_URL, token=_BACKEND_TOKEN, timeout=15.0)
+except Exception:
+    # Error out
+    raise RuntimeError("Failed to initialize RealAPI backend.")
