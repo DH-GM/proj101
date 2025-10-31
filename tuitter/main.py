@@ -19,14 +19,14 @@ from textual.widgets import Static, Input, Button, TextArea
 from textual.reactive import reactive
 from textual.screen import ModalScreen
 from datetime import datetime
-from api_interface import api
+from .api_interface import api
 import sys
 import subprocess
 from pathlib import Path
 import tkinter as tk
 from tkinter import filedialog
 from PIL import Image
-from ascii_video_widget import ASCIIVideoPlayer
+from .ascii_video_widget import ASCIIVideoPlayer
 
 class CommentScreen(Screen):
     def __init__(self, post, **kwargs):
