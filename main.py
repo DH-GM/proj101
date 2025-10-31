@@ -1,4 +1,93 @@
-from textual.app import App, ComposeResult
+
+import logging
+import os
+if os.getenv("DEV") == "TRUE":
+    logging.basicConfig(filename='tuitter_debug.log', level=logging.DEBUG, format='%(asctime)s %(levelname)s %(message)s')
+    logging.debug('very top of main.py')
+else:
+    logging.basicConfig(level=logging.CRITICAL)  # Effectively disables debug/info logging
+
+from textual.app import App
+from textual.containers import Container, Horizontal, Vertical, VerticalScroll, ScrollableContainer
+from textual.screen import Screen
+try:
+    from textual.app import ComposeResult
+except ImportError:
+    ComposeResult = object
+from textual.binding import Binding
+from textual.widgets import Static, Input, Button, TextArea
+from textual.reactive import reactive
+from textual.screen import ModalScreen
+from datetime import datetime
+from api_interface import api
+import sys
+import subprocess
+from pathlib import Path
+import tkinter as tk
+from tkinter import filedialog
+from PIL import Image
+from ascii_video_widget import ASCIIVideoPlayer
+
+class CommentScreen(Screen):
+    def __init__(self, post, **kwargs):
+        super().__init__(**kwargs)
+        self.post = post
+        self.comments = []
+        self.input_box = None
+
+    def compose(self):
+        # Post at the top
+        yield Static("─ Post ─", classes="comment-thread-header", markup=False)
+        yield PostItem(self.post)
+        # Comments
+        self.comments = api.get_comments(self.post.id)
+        logging.debug(f"[compose] Comments fetched: {self.comments}")
+        # Input for new comment (now above the comments)
+        self.input_box = Input(placeholder="Type your comment and press Enter… (Esc to go back)", id="comment-input")
+        yield self.input_box
+        yield Static("─ Comments ─", classes="comment-thread-header", markup=False)
+        for c in self.comments:
+            author = c.get("user", "unknown")
+            content = c.get("text", "")
+            timestamp = c.get("timestamp") or c.get("created_at") or datetime.now().isoformat()
+            try:
+                c_time = format_time_ago(datetime.fromisoformat(timestamp))
+            except Exception:
+                c_time = "just now"
+            yield Static(f"  @{author} • {c_time}\n  {content}\n", classes="comment-thread-item", markup=False)
+            yield Static("")  # Add a blank line between comments
+
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        if event.input.id != "comment-input":
+            return
+        text = event.value.strip()
+        if not text:
+            return
+        api.add_comment(self.post.id, text)
+        # Fetch updated comments and refresh the screen
+        self.comments = api.get_comments(self.post.id)
+        self.refresh()
+        # Clear and unfocus the input
+        if hasattr(self, 'input_box') and self.input_box:
+            self.input_box.value = ""
+            self.input_box.blur()
+        # Show a notification/toast (if supported by the app)
+        if hasattr(self.app, 'notify'):
+            self.app.notify("Comment posted!", timeout=2)
+
+    def on_key(self, event) -> None:
+        if event.key == "escape":
+            try:
+                self.app.pop_screen()
+            except Exception:
+                pass
+
+from textual.app import App
+from textual.containers import Container
+try:
+    from textual.app import ComposeResult
+except ImportError:
+    ComposeResult = object
 from textual.binding import Binding
 from textual.containers import Container, Horizontal, Vertical, VerticalScroll, ScrollableContainer
 from textual.widgets import Static, Input, Button, TextArea
@@ -107,8 +196,8 @@ class PostItem(Static):
         self.reposted_by_you = reposted_by_you
         self.has_video = hasattr(post, 'video_path') and post.video_path
 
-    def compose(self) -> ComposeResult:
-        """Compose compact post."""
+    def compose(self):
+        """Compose compact post (no inline comments)."""
         time_ago = format_time_ago(self.post.timestamp)
         like_symbol = "♥" if self.post.liked_by_user else "♡"
         repost_symbol = "⇄" if self.post.reposted_by_user else "⇄"
@@ -183,7 +272,7 @@ class UserProfileCard(Static):
         self.following = following
         self.ascii_pic = ascii_pic
 
-    def compose(self) -> ComposeResult:
+    def compose(self):
         card_container = Container(classes="user-card-container")
 
         with card_container:
@@ -224,7 +313,7 @@ class Sidebar(VerticalScroll):
         super().__init__(**kwargs)
         self.current_screen = current
 
-    def compose(self) -> ComposeResult:
+    def compose(self):
         nav_container = Container(classes="navigation-box")
         nav_container.border_title = "Navigation [N]"
         with nav_container:
@@ -252,6 +341,7 @@ class Sidebar(VerticalScroll):
                 yield CommandItem(":n", "new post", classes="command-item")
                 yield CommandItem(":l", "like", classes="command-item")
                 yield CommandItem(":rt", "repost", classes="command-item")
+                yield CommandItem(":c", "comment", classes="command-item")
             elif self.current_screen == "notifications":
                 yield CommandItem(":m", "mark read", classes="command-item")
                 yield CommandItem(":ma", "mark all", classes="command-item")
@@ -377,7 +467,7 @@ class NewPostDialog(ModalScreen):
     }
     """
 
-    def compose(self) -> ComposeResult:
+    def compose(self):
         with Container(id="dialog-container"):
             yield Static("New Post", id="dialog-title")
             yield TextArea(id="post-textarea")
@@ -491,13 +581,14 @@ class NewPostDialog(ModalScreen):
 # ───────── Screens ─────────
 
 class TimelineFeed(VerticalScroll):
+    def key_enter(self) -> None:
+        self.open_comment_screen()
     cursor_position = reactive(0)
 
     reposted_posts = reactive([])  # List of (post, timestamp) tuples
 
-    def compose(self) -> ComposeResult:
+    def compose(self):
         posts = api.get_timeline()
-        # Insert reposted posts at the top (most recent first)
         reposted_sorted = sorted(self.reposted_posts, key=lambda x: x[1], reverse=True)
         all_posts = [p for p, _ in reposted_sorted] + posts
         unread_count = len([p for p in all_posts if (datetime.now() - p.timestamp).seconds < 3600])
@@ -506,9 +597,33 @@ class TimelineFeed(VerticalScroll):
         for i, post in enumerate(all_posts):
             is_repost = i < len(reposted_sorted)
             post_item = PostItem(post, reposted_by_you=is_repost, classes="post-item", id=f"post-{i}")
-            if i == 0:
+            if i == self.cursor_position:
                 post_item.add_class("vim-cursor")
             yield post_item
+
+    def open_comment_screen(self):
+        logging.debug("open_comment_screen called in TimelineFeed")
+        posts = api.get_timeline()
+        reposted_sorted = sorted(self.reposted_posts, key=lambda x: x[1], reverse=True)
+        all_posts = [p for p, _ in reposted_sorted] + posts
+        logging.debug(f"cursor_position={self.cursor_position}, total_posts={len(all_posts)}")
+        if 0 <= self.cursor_position < len(all_posts):
+            post = all_posts[self.cursor_position]
+            logging.debug(f"Opening comment screen for post id={getattr(post, 'id', None)} author={getattr(post, 'author', None)}")
+            self.app.push_screen(CommentScreen(post))
+        else:
+            logging.debug("Invalid cursor position in open_comment_screen")
+            print("[DEBUG] Invalid cursor position for comment screen")
+
+    def on_key(self, event) -> None:
+        if event.key == "c":
+            self.open_comment_screen()
+            event.prevent_default()
+        elif event.key == "enter":
+            self.open_comment_screen()
+            event.prevent_default()
+        # ...existing code...
+        # ...existing code...
 
     def on_mount(self) -> None:
         self.watch(self, "cursor_position", self._update_cursor)
@@ -588,7 +703,7 @@ class TimelineFeed(VerticalScroll):
 
 
 class TimelineScreen(Container):
-    def compose(self) -> ComposeResult:
+    def compose(self):
         yield Sidebar(current="timeline", id="sidebar")
         yield TimelineFeed(id="timeline-feed")
 
@@ -646,7 +761,7 @@ class DiscoverFeed(Container):
                 matching_users.append(data)
         return matching_users
 
-    def compose(self) -> ComposeResult:
+    def compose(self):
         yield Input(placeholder="Search posts, people, tags...", classes="message-input", id="discover-search")
         yield VerticalScroll(id="search-results-container")
         yield Static("\n→ Suggested Follow", classes="section-header")
@@ -692,13 +807,13 @@ class DiscoverFeed(Container):
 
 
 class DiscoverScreen(Container):
-    def compose(self) -> ComposeResult:
+    def compose(self):
         yield Sidebar(current="discover", id="sidebar")
         yield DiscoverFeed(id="discover-feed")
 
 
 class NotificationsFeed(VerticalScroll):
-    def compose(self) -> ComposeResult:
+    def compose(self):
         notifications = api.get_notifications()
         unread_count = len([n for n in notifications if not n.read])
         self.border_title = "Notifications [0]"
@@ -709,7 +824,7 @@ class NotificationsFeed(VerticalScroll):
 
 
 class NotificationsScreen(Container):
-    def compose(self) -> ComposeResult:
+    def compose(self):
         yield Sidebar(current="notifications", id="sidebar")
         yield NotificationsFeed(id="notifications-feed")
 
@@ -717,7 +832,7 @@ class NotificationsScreen(Container):
 class ConversationsList(VerticalScroll):
     cursor_position = reactive(0)
 
-    def compose(self) -> ComposeResult:
+    def compose(self):
         conversations = api.get_conversations()
         unread_count = len([c for c in conversations if c.unread])
         yield Static(f"conversations | {unread_count} unread", classes="panel-header")
@@ -809,7 +924,7 @@ class ChatView(VerticalScroll):
     conversation_id = "c1"
     cursor_position = reactive(0)
 
-    def compose(self) -> ComposeResult:
+    def compose(self):
         self.border_title = "Chat [0]"
         messages = api.get_conversation_messages(self.conversation_id)
         yield Static("@alice | conversation", classes="panel-header")
@@ -870,7 +985,7 @@ class ChatView(VerticalScroll):
 
 
 class MessagesScreen(Container):
-    def compose(self) -> ComposeResult:
+    def compose(self):
         yield Sidebar(current="messages", id="sidebar")
         yield ConversationsList(id="conversations")
         yield ChatView(id="chat")
@@ -885,7 +1000,7 @@ class MessagesScreen(Container):
 class SettingsPanel(VerticalScroll):
     cursor_position = reactive(0)
 
-    def compose(self) -> ComposeResult:
+    def compose(self):
         self.border_title = "Settings [0]"
         settings = api.get_user_settings()
         yield Static("settings.profile | line 1", classes="panel-header")
@@ -1433,6 +1548,25 @@ class Proj101App(App):
                                 self.switch_screen("timeline")
                     except Exception:
                         pass
+            elif command == "c":
+                logging.debug(":c command received in Proj101App.on_input_submitted")
+                # Open comment screen for the currently focused post in timeline
+                if self.current_screen_name == "timeline":
+                    try:
+                        timeline_feed = self.query_one("#timeline-feed")
+                        items = list(timeline_feed.query(".post-item"))
+                        idx = getattr(timeline_feed, "cursor_position", 0)
+                        logging.debug(f"timeline_feed.cursor_position={idx}, items={len(items)}")
+                        if 0 <= idx < len(items):
+                            post_item = items[idx]
+                            post = getattr(post_item, "post", None)
+                            logging.debug(f"Opening comment screen for post id={getattr(post, 'id', None)} author={getattr(post, 'author', None)}")
+                            if post:
+                                self.push_screen(CommentScreen(post))
+                        else:
+                            logging.debug("Invalid cursor position for :c command")
+                    except Exception as e:
+                        logging.exception("Exception in :c command:")
             elif command == "rt":
                 # Repost the currently focused post in timeline
                 if self.current_screen_name == "timeline":
@@ -1478,4 +1612,9 @@ class Proj101App(App):
 
 
 if __name__ == "__main__":
-    Proj101App().run()
+    logging.debug('inside __main__ guard, about to run app')
+    try:
+        Proj101App().run()
+    except Exception as e:
+        import traceback
+        logging.exception('Exception occurred while running Proj101App:')
