@@ -22,7 +22,9 @@ from typing import Iterable
 
 @dataclass
 class User:
+    id: int
     username: str
+    handle: str
     display_name: str
     bio: str
     followers: int
@@ -604,25 +606,31 @@ class RealAPI(APIInterface):
     It expects a base_url like https://api.example.com and optional
     token-based auth via BACKEND_TOKEN env var.
     """
-
-    def __init__(self, base_url: str, token: str | None = None, timeout: float = 5.0):
+    def __init__(self, base_url: str, token: str | None = None, timeout: float = 5.0, handle: str = "yourname"):
         self.base_url = base_url.rstrip("/")
         self.token = token
         self.timeout = timeout
+        self.handle = handle
         self.session: Session = requests.Session()
         if self.token:
             self.session.headers.update({"Authorization": f"Bearer {self.token}"})
 
     # --- helpers ---
     def _get(self, path: str, params: Dict[str, Any] | None = None) -> Any:
+        if params is None:
+            params = {}
+        params.setdefault("handle", self.handle)
         url = f"{self.base_url}/{path.lstrip('/')}"
         resp = self.session.get(url, params=params, timeout=self.timeout)
         resp.raise_for_status()
         return resp.json()
 
-    def _post(self, path: str, json_payload: Dict[str, Any] | None = None) -> Any:
+    def _post(self, path: str, json_payload: Dict[str, Any] | None = None, params: Dict[str, Any] | None = None) -> Any:
+        if params is None:
+            params = {}
+        params.setdefault("handle", self.handle)
         url = f"{self.base_url}/{path.lstrip('/')}"
-        resp = self.session.post(url, json=json_payload, timeout=self.timeout)
+        resp = self.session.post(url, params=params, json=json_payload, timeout=self.timeout)
         resp.raise_for_status()
         return resp.json()
 
@@ -716,15 +724,13 @@ class RealAPI(APIInterface):
         return out
 
 
-# Global api selection: prefer real backend when BACKEND_URL is set
-_backend_url = os.environ.get("BACKEND_URL")
-_backend_token = os.environ.get("BACKEND_TOKEN")
 
-if _backend_url:
-    try:
-        api = RealAPI(_backend_url, token=_backend_token)
-    except Exception:
-        # Fallback to fake API if real client construction fails
-        api = FakeAPI()
-else:
-    api = FakeAPI()
+# Global API selection: always use official backend
+_BACKEND_URL = "https://voqbyhcnqe.execute-api.us-east-2.amazonaws.com"
+_BACKEND_TOKEN = "eyJraWQiOiJCMWZsQndnUG1IWk10bTAxWXZZVUVrMisrRk5wVVwvRHVDZ2I1QkR4dDFwaz0iLCJhbGciOiJSUzI1NiJ9.eyJzdWIiOiIzMThiODVmMC1iMDcxLTcwNDMtOGIzMy1lMjk2YWM2NTBjYTYiLCJpc3MiOiJodHRwczpcL1wvY29nbml0by1pZHAudXMtZWFzdC0yLmFtYXpvbmF3cy5jb21cL3VzLWVhc3QtMl90Z2o5TzJGb1AiLCJ2ZXJzaW9uIjoyLCJjbGllbnRfaWQiOiJqdGNkb2sydGFhcTQ4cmo1MGxlcmhwNTF2Iiwib3JpZ2luX2p0aSI6IjI5NWE3NDkwLTcxN2MtNGY4ZS04MTU5LWVlNWM1ZjJkODViMSIsInRva2VuX3VzZSI6ImFjY2VzcyIsInNjb3BlIjoicGhvbmUgb3BlbmlkIGVtYWlsIiwiYXV0aF90aW1lIjoxNzYxODY0ODU3LCJleHAiOjE3NjE4Njg0NTcsImlhdCI6MTc2MTg2NDg1NywianRpIjoiZDIzZmE4M2EtZDMwNS00NGY3LTgzMjMtMDVlZjM4MTg2OTg4IiwidXNlcm5hbWUiOiIzMThiODVmMC1iMDcxLTcwNDMtOGIzMy1lMjk2YWM2NTBjYTYifQ.nRS68Pr3laVwWd9bnkSsAkhlU1mpQnH6DgSDX-d9UFWpcU3qwwMdaBnKrMTuOGsyupf8ci7JzR1vQOxoB3qS4jBXc6pZvWc3rZelI5xQU02x_TObcPXD8EF1tF0eoTUgO-7YTaMo-iJufh25BiirnL_ybrFW2nAT30qx8fCc6-6f71w1bXZF5NLYfRZM76_a7rohaPYVcaA1-QcjVckuUHFD57Zw6LJMP8Yi0xFe9IaROb58o7Wr5GhLQ3ZlVL1917IzbSoIiyen3H7CPnBUdCrTErRjtAFz0zHf09hpdlwIXYVuDK2nzrC83qWJiWfEWhf1g16iIBWyusWUkZjU7w"
+
+try:
+    api = RealAPI(_BACKEND_URL, token=_BACKEND_TOKEN, timeout=15.0)
+except Exception:
+    # Error out
+    raise RuntimeError("Failed to initialize RealAPI backend.")
