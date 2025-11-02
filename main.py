@@ -17,6 +17,9 @@ import webbrowser
 import json
 import time
 import os
+import keyring
+
+serviceKeyring = "tuiitter"
 
 
 def format_time_ago(dt: datetime) -> str:
@@ -33,7 +36,7 @@ def format_time_ago(dt: datetime) -> str:
 
 
 # ───────── OAuth Constants ─────────
-COGNITO_AUTH_URL = "https://us-east-2tgj9o2fop.auth.us-east-2.amazoncognito.com/login?client_id=jtcdok2taaq48rj50lerhp51v&response_type=code&scope=email+openid+phone&redirect_uri=http%3A%2F%2Flocalhost%3A5173%2Fcallback"
+COGNITO_AUTH_URL = "https://us-east-2xzzmuowl9.auth.us-east-2.amazoncognito.com/login/continue?client_id=7109b3p9beveapsmr806freqnn&redirect_uri=http%3A%2F%2Flocalhost%3A5173%2Fcallback&response_type=code&scope=email+openid+phone"
 
 
 # ───────── Auth Screen ─────────
@@ -82,9 +85,9 @@ class AuthScreen(Container):
 
     def _check_tokens_file(self) -> None:
         try:
-            p = Path("oauth_tokens.json")
-            if p.exists():
-                data = json.loads(p.read_text() or "{}")
+            p = keyring.get_password(serviceKeyring, "oauth_tokens.json")
+            if p:
+                data = json.loads(p or "{}")
                 # Check for valid tokens
                 if isinstance(data, dict) and ("access_token" in data or "id_token" in data):
                     if self._file_timer:
@@ -136,8 +139,9 @@ class ProfileDisplay(Static):
     """Display user profile."""
 
     def compose(self) -> ComposeResult:
+        username = keyring.get_password(serviceKeyring, "username")
         user = api.get_current_user()
-        yield Static(f"@{user.username} • {user.display_name}", classes="profile-username")
+        yield Static(f"@{username} • {user.display_name}", classes="profile-username")
         yield Static(f"P:{user.posts_count} F:{user.following} F:{user.followers}", classes="profile-stat")
 
 
@@ -1055,7 +1059,8 @@ class SettingsPanel(VerticalScroll):
         elif event.button.id == "settings-signout":
             # Delete tokens file and exit
             try:
-                Path("oauth_tokens.json").unlink(missing_ok=True)
+                keyring.delete_password(serviceKeyring, "oauth_tokens.json")
+                keyring.delete_password(serviceKeyring, "username")
             except Exception:
                 pass
             try:
@@ -1077,15 +1082,18 @@ class ProfilePanel(VerticalScroll):
         self.border_title = "Profile [0]"
         user = api.get_current_user()
         settings = api.get_user_settings()
+        username = keyring.get_password(serviceKeyring, "username")
+        if username == None:
+            username = user.username
 
-        yield Static("profile | @yourname | line 1", classes="panel-header")
+        yield Static(f"profile | @{username} | line 1", classes="panel-header")
 
         profile_container = Container(classes="profile-center-container")
 
         with profile_container:
             yield Static(settings.ascii_pic, classes="profile-avatar-large")
             yield Static(f"{settings.display_name}", classes="profile-name-large")
-            yield Static(f"@{settings.username}", classes="profile-username-display")
+            yield Static(f"@{username}", classes="profile-username-display")
 
             stats_row = Container(classes="profile-stats-row")
             with stats_row:
@@ -1197,10 +1205,12 @@ class Proj101App(App):
 
     def compose(self) -> ComposeResult:
         # Check if tokens exist - if not, show auth screen
-        if not Path("oauth_tokens.json").exists():
+        if keyring.get_password(serviceKeyring, "oauth_tokens.json") == None or keyring.get_password(serviceKeyring, "oauth_tokens.json") == "":   
             yield AuthScreen()
         else:
-            yield Static("proj101 [timeline] @yourname", id="app-header", markup=False)
+            api.set_token(json.loads(keyring.get_password(serviceKeyring, "oauth_tokens.json"))["access_token"])
+            username = keyring.get_password(serviceKeyring, "username")
+            yield Static(f"tuitter [timeline] @{username}", id="app-header", markup=False)
             yield TimelineScreen(id="screen-container")
             yield Static(":↑↓ Navigate [0] Main [1-5] Sidebar [n] New Post [f] Follow [/] Search [?] Help", id="app-footer", markup=False)
             yield Input(id="command-input", classes="command-bar")
@@ -1213,7 +1223,8 @@ class Proj101App(App):
         except Exception:
             pass
         
-        self.mount(Static("proj101 [timeline] @yourname", id="app-header", markup=False))
+        username = keyring.get_password(serviceKeyring, "username")
+        self.mount(Static(f"tuitter [timeline] @{username}", id="app-header", markup=False))
         self.mount(TimelineScreen(id="screen-container"))
         self.mount(Static(":↑↓ Navigate [0] Main [1-5] Sidebar [n] New Post [f] Follow [/] Search [?] Help", id="app-footer", markup=False))
         self.mount(Input(id="command-input", classes="command-bar"))
@@ -1235,7 +1246,8 @@ class Proj101App(App):
                 container.remove()
             ScreenClass, footer_text = screen_map[screen_name]
             self.call_after_refresh(self.mount, ScreenClass(id="screen-container"))
-            self.query_one("#app-header", Static).update(f"proj101 [{screen_name}] @yourname")
+            username = keyring.get_password(serviceKeyring, "username")
+            self.query_one("#app-header", Static).update(f"tuitter [{screen_name}] @{username}")
             self.query_one("#app-footer", Static).update(footer_text)
             self.current_screen_name = screen_name
             try:
