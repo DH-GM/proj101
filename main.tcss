@@ -215,6 +215,31 @@ DraftsScreen {
     text-style: bold;
 }
 
+/* Top Navbar */
+#top-navbar {
+    dock: top;
+    height: 1;
+    width: 100%;
+    background: #4a9eff;
+    color: #ffffff;
+    layout: horizontal;
+}
+
+#top-navbar .nav-item {
+    width: auto;
+    padding: 0 2;
+    background: #4a9eff;
+    color: #ffffff;
+}
+
+#top-navbar .nav-item:hover {
+    background: #5aaaff;
+}
+
+#top-navbar .nav-item.active {
+    background: #184070;
+}
+
 /* App Footer */
 #app-footer {
     dock: bottom;

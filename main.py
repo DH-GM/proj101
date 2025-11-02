@@ -101,6 +101,8 @@ def format_time_ago(dt: datetime) -> str:
 
 class NavigationItem(Static):
     def __init__(self, label: str, screen_name: str, number: int, active: bool = False, **kwargs):
+        # Ensure markup is enabled
+        kwargs.setdefault('markup', True)
         super().__init__(**kwargs)
         self.label_text = label
         self.screen_name = screen_name
@@ -111,9 +113,9 @@ class NavigationItem(Static):
 
     def render(self) -> str:
         if self.active:
-            return f"[bold #4a9eff]{self.number}:[/] {self.label_text}"
+            return f"[bold white]{self.number}: {self.label_text}[/]"
         else:
-            return f"{self.number}: {self.label_text}"
+            return f"[#888888]{self.number}: {self.label_text}[/]"
 
     def on_click(self) -> None:
         self.app.switch_screen(self.screen_name)
@@ -312,25 +314,50 @@ class UserProfileCard(Static):
             # Open messages screen with this user
             self.app.action_open_dm(self.username)
 
+# ───────── Top Navbar ─────────
+
+class TopNav(Horizontal):
+    """Horizontal top navigation bar."""
+    current = reactive("timeline")
+
+    def __init__(self, current: str = "timeline", **kwargs):
+        super().__init__(**kwargs)
+        self.current = current
+
+    def compose(self) -> ComposeResult:
+        yield Label("1: Timeline", classes="nav-item")
+        yield Label("2: Discover", classes="nav-item")
+        yield Label("3: Notifs", classes="nav-item")
+        yield Label("4: Messages", classes="nav-item")
+        yield Label("5: Settings", classes="nav-item")
+
+    def update_active(self, screen_name: str):
+        self.current = screen_name
+        # We'll update this once we confirm it's rendering
+        pass
+
 # ───────── Sidebar ─────────
 
 class Sidebar(VerticalScroll):
     current_screen = reactive("timeline")
 
-    def __init__(self, current: str = "timeline", **kwargs):
+    def __init__(self, current: str = "timeline", show_nav: bool = False, **kwargs):
         super().__init__(**kwargs)
         self.current_screen = current
+        self.show_nav = show_nav
 
     def compose(self) -> ComposeResult:
-        nav_container = Container(classes="navigation-box")
-        nav_container.border_title = "Navigation [N]"
-        with nav_container:
-            yield NavigationItem("Timeline", "timeline", 1, self.current_screen == "timeline", classes="nav-item")
-            yield NavigationItem("Discover", "discover", 2, self.current_screen == "discover", classes="nav-item")
-            yield NavigationItem("Notifs", "notifications", 3, self.current_screen == "notifications", classes="nav-item")
-            yield NavigationItem("Messages", "messages", 4, self.current_screen == "messages", classes="nav-item")
-            yield NavigationItem("Settings", "settings", 5, self.current_screen == "settings", classes="nav-item")
-        yield nav_container
+        # Navigation box (optional, default hidden since we have top navbar)
+        if self.show_nav:
+            nav_container = Container(classes="navigation-box")
+            nav_container.border_title = "Navigation [N]"
+            with nav_container:
+                yield NavigationItem("Timeline", "timeline", 1, self.current_screen == "timeline", classes="nav-item")
+                yield NavigationItem("Discover", "discover", 2, self.current_screen == "discover", classes="nav-item")
+                yield NavigationItem("Notifs", "notifications", 3, self.current_screen == "notifications", classes="nav-item")
+                yield NavigationItem("Messages", "messages", 4, self.current_screen == "messages", classes="nav-item")
+                yield NavigationItem("Settings", "settings", 5, self.current_screen == "settings", classes="nav-item")
+            yield nav_container
 
         profile_container = Container(classes="profile-box")
         profile_container.border_title = "Profile [:P]"
@@ -1589,6 +1616,7 @@ class Proj101App(App):
 
     def compose(self) -> ComposeResult:
         yield Static("proj101 [timeline] @yourname", id="app-header", markup=False)
+        yield TopNav(id="top-navbar", current="timeline")
         yield TimelineScreen(id="screen-container")
         yield Static(":↑↓ Navigate [0] Main [1-5] Sidebar [n] New Post [f] Follow [/] Search [?] Help", id="app-footer", markup=False)
         yield Static("", id="command-bar")
@@ -1622,6 +1650,14 @@ class Proj101App(App):
 
             self.query_one("#app-footer", Static).update(footer_text)
             self.current_screen_name = screen_name
+
+            # Update top navbar
+            try:
+                self.query_one("#top-navbar", TopNav).update_active(screen_name)
+            except Exception:
+                pass
+
+            # Update sidebar (if it exists)
             try:
                 sidebar = self.query_one("#sidebar", Sidebar)
                 # For user profile view, highlight discover in sidebar
@@ -1693,10 +1729,10 @@ class Proj101App(App):
 
     def action_focus_navigation(self) -> None:
         try:
-            sidebar = self.query_one("#sidebar", Sidebar)
-            nav_item = sidebar.query_one(".nav-item", NavigationItem)
-            nav_item.focus()
-        except:
+            topnav = self.query_one("#top-navbar", TopNav)
+            first = topnav.query_one(".nav-item", NavigationItem)
+            first.focus()
+        except Exception:
             pass
 
     def action_focus_main_content(self) -> None:
