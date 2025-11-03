@@ -1,6 +1,12 @@
 from textual.app import App, ComposeResult
 from textual.binding import Binding
-from textual.containers import Container, Horizontal, Vertical, VerticalScroll, ScrollableContainer
+from textual.containers import (
+    Container,
+    Horizontal,
+    Vertical,
+    VerticalScroll,
+    ScrollableContainer,
+)
 from textual.widgets import Static, Input, Button, TextArea, Label, RichLog
 from textual.reactive import reactive
 from textual.screen import ModalScreen, Screen
@@ -18,28 +24,34 @@ import json
 from typing import List, Dict
 from rich.text import Text
 import logging
+import time
+
 
 # Custom message for draft updates
 class DraftsUpdated(Message):
     """Posted when drafts are updated."""
+
     pass
+
 
 # Drafts file path
 DRAFTS_FILE = Path.home() / ".proj101_drafts.json"
+
 
 def load_drafts() -> List[Dict]:
     """Load drafts from local storage."""
     if not DRAFTS_FILE.exists():
         return []
     try:
-        with open(DRAFTS_FILE, 'r') as f:
+        with open(DRAFTS_FILE, "r") as f:
             drafts = json.load(f)
             # Convert timestamp strings back to datetime objects
             for draft in drafts:
-                draft['timestamp'] = datetime.fromisoformat(draft['timestamp'])
+                draft["timestamp"] = datetime.fromisoformat(draft["timestamp"])
             return drafts
     except Exception:
         return []
+
 
 def save_drafts(drafts: List[Dict]) -> None:
     """Save drafts to local storage."""
@@ -48,13 +60,14 @@ def save_drafts(drafts: List[Dict]) -> None:
         drafts_to_save = []
         for draft in drafts:
             draft_copy = draft.copy()
-            draft_copy['timestamp'] = draft['timestamp'].isoformat()
+            draft_copy["timestamp"] = draft["timestamp"].isoformat()
             drafts_to_save.append(draft_copy)
 
-        with open(DRAFTS_FILE, 'w') as f:
+        with open(DRAFTS_FILE, "w") as f:
             json.dump(drafts_to_save, f, indent=2)
     except Exception as e:
         print(f"Error saving drafts: {e}")
+
 
 def add_draft(content: str, attachments: List = None) -> None:
     """Add a new draft and maintain max 2 drafts."""
@@ -64,14 +77,14 @@ def add_draft(content: str, attachments: List = None) -> None:
     new_draft = {
         "content": content,
         "attachments": attachments or [],
-        "timestamp": datetime.now()
+        "timestamp": datetime.now(),
     }
 
     # Add new draft
     drafts.append(new_draft)
 
     # Sort by timestamp (oldest first)
-    drafts.sort(key=lambda x: x['timestamp'])
+    drafts.sort(key=lambda x: x["timestamp"])
 
     # Keep only the 2 most recent drafts
     if len(drafts) > 2:
@@ -79,12 +92,14 @@ def add_draft(content: str, attachments: List = None) -> None:
 
     save_drafts(drafts)
 
+
 def delete_draft(index: int) -> None:
     """Delete a specific draft by index."""
     drafts = load_drafts()
     if 0 <= index < len(drafts):
         drafts.pop(index)
         save_drafts(drafts)
+
 
 def format_time_ago(dt: datetime) -> str:
     """Format datetime as 'time ago' string."""
@@ -102,6 +117,7 @@ def format_time_ago(dt: datetime) -> str:
 # ───────── Comment Screen ─────────
 class CommentFeed(VerticalScroll):
     """Comment feed modeled after DiscoverFeed"""
+
     cursor_position = reactive(0)  # 0 = post, 1 = input, 2+ = comments
     scroll_y = reactive(0)  # Track scroll position
 
@@ -118,7 +134,10 @@ class CommentFeed(VerticalScroll):
         yield Static("─ Comments ─", classes="comment-thread-header", markup=False)
 
         # Input for new comment
-        yield Input(placeholder="[i] Type your comment and press Enter… [q] to go back", id="comment-input")
+        yield Input(
+            placeholder="[i] to comment... Press Enter to submit",
+            id="comment-input",
+        )
 
         # Comments
         self.comments = api.get_comments(self.post.id)
@@ -127,12 +146,19 @@ class CommentFeed(VerticalScroll):
         for i, c in enumerate(self.comments):
             author = c.get("user", "unknown")
             content = c.get("text", "")
-            timestamp = c.get("timestamp") or c.get("created_at") or datetime.now().isoformat()
+            timestamp = (
+                c.get("timestamp") or c.get("created_at") or datetime.now().isoformat()
+            )
             try:
                 c_time = format_time_ago(datetime.fromisoformat(timestamp))
             except Exception:
                 c_time = "just now"
-            comment = Static(f"  @{author} • {c_time}\n  {content}\n", classes="comment-thread-item comment-item", id=f"comment-{i}", markup=False)
+            comment = Static(
+                f"  @{author} • {c_time}\n  {content}\n",
+                classes="comment-thread-item comment-item",
+                id=f"comment-{i}",
+                markup=False,
+            )
             comment.styles.background = "#282A36"  # Force dark background
             yield comment
 
@@ -164,7 +190,7 @@ class CommentFeed(VerticalScroll):
         self._refresh_comments()
 
         # Show notification
-        if hasattr(self.app, 'notify'):
+        if hasattr(self.app, "notify"):
             self.app.notify("Comment posted!", timeout=2)
 
     def _refresh_comments(self) -> None:
@@ -181,12 +207,21 @@ class CommentFeed(VerticalScroll):
             for i, c in enumerate(self.comments):
                 author = c.get("user", "unknown")
                 content = c.get("text", "")
-                timestamp = c.get("timestamp") or c.get("created_at") or datetime.now().isoformat()
+                timestamp = (
+                    c.get("timestamp")
+                    or c.get("created_at")
+                    or datetime.now().isoformat()
+                )
                 try:
                     c_time = format_time_ago(datetime.fromisoformat(timestamp))
                 except Exception:
                     c_time = "just now"
-                comment_widget = Static(f"  @{author} • {c_time}\n  {content}\n", classes="comment-thread-item comment-item", id=f"comment-{i}", markup=False)
+                comment_widget = Static(
+                    f"  @{author} • {c_time}\n  {content}\n",
+                    classes="comment-thread-item comment-item",
+                    id=f"comment-{i}",
+                    markup=False,
+                )
                 comment_widget.styles.background = "#282A36"  # Force dark background
                 self.mount(comment_widget)
 
@@ -239,7 +274,9 @@ class CommentFeed(VerticalScroll):
             comment_input.remove_class("vim-cursor")
             for item in comment_items:
                 item.remove_class("vim-cursor")
-                item.styles.background = "#282A36"  # Reset to dark background, not empty
+                item.styles.background = (
+                    "#282A36"  # Reset to dark background, not empty
+                )
 
             if 0 <= self.cursor_position < len(items):
                 item = items[self.cursor_position]
@@ -353,9 +390,14 @@ class CommentFeed(VerticalScroll):
             except Exception:
                 pass
 
-        if event.key == "g" and event.is_repeat:
-            self.cursor_position = 0
-            event.prevent_default()
+        if event.key == "g":
+            now = time.time()
+            if hasattr(self, "last_g_time") and now - self.last_g_time < 0.5:
+                self.cursor_position = 0
+                event.prevent_default()
+                delattr(self, "last_g_time")
+            else:
+                self.last_g_time = now
 
         # Prevent 'd' from propagating to app level (show drafts)
         if event.key == "d":
@@ -372,15 +414,20 @@ class CommentScreen(Screen):
 
     def compose(self) -> ComposeResult:
         yield CommentFeed(self.post, id="comment-feed")
-        yield Static("[i] Input [q] Back [j/k] Navigate", id="comment-footer", markup=False)
+        yield Static(
+            "[i] Input [q] Back [j/k] Navigate", id="comment-footer", markup=False
+        )
 
 
 # ───────── Items ─────────
 
+
 class NavigationItem(Static):
-    def __init__(self, label: str, screen_name: str, number: int, active: bool = False, **kwargs):
+    def __init__(
+        self, label: str, screen_name: str, number: int, active: bool = False, **kwargs
+    ):
         # Ensure markup is enabled
-        kwargs.setdefault('markup', True)
+        kwargs.setdefault("markup", True)
         super().__init__(**kwargs)
         self.label_text = label
         self.screen_name = screen_name
@@ -403,6 +450,7 @@ class NavigationItem(Static):
         (self.add_class if is_active else self.remove_class)("active")
         self.refresh()
 
+
 class CommandItem(Static):
     def __init__(self, shortcut: str, description: str, **kwargs):
         super().__init__(**kwargs)
@@ -411,6 +459,7 @@ class CommandItem(Static):
 
     def render(self) -> str:
         return f"{self.shortcut} - {self.description}"
+
 
 class DraftItem(Static):
     """Display a saved draft in sidebar."""
@@ -424,9 +473,13 @@ class DraftItem(Static):
 
     def render(self) -> str:
         """Render the draft item as text."""
-        content = self.draft['content'][:40] + "..." if len(self.draft['content']) > 40 else self.draft['content']
-        time_ago = format_time_ago(self.draft['timestamp'])
-        attachments_count = len(self.draft.get('attachments', []))
+        content = (
+            self.draft["content"][:40] + "..."
+            if len(self.draft["content"]) > 40
+            else self.draft["content"]
+        )
+        time_ago = format_time_ago(self.draft["timestamp"])
+        attachments_count = len(self.draft.get("attachments", []))
         attach_text = f" 📎{attachments_count}" if attachments_count > 0 else ""
 
         return f"{time_ago}\n{content}{attach_text}"
@@ -435,12 +488,16 @@ class DraftItem(Static):
         """Handle click on draft item - for now just open it."""
         self.app.action_open_draft(self.draft_index)
 
+
 class ProfileDisplay(Static):
     """Display user profile."""
 
     def compose(self) -> ComposeResult:
         user = api.get_current_user()
-        yield Static(f"@{user.username} • {user.display_name}", classes="profile-username")
+        yield Static(
+            f"@{user.username} • {user.display_name}", classes="profile-username"
+        )
+
 
 class ConversationItem(Static):
     def __init__(self, conversation, **kwargs):
@@ -453,6 +510,7 @@ class ConversationItem(Static):
         unread_text = "🔵 unread" if self.conversation.unread else ""
         return f"{unread_marker}@{self.conversation.username}\n  {self.conversation.last_message}\n  {time_ago} {unread_text}"
 
+
 class ChatMessage(Static):
     def __init__(self, message, current_user: str = "yourname", **kwargs):
         super().__init__(**kwargs)
@@ -463,6 +521,7 @@ class ChatMessage(Static):
     def render(self) -> str:
         return f"{self.message.content}\n{format_time_ago(self.message.timestamp)}"
 
+
 class PostItem(Static):
     """Simple non-interactive post display."""
 
@@ -470,7 +529,7 @@ class PostItem(Static):
         super().__init__(**kwargs)
         self.post = post
         self.reposted_by_you = reposted_by_you
-        self.has_video = hasattr(post, 'video_path') and post.video_path
+        self.has_video = hasattr(post, "video_path") and post.video_path
 
     def compose(self) -> ComposeResult:
         """Compose compact post."""
@@ -479,29 +538,31 @@ class PostItem(Static):
         repost_symbol = "🔁" if self.post.reposted_by_user else "🔁"
 
         # Repost banner if this is a reposted post by you (either client-injected or backend-marked)
-        if getattr(self, "reposted_by_you", False) or getattr(self.post, "reposted_by_user", False):
+        if getattr(self, "reposted_by_you", False) or getattr(
+            self.post, "reposted_by_user", False
+        ):
             yield Static("🔁 Reposted by you", classes="repost-banner", markup=False)
 
         # Post header and content
         yield Static(
             f"@{self.post.author} • {time_ago}\n{self.post.content}",
             classes="post-text",
-            markup=False
+            markup=False,
         )
 
         # Video player if post has video
         if self.has_video and Path(self.post.video_path).exists():
             yield ASCIIVideoPlayer(
                 frames_dir=self.post.video_path,
-                fps=getattr(self.post, 'video_fps', 2),
-                classes="post-video"
+                fps=getattr(self.post, "video_fps", 2),
+                classes="post-video",
             )
 
         # Post stats - non-interactive
         yield Static(
             f"{like_symbol} {self.post.likes}  {repost_symbol} {self.post.reposts}  💬 {self.post.comments}",
             classes="post-stats",
-            markup=False
+            markup=False,
         )
 
     def watch_has_class(self, has_class: bool) -> None:
@@ -522,6 +583,7 @@ class PostItem(Static):
         except Exception:
             pass
 
+
 class NotificationItem(Static):
     def __init__(self, notification, **kwargs):
         super().__init__(**kwargs)
@@ -531,7 +593,13 @@ class NotificationItem(Static):
 
     def render(self) -> str:
         t = format_time_ago(self.notification.timestamp)
-        icon = {"mention": "📢", "like": "❤️", "repost": "🔁", "follow": "👥", "comment": "💬"}.get(self.notification.type, "🔵")
+        icon = {
+            "mention": "📢",
+            "like": "❤️",
+            "repost": "🔁",
+            "follow": "👥",
+            "comment": "💬",
+        }.get(self.notification.type, "🔵")
         n = self.notification
         if n.type == "mention":
             return f"@{n.actor} mentioned you • {t}\n{n.content}"
@@ -543,10 +611,20 @@ class NotificationItem(Static):
             return f"{icon} @{n.actor} started following you • {t}"
         return f"{icon} @{n.actor} • {t}\n{n.content}"
 
+
 class UserProfileCard(Static):
     """A user profile card for search results."""
 
-    def __init__(self, username: str, display_name: str, bio: str, followers: int, following: int, ascii_pic: str, **kwargs):
+    def __init__(
+        self,
+        username: str,
+        display_name: str,
+        bio: str,
+        followers: int,
+        following: int,
+        ascii_pic: str,
+        **kwargs,
+    ):
         super().__init__(**kwargs)
         self.username = username
         self.display_name = display_name
@@ -568,21 +646,41 @@ class UserProfileCard(Static):
             with info_container:
                 yield Static(self.display_name, classes="user-card-name")
                 # Make username clickable as a button-like widget
-                yield Button(f"@{self.username}", id=f"username-{self.username}", classes="user-card-username-btn")
+                yield Button(
+                    f"@{self.username}",
+                    id=f"username-{self.username}",
+                    classes="user-card-username-btn",
+                )
 
                 yield Static(self.bio, classes="user-card-bio")
 
                 stats_container = Container(classes="user-card-stats")
                 with stats_container:
-                    yield Static(f"{self.followers} Followers", classes="user-card-stat")
-                    yield Static(f"{self.following} Following", classes="user-card-stat")
+                    yield Static(
+                        f"{self.followers} Followers", classes="user-card-stat"
+                    )
+                    yield Static(
+                        f"{self.following} Following", classes="user-card-stat"
+                    )
                 yield stats_container
 
                 buttons_container = Container(classes="user-card-buttons")
                 with buttons_container:
-                    yield Button("Follow", id=f"follow-{self.username}", classes="user-card-button")
-                    yield Button("Message", id=f"message-{self.username}", classes="user-card-button")
-                    yield Button("View Profile", id=f"view-{self.username}", classes="user-card-button")
+                    yield Button(
+                        "Follow",
+                        id=f"follow-{self.username}",
+                        classes="user-card-button",
+                    )
+                    yield Button(
+                        "Message",
+                        id=f"message-{self.username}",
+                        classes="user-card-button",
+                    )
+                    yield Button(
+                        "View Profile",
+                        id=f"view-{self.username}",
+                        classes="user-card-button",
+                    )
                 yield buttons_container
             yield info_container
 
@@ -603,10 +701,13 @@ class UserProfileCard(Static):
             # Open messages screen with this user
             self.app.action_open_dm(self.username)
 
+
 # ───────── Top Navbar ─────────
+
 
 class TopNav(Horizontal):
     """Horizontal top navigation bar."""
+
     current = reactive("timeline")
 
     def __init__(self, current: str = "timeline", **kwargs):
@@ -675,7 +776,9 @@ class TopNav(Horizontal):
             except Exception:
                 pass
 
+
 # ───────── Sidebar ─────────
+
 
 class Sidebar(VerticalScroll):
     current_screen = reactive("timeline")
@@ -691,11 +794,41 @@ class Sidebar(VerticalScroll):
             nav_container = Container(classes="navigation-box")
             nav_container.border_title = "Navigation [N]"
             with nav_container:
-                yield NavigationItem("Timeline", "timeline", 1, self.current_screen == "timeline", classes="nav-item")
-                yield NavigationItem("Discover", "discover", 2, self.current_screen == "discover", classes="nav-item")
-                yield NavigationItem("Notifs", "notifications", 3, self.current_screen == "notifications", classes="nav-item")
-                yield NavigationItem("Messages", "messages", 4, self.current_screen == "messages", classes="nav-item")
-                yield NavigationItem("Settings", "settings", 5, self.current_screen == "settings", classes="nav-item")
+                yield NavigationItem(
+                    "Timeline",
+                    "timeline",
+                    1,
+                    self.current_screen == "timeline",
+                    classes="nav-item",
+                )
+                yield NavigationItem(
+                    "Discover",
+                    "discover",
+                    2,
+                    self.current_screen == "discover",
+                    classes="nav-item",
+                )
+                yield NavigationItem(
+                    "Notifs",
+                    "notifications",
+                    3,
+                    self.current_screen == "notifications",
+                    classes="nav-item",
+                )
+                yield NavigationItem(
+                    "Messages",
+                    "messages",
+                    4,
+                    self.current_screen == "messages",
+                    classes="nav-item",
+                )
+                yield NavigationItem(
+                    "Settings",
+                    "settings",
+                    5,
+                    self.current_screen == "settings",
+                    classes="nav-item",
+                )
             yield nav_container
 
         profile_container = Container(classes="profile-box")
@@ -714,7 +847,9 @@ class Sidebar(VerticalScroll):
                 for i, draft in enumerate(reversed(drafts)):
                     yield DraftItem(draft, len(drafts) - 1 - i, classes="draft-item")
             else:
-                yield Static("No drafts\n\nPress :n to create", classes="no-drafts-text")
+                yield Static(
+                    "No drafts\n\nPress :n to create", classes="no-drafts-text"
+                )
         yield drafts_container
 
         commands_container = Container(classes="commands-box")
@@ -767,9 +902,13 @@ class Sidebar(VerticalScroll):
             if drafts:
                 # Show most recent first
                 for i, draft in enumerate(reversed(drafts)):
-                    drafts_container.mount(DraftItem(draft, len(drafts) - 1 - i, classes="draft-item"))
+                    drafts_container.mount(
+                        DraftItem(draft, len(drafts) - 1 - i, classes="draft-item")
+                    )
             else:
-                drafts_container.mount(Static("No drafts\n\nPress :n to create", classes="no-drafts-text"))
+                drafts_container.mount(
+                    Static("No drafts\n\nPress :n to create", classes="no-drafts-text")
+                )
         except Exception as e:
             print(f"Error refreshing drafts: {e}")
 
@@ -777,7 +916,9 @@ class Sidebar(VerticalScroll):
         """Handle drafts updated message."""
         self.refresh_drafts()
 
+
 # ───────── Modal Dialogs ─────────
+
 
 class NewPostDialog(ModalScreen):
     """Modal dialog for creating a new post."""
@@ -795,7 +936,9 @@ class NewPostDialog(ModalScreen):
             yield Static("✨ Create New Post", id="dialog-title")
             yield TextArea(id="post-textarea")
             # Key hints for vim navigation
-            yield Static("\\[i] edit | \\[esc] navigate", id="vim-hints", classes="vim-hints")
+            yield Static(
+                "\\[i] edit | \\[esc] navigate", id="vim-hints", classes="vim-hints"
+            )
             # Status/attachments display area
             yield Static("", id="attachments-list", classes="attachments-list")
             yield Static("", id="status-message", classes="status-message")
@@ -820,7 +963,9 @@ class NewPostDialog(ModalScreen):
             textarea.text = self.draft_content
 
         # Initialize attachments list
-        self._attachments = self.draft_attachments.copy() if self.draft_attachments else []
+        self._attachments = (
+            self.draft_attachments.copy() if self.draft_attachments else []
+        )
 
         # Update attachments display
         self._update_attachments_display()
@@ -983,8 +1128,8 @@ class NewPostDialog(ModalScreen):
                     filetypes=[
                         ("All files", "*.*"),
                         ("Images", "*.png *.jpg *.jpeg *.gif *.bmp"),
-                        ("Documents", "*.pdf *.doc *.docx *.txt")
-                    ]
+                        ("Documents", "*.pdf *.doc *.docx *.txt"),
+                    ],
                 )
                 root.destroy()
                 if file_path:
@@ -1001,7 +1146,7 @@ class NewPostDialog(ModalScreen):
                 root.withdraw()
                 file_path = filedialog.askopenfilename(
                     title="Select an image",
-                    filetypes=[("Image files", "*.png *.jpg *.jpeg *.gif *.bmp")]
+                    filetypes=[("Image files", "*.png *.jpg *.jpeg *.gif *.bmp")],
                 )
                 root.destroy()
                 if file_path:
@@ -1036,9 +1181,7 @@ class NewPostDialog(ModalScreen):
         self._show_status("📤 Publishing post...")
 
         # Prepare attachments payload
-        attachments_payload = [
-            {"type": t, "path": p} for (t, p) in self._attachments
-        ]
+        attachments_payload = [{"type": t, "path": p} for (t, p) in self._attachments]
 
         # Call API to create post
         try:
@@ -1126,21 +1269,72 @@ class NewPostDialog(ModalScreen):
         except Exception:
             pass
 
+
 class DeleteDraftDialog(ModalScreen):
     """Modal dialog for confirming draft deletion."""
+    cursor_position = reactive(0)  # 0 = Yes, 1 = Cancel
 
     def __init__(self, draft_index: int):
         super().__init__()
         self.draft_index = draft_index
 
+    def on_mount(self) -> None:
+        """Initialize selection"""
+        self.cursor_position = 0  # Default to Yes
+
     def compose(self) -> ComposeResult:
         with Container(id="dialog-container"):
             yield Static("🗑️ Delete Draft?", id="dialog-title")
-            yield Static("Are you sure you want to delete this draft?", classes="dialog-message")
+            yield Static(
+                "Are you sure you want to delete this draft?", classes="dialog-message"
+            )
 
             with Container(id="action-buttons"):
-                yield Button("✓ Yes, Delete", variant="error", id="confirm-delete")
-                yield Button("❌ Cancel", id="cancel-delete")
+                confirm_btn = Button("✓ Yes, Delete", id="confirm-delete")
+                cancel_btn = Button("❌ Cancel", id="cancel-delete")
+                if self.cursor_position == 0:
+                    confirm_btn.add_class("selected")
+                else:
+                    cancel_btn.add_class("selected")
+                yield confirm_btn
+                yield cancel_btn
+
+    def key_h(self) -> None:
+        """Select Yes (left)"""
+        self.cursor_position = 0
+
+    def key_l(self) -> None:
+        """Select Cancel (right)"""
+        self.cursor_position = 1
+
+    def key_enter(self) -> None:
+        """Execute the selected action"""
+        if self.cursor_position == 0:
+            delete_draft(self.draft_index)
+            try:
+                self.app.notify("🗑️ Draft deleted!", severity="success")
+                # Post message to refresh drafts everywhere
+                self.app.post_message(DraftsUpdated())
+            except:
+                pass
+            self.dismiss(True)
+        else:
+            self.dismiss(False)
+
+    def watch_cursor_position(self, old_position: int, new_position: int) -> None:
+        """Update button styles based on cursor position"""
+        try:
+            confirm_btn = self.query_one("#confirm-delete", Button)
+            cancel_btn = self.query_one("#cancel-delete", Button)
+
+            if new_position == 0:
+                confirm_btn.add_class("selected")
+                cancel_btn.remove_class("selected")
+            else:
+                cancel_btn.add_class("selected")
+                confirm_btn.remove_class("selected")
+        except:
+            pass
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         btn_id = getattr(event.button, "id", None)
@@ -1157,7 +1351,9 @@ class DeleteDraftDialog(ModalScreen):
         elif btn_id == "cancel-delete":
             self.dismiss(False)
 
+
 # ───────── Screens ─────────
+
 
 class TimelineFeed(VerticalScroll):
     cursor_position = reactive(0)
@@ -1178,11 +1374,15 @@ class TimelineFeed(VerticalScroll):
         """Open the comment screen for the currently focused post"""
         logging.debug("open_comment_screen called in TimelineFeed")
         items = list(self.query(".post-item"))
-        logging.debug(f"cursor_position={self.cursor_position}, total_items={len(items)}")
+        logging.debug(
+            f"cursor_position={self.cursor_position}, total_items={len(items)}"
+        )
         if 0 <= self.cursor_position < len(items):
             post_item = items[self.cursor_position]
             post = getattr(post_item, "post", None)
-            logging.debug(f"Opening comment screen for post id={getattr(post, 'id', None)} author={getattr(post, 'author', None)}")
+            logging.debug(
+                f"Opening comment screen for post id={getattr(post, 'id', None)} author={getattr(post, 'author', None)}"
+            )
             if post:
                 self.app.push_screen(CommentScreen(post))
         else:
@@ -1194,15 +1394,27 @@ class TimelineFeed(VerticalScroll):
         reposted_sorted = sorted(self.reposted_posts, key=lambda x: x[1], reverse=True)
         self._all_posts = [p for p, _ in reposted_sorted] + posts
 
-        unread_count = len([p for p in self._all_posts if (datetime.now() - p.timestamp).seconds < 3600])
+        unread_count = len(
+            [
+                p
+                for p in self._all_posts
+                if (datetime.now() - p.timestamp).seconds < 3600
+            ]
+        )
         self.border_title = "Main Timeline"
-        yield Static(f"timeline.home | {unread_count} new posts | line 1", classes="panel-header", markup=False)
+        yield Static(
+            f"timeline.home | {unread_count} new posts | line 1",
+            classes="panel-header",
+            markup=False,
+        )
 
         # Initially display only the first batch
         repost_count = len(reposted_sorted)
-        for i, post in enumerate(self._all_posts[:self._displayed_count]):
+        for i, post in enumerate(self._all_posts[: self._displayed_count]):
             is_repost = i < repost_count
-            post_item = PostItem(post, reposted_by_you=is_repost, classes="post-item", id=f"post-{i}")
+            post_item = PostItem(
+                post, reposted_by_you=is_repost, classes="post-item", id=f"post-{i}"
+            )
             if i == 0:
                 post_item.add_class("vim-cursor")
             yield post_item
@@ -1219,7 +1431,10 @@ class TimelineFeed(VerticalScroll):
             container_size = self.container_size.height
 
             # If we're within 100 pixels of the bottom, load more
-            if virtual_size > 0 and self.scroll_y + container_size >= virtual_size - 100:
+            if (
+                virtual_size > 0
+                and self.scroll_y + container_size >= virtual_size - 100
+            ):
                 self._load_more_posts()
         except Exception:
             pass
@@ -1233,14 +1448,25 @@ class TimelineFeed(VerticalScroll):
         try:
             # Calculate how many new posts to add
             old_count = self._displayed_count
-            self._displayed_count = min(self._displayed_count + self._batch_size, len(self._all_posts))
+            self._displayed_count = min(
+                self._displayed_count + self._batch_size, len(self._all_posts)
+            )
 
             # Mount the new posts
-            repost_count = len([p for p, _ in sorted(self.reposted_posts, key=lambda x: x[1], reverse=True)])
+            repost_count = len(
+                [
+                    p
+                    for p, _ in sorted(
+                        self.reposted_posts, key=lambda x: x[1], reverse=True
+                    )
+                ]
+            )
             for i in range(old_count, self._displayed_count):
                 post = self._all_posts[i]
                 is_repost = i < repost_count
-                post_item = PostItem(post, reposted_by_you=is_repost, classes="post-item", id=f"post-{i}")
+                post_item = PostItem(
+                    post, reposted_by_you=is_repost, classes="post-item", id=f"post-{i}"
+                )
                 self.mount(post_item)
         finally:
             self._loading_more = False
@@ -1344,14 +1570,21 @@ class TimelineFeed(VerticalScroll):
             event.prevent_default()
             event.stop()
             return
-        if event.key == "g" and event.is_repeat:
-            self.cursor_position = 0
-            event.prevent_default()
+        if event.key == "g":
+            now = time.time()
+            if hasattr(self, "last_g_time") and now - self.last_g_time < 0.5:
+                self.cursor_position = 0
+                event.prevent_default()
+                delattr(self, "last_g_time")
+            else:
+                self.last_g_time = now
+
 
 class TimelineScreen(Container):
     def compose(self) -> ComposeResult:
         yield Sidebar(current="timeline", id="sidebar")
         yield TimelineFeed(id="timeline-feed")
+
 
 class DiscoverFeed(VerticalScroll):
     cursor_position = reactive(0)
@@ -1388,17 +1621,25 @@ class DiscoverFeed(VerticalScroll):
         self.border_title = "Discover"
 
         # Search input at the top
-        yield Input(placeholder="[/] Search posts, people, tags...", classes="discover-search-input", id="discover-search")
+        yield Input(
+            placeholder="[/] Search posts, people, tags...",
+            classes="discover-search-input",
+            id="discover-search",
+        )
 
         # Fetch all posts once and cache them
         self._all_posts = api.get_discover_posts()
         self._filtered_posts = self._all_posts.copy()
         self._displayed_count = min(self._batch_size, len(self._filtered_posts))
 
-        yield Static("discover.trending | explore posts | line 1", classes="panel-header", markup=False)
+        yield Static(
+            "discover.trending | explore posts | line 1",
+            classes="panel-header",
+            markup=False,
+        )
 
         # Initially display only the first batch
-        for i, post in enumerate(self._filtered_posts[:self._displayed_count]):
+        for i, post in enumerate(self._filtered_posts[: self._displayed_count]):
             post_item = PostItem(post, classes="post-item", id=f"discover-post-{i}")
             # Don't add cursor here, will be handled by _update_cursor
             yield post_item
@@ -1415,7 +1656,10 @@ class DiscoverFeed(VerticalScroll):
             container_size = self.container_size.height
 
             # If we're within 100 pixels of the bottom, load more
-            if virtual_size > 0 and self.scroll_y + container_size >= virtual_size - 100:
+            if (
+                virtual_size > 0
+                and self.scroll_y + container_size >= virtual_size - 100
+            ):
                 self._load_more_posts()
         except Exception:
             pass
@@ -1438,7 +1682,11 @@ class DiscoverFeed(VerticalScroll):
             # Filter from cached posts
             if self.query_text:
                 q = self.query_text.lower()
-                self._filtered_posts = [p for p in self._all_posts if q in p.author.lower() or q in p.content.lower()]
+                self._filtered_posts = [
+                    p
+                    for p in self._all_posts
+                    if q in p.author.lower() or q in p.content.lower()
+                ]
             else:
                 self._filtered_posts = self._all_posts.copy()
 
@@ -1450,7 +1698,7 @@ class DiscoverFeed(VerticalScroll):
                 item.remove()
 
             # Add filtered posts (only first batch)
-            for i, post in enumerate(self._filtered_posts[:self._displayed_count]):
+            for i, post in enumerate(self._filtered_posts[: self._displayed_count]):
                 post_item = PostItem(post, classes="post-item", id=f"discover-post-{i}")
                 self.mount(post_item)
 
@@ -1468,7 +1716,9 @@ class DiscoverFeed(VerticalScroll):
         try:
             # Calculate how many new posts to add
             old_count = self._displayed_count
-            self._displayed_count = min(self._displayed_count + self._batch_size, len(self._filtered_posts))
+            self._displayed_count = min(
+                self._displayed_count + self._batch_size, len(self._filtered_posts)
+            )
 
             # Mount the new posts
             for i in range(old_count, self._displayed_count):
@@ -1633,7 +1883,29 @@ class DiscoverFeed(VerticalScroll):
         # Focus the search input to start typing
         if self.cursor_position == 0:
             # Check if it's a typeable character (letter, number, space, punctuation except vim keys)
-            if len(event.key) == 1 and event.key not in ['j', 'k', 'g', 'G', 'w', 'b', 'h', 'l', '0', '1', '2', '3', '4', '5', '6', 'p', 'd', 'i', 'q', ':', '/']:
+            if len(event.key) == 1 and event.key not in [
+                "j",
+                "k",
+                "g",
+                "G",
+                "w",
+                "b",
+                "h",
+                "l",
+                "0",
+                "1",
+                "2",
+                "3",
+                "4",
+                "5",
+                "6",
+                "p",
+                "d",
+                "i",
+                "q",
+                ":",
+                "/",
+            ]:
                 try:
                     search_input = self.query_one("#discover-search", Input)
                     search_input.focus()
@@ -1642,14 +1914,21 @@ class DiscoverFeed(VerticalScroll):
                 except Exception:
                     pass
 
-        if event.key == "g" and event.is_repeat:
-            self.cursor_position = 0
-            event.prevent_default()
+        if event.key == "g":
+            now = time.time()
+            if hasattr(self, "last_g_time") and now - self.last_g_time < 0.5:
+                self.cursor_position = 0
+                event.prevent_default()
+                delattr(self, "last_g_time")
+            else:
+                self.last_g_time = now
+
 
 class DiscoverScreen(Container):
     def compose(self) -> ComposeResult:
         yield Sidebar(current="discover", id="sidebar")
         yield DiscoverFeed(id="discover-feed")
+
 
 class NotificationsFeed(VerticalScroll):
     cursor_position = reactive(0)
@@ -1658,13 +1937,20 @@ class NotificationsFeed(VerticalScroll):
         notifications = api.get_notifications()
         unread_count = len([n for n in notifications if not n.read])
         self.border_title = "Notifications"
-        yield Static(f"notifications.all | {unread_count} unread | line 1", classes="panel-header")
+        yield Static(
+            f"notifications.all | {unread_count} unread | line 1",
+            classes="panel-header",
+        )
         for i, notif in enumerate(notifications):
             item = NotificationItem(notif, classes="notification-item", id=f"notif-{i}")
             if i == 0:
                 item.add_class("vim-cursor")
             yield item
-        yield Static("\n[j/k] Navigate [g/G] Top/Bottom [Enter] Open [:q] Quit", classes="help-text", markup=False)
+        yield Static(
+            "\n[j/k] Navigate [Enter] Open [:q] Quit",
+            classes="help-text",
+            markup=False,
+        )
 
     def on_mount(self) -> None:
         """Watch for cursor position changes"""
@@ -1749,14 +2035,21 @@ class NotificationsFeed(VerticalScroll):
             event.prevent_default()
             event.stop()
             return
-        if event.key == "g" and event.is_repeat:
-            self.cursor_position = 0
-            event.prevent_default()
+        if event.key == "g":
+            now = time.time()
+            if hasattr(self, "last_g_time") and now - self.last_g_time < 0.5:
+                self.cursor_position = 0
+                event.prevent_default()
+                delattr(self, "last_g_time")
+            else:
+                self.last_g_time = now
+
 
 class NotificationsScreen(Container):
     def compose(self) -> ComposeResult:
         yield Sidebar(current="notifications", id="sidebar")
         yield NotificationsFeed(id="notifications-feed")
+
 
 class ConversationsList(VerticalScroll):
     cursor_position = reactive(0)
@@ -1868,9 +2161,15 @@ class ConversationsList(VerticalScroll):
             event.prevent_default()
             event.stop()
             return
-        if event.key == "g" and event.is_repeat:
-            self.cursor_position = 0
-            event.prevent_default()
+        if event.key == "g":
+            now = time.time()
+            if hasattr(self, "last_g_time") and now - self.last_g_time < 0.5:
+                self.cursor_position = 0
+                event.prevent_default()
+                delattr(self, "last_g_time")
+            else:
+                self.last_g_time = now
+
 
 class ChatView(VerticalScroll):
     conversation_id = reactive("c1")
@@ -1885,12 +2184,17 @@ class ChatView(VerticalScroll):
     def compose(self) -> ComposeResult:
         self.border_title = "[0] Chat"
         messages = api.get_conversation_messages(self.conversation_id)
-        yield Static(f"@{self.conversation_username} | conversation", classes="panel-header")
+        yield Static(
+            f"@{self.conversation_username} | conversation", classes="panel-header"
+        )
         for msg in messages:
             yield ChatMessage(msg, classes="chat-message")
         yield Static("-- INSERT --", classes="mode-indicator")
-        yield Input(placeholder="Type message and press Enter… (Esc to cancel)",
-                    classes="message-input", id="message-input")
+        yield Input(
+            placeholder="Type message and press Enter… (Esc to cancel)",
+            classes="message-input",
+            id="message-input",
+        )
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
         if event.input.id != "message-input":
@@ -1949,6 +2253,7 @@ class ChatView(VerticalScroll):
         messages = self.query(".chat-message")
         self.cursor_position = max(0, len(messages) - 1)
 
+
 class MessagesScreen(Container):
     def __init__(self, username: str = None, **kwargs):
         super().__init__(**kwargs)
@@ -1962,7 +2267,9 @@ class MessagesScreen(Container):
         if self.dm_username:
             # Create a new conversation ID for this user
             conv_id = f"dm-{self.dm_username}"
-            yield ChatView(conversation_id=conv_id, username=self.dm_username, id="chat")
+            yield ChatView(
+                conversation_id=conv_id, username=self.dm_username, id="chat"
+            )
         else:
             yield ChatView(id="chat")
 
@@ -1992,6 +2299,7 @@ class MessagesScreen(Container):
         except:
             pass
 
+
 class SettingsPanel(VerticalScroll):
     cursor_position = reactive(0)
 
@@ -2001,22 +2309,42 @@ class SettingsPanel(VerticalScroll):
         yield Static("settings.profile | line 1", classes="panel-header")
         yield Static("\n→ Profile Picture (ASCII)", classes="settings-section-header")
         yield Static("Make ASCII Profile Picture from image file")
-        yield Button("Upload file", id="upload-profile-picture", classes="upload-profile-picture")
-        yield Static(f"{settings.ascii_pic}", id="profile-picture-display", classes="ascii-avatar")
+        yield Button(
+            "Upload file", id="upload-profile-picture", classes="upload-profile-picture"
+        )
+        yield Static(
+            f"{settings.ascii_pic}",
+            id="profile-picture-display",
+            classes="ascii-avatar",
+        )
 
         yield Static("\n→ Account Information", classes="settings-section-header")
         yield Static(f"  Username:\n  @{settings.username}", classes="settings-field")
-        yield Static(f"\n  Display Name:\n  {settings.display_name}", classes="settings-field")
+        yield Static(
+            f"\n  Display Name:\n  {settings.display_name}", classes="settings-field"
+        )
         yield Static(f"\n  Bio:\n  {settings.bio}", classes="settings-field")
         yield Static("\n→ OAuth Connections", classes="settings-section-header")
         github_status = "Connected" if settings.github_connected else "[:c] Connect"
         gitlab_status = "Connected" if settings.gitlab_connected else "[:c] Connect"
         google_status = "Connected" if settings.google_connected else "[:c] Connect"
         discord_status = "Connected" if settings.discord_connected else "[:c] Connect"
-        yield Static(f"  [🟢] GitHub                                              {github_status}", classes="oauth-item")
-        yield Static(f"  [⚪] GitLab                                              {gitlab_status}", classes="oauth-item")
-        yield Static(f"  [⚪] Google                                              {google_status}", classes="oauth-item")
-        yield Static(f"  [⚪] Discord                                             {discord_status}", classes="oauth-item")
+        yield Static(
+            f"  [🟢] GitHub                                              {github_status}",
+            classes="oauth-item",
+        )
+        yield Static(
+            f"  [⚪] GitLab                                              {gitlab_status}",
+            classes="oauth-item",
+        )
+        yield Static(
+            f"  [⚪] Google                                              {google_status}",
+            classes="oauth-item",
+        )
+        yield Static(
+            f"  [⚪] Discord                                             {discord_status}",
+            classes="oauth-item",
+        )
         yield Static("\n→ Preferences", classes="settings-section-header")
         email_check = "✅" if settings.email_notifications else "⬜"
         online_check = "✅" if settings.show_online_status else "⬜"
@@ -2024,13 +2352,23 @@ class SettingsPanel(VerticalScroll):
         yield Static(f"  {email_check} Email notifications", classes="checkbox-item")
         yield Static(f"  {online_check} Show online status", classes="checkbox-item")
         yield Static(f"  {private_check} Private account", classes="checkbox-item")
-        yield Static("\n  [:w] Save Changes     [:q] Cancel", classes="settings-actions")
-        yield Static("\n:w - save  [:e] Edit field  [Tab] Next field  [Esc] Cancel", classes="help-text", markup=False)
+        yield Static(
+            "\n  [:w] Save Changes     [:q] Cancel", classes="settings-actions"
+        )
+        yield Static(
+            "\n:w - save  [:e] Edit field  [Tab] Next field  [Esc] Cancel",
+            classes="help-text",
+            markup=False,
+        )
 
     def watch_cursor_position(self, old_position: int, new_position: int) -> None:
         """Update the cursor when position changes"""
         # We'll consider settings items that can be selected for cursor movement:
-        selectable_classes = [".upload-profile-picture", ".oauth-item", ".checkbox-item"]
+        selectable_classes = [
+            ".upload-profile-picture",
+            ".oauth-item",
+            ".checkbox-item",
+        ]
 
         items = []
         for cls in selectable_classes:
@@ -2052,7 +2390,11 @@ class SettingsPanel(VerticalScroll):
         """Vim-style down navigation"""
         if self.app.command_mode:
             return
-        selectable_classes = [".upload-profile-picture", ".oauth-item", ".checkbox-item"]
+        selectable_classes = [
+            ".upload-profile-picture",
+            ".oauth-item",
+            ".checkbox-item",
+        ]
         items = []
         for cls in selectable_classes:
             items.extend(list(self.query(cls)))
@@ -2077,7 +2419,11 @@ class SettingsPanel(VerticalScroll):
         """Vim-style go to bottom"""
         if self.app.command_mode:
             return
-        selectable_classes = [".upload-profile-picture", ".oauth-item", ".checkbox-item"]
+        selectable_classes = [
+            ".upload-profile-picture",
+            ".oauth-item",
+            ".checkbox-item",
+        ]
         items = []
         for cls in selectable_classes:
             items.extend(list(self.query(cls)))
@@ -2090,7 +2436,7 @@ class SettingsPanel(VerticalScroll):
                 root.withdraw()
                 file_path = filedialog.askopenfilename(
                     title="Select an Image",
-                    filetypes=[("Image files", "*.png *.jpg *.jpeg")]
+                    filetypes=[("Image files", "*.png *.jpg *.jpeg")],
                 )
                 root.destroy()
 
@@ -2109,11 +2455,15 @@ class SettingsPanel(VerticalScroll):
                 cmd = [
                     sys.executable,
                     str(script_path),
-                    "--output-text", output_text,
-                    "--output-image", output_image,
-                    "--font", font_path,
-                    "--font-size", "24",
-                    file_path
+                    "--output-text",
+                    output_text,
+                    "--output-image",
+                    output_image,
+                    "--font",
+                    font_path,
+                    "--font-size",
+                    "24",
+                    file_path,
                 ]
 
                 result = subprocess.run(cmd, capture_output=True, text=True)
@@ -2145,10 +2495,12 @@ class SettingsPanel(VerticalScroll):
             except Exception:
                 pass
 
+
 class SettingsScreen(Container):
     def compose(self) -> ComposeResult:
         yield Sidebar(current="settings", id="sidebar")
         yield SettingsPanel(id="settings-panel")
+
 
 class ProfilePanel(VerticalScroll):
     cursor_position = reactive(0)
@@ -2170,8 +2522,12 @@ class ProfilePanel(VerticalScroll):
             stats_row = Container(classes="profile-stats-row")
             with stats_row:
                 yield Static(f"{user.posts_count}\nPosts", classes="profile-stat-item")
-                yield Static(f"{user.following}\nFollowing", classes="profile-stat-item")
-                yield Static(f"{user.followers}\nFollowers", classes="profile-stat-item")
+                yield Static(
+                    f"{user.following}\nFollowing", classes="profile-stat-item"
+                )
+                yield Static(
+                    f"{user.followers}\nFollowers", classes="profile-stat-item"
+                )
             yield stats_row
 
             bio_container = Container(classes="profile-bio-container")
@@ -2181,7 +2537,11 @@ class ProfilePanel(VerticalScroll):
             yield bio_container
 
         yield profile_container
-        yield Static("\n[j/k] Navigate  [:e] Edit Profile  [Esc] Back", classes="help-text", markup=False)
+        yield Static(
+            "\n[j/k] Navigate  [:e] Edit Profile  [Esc] Back",
+            classes="help-text",
+            markup=False,
+        )
 
     def key_j(self) -> None:
         """Scroll down with j key"""
@@ -2232,14 +2592,21 @@ class ProfilePanel(VerticalScroll):
             event.prevent_default()
             event.stop()
             return
-        if event.key == "g" and event.is_repeat:
-            self.scroll_home(animate=False)
-            event.prevent_default()
+        if event.key == "g":
+            now = time.time()
+            if hasattr(self, "last_g_time") and now - self.last_g_time < 0.5:
+                self.scroll_home(animate=False)
+                event.prevent_default()
+                delattr(self, "last_g_time")
+            else:
+                self.last_g_time = now
+
 
 class ProfileScreen(Container):
     def compose(self) -> ComposeResult:
         yield Sidebar(current="profile", id="sidebar")
         yield ProfilePanel(id="profile-panel")
+
 
 class UserProfileViewPanel(VerticalScroll):
     """Panel for viewing another user's profile."""
@@ -2261,15 +2628,21 @@ class UserProfileViewPanel(VerticalScroll):
         profile_container = Container(classes="profile-center-container")
 
         with profile_container:
-            yield Static(user_data['ascii_pic'], classes="profile-avatar-large")
+            yield Static(user_data["ascii_pic"], classes="profile-avatar-large")
             yield Static(f"{user_data['display_name']}", classes="profile-name-large")
             yield Static(f"@{self.username}", classes="profile-username-display")
 
             stats_row = Container(classes="profile-stats-row")
             with stats_row:
-                yield Static(f"{user_data['posts_count']}\nPosts", classes="profile-stat-item")
-                yield Static(f"{user_data['following']}\nFollowing", classes="profile-stat-item")
-                yield Static(f"{user_data['followers']}\nFollowers", classes="profile-stat-item")
+                yield Static(
+                    f"{user_data['posts_count']}\nPosts", classes="profile-stat-item"
+                )
+                yield Static(
+                    f"{user_data['following']}\nFollowing", classes="profile-stat-item"
+                )
+                yield Static(
+                    f"{user_data['followers']}\nFollowers", classes="profile-stat-item"
+                )
             yield stats_row
 
             bio_container = Container(classes="profile-bio-container")
@@ -2281,9 +2654,13 @@ class UserProfileViewPanel(VerticalScroll):
             # Action buttons
             buttons_container = Container(classes="profile-action-buttons")
             with buttons_container:
-                follow_btn = Button("👥 Follow", id="follow-user-btn", classes="profile-action-btn")
+                follow_btn = Button(
+                    "👥 Follow", id="follow-user-btn", classes="profile-action-btn"
+                )
                 yield follow_btn
-                yield Button("💬 Message", id="message-user-btn", classes="profile-action-btn")
+                yield Button(
+                    "💬 Message", id="message-user-btn", classes="profile-action-btn"
+                )
             yield buttons_container
 
         yield profile_container
@@ -2294,7 +2671,9 @@ class UserProfileViewPanel(VerticalScroll):
         for post in posts:
             yield PostItem(post, classes="post-item")
 
-        yield Static("\n[Esc] Back  [:f] Follow  [:m] Message", classes="help-text", markup=False)
+        yield Static(
+            "\n[Esc] Back  [:f] Follow  [:m] Message", classes="help-text", markup=False
+        )
 
     def _get_user_data(self) -> Dict:
         """Get or generate user data."""
@@ -2303,26 +2682,26 @@ class UserProfileViewPanel(VerticalScroll):
             discover_feed = self.app.query_one("#discover-feed", DiscoverFeed)
 
             for name, data in discover_feed._dummy_users.items():
-                if data['username'] == self.username:
+                if data["username"] == self.username:
                     return {
-                        'display_name': data['display_name'],
-                        'bio': data['bio'],
-                        'followers': data['followers'],
-                        'following': data['following'],
-                        'ascii_pic': data['ascii_pic'],
-                        'posts_count': 42  # Fake post count
+                        "display_name": data["display_name"],
+                        "bio": data["bio"],
+                        "followers": data["followers"],
+                        "following": data["following"],
+                        "ascii_pic": data["ascii_pic"],
+                        "posts_count": 42,  # Fake post count
                     }
         except:
             pass
 
         # Generate fake data for other users
         return {
-            'display_name': self.username.replace('_', ' ').title(),
-            'bio': f"Hi! I'm {self.username}. Welcome to my profile! 👋",
-            'followers': 156,
-            'following': 89,
-            'ascii_pic': "  [👀]\n  |◠ ◡ ◠|\n  |▓███▓|",
-            'posts_count': 28
+            "display_name": self.username.replace("_", " ").title(),
+            "bio": f"Hi! I'm {self.username}. Welcome to my profile! 👋",
+            "followers": 156,
+            "following": 89,
+            "ascii_pic": "  [👀]\n  |◠ ◡ ◠|\n  |▓███▓|",
+            "posts_count": 28,
         }
 
     def _get_user_posts(self) -> List:
@@ -2335,13 +2714,13 @@ class UserProfileViewPanel(VerticalScroll):
             post = Post(
                 id=f"fake-{self.username}-{i}",
                 author=self.username,
-                content=f"This is a sample post from @{self.username}! Post #{i+1}",
+                content=f"This is a sample post from @{self.username}! Post #{i + 1}",
                 timestamp=datetime.now(),
                 likes=10 + i * 5,
                 reposts=2 + i,
                 comments=3 + i,
                 liked_by_user=False,
-                reposted_by_user=False
+                reposted_by_user=False,
             )
             posts.append(post)
 
@@ -2364,7 +2743,9 @@ class UserProfileViewPanel(VerticalScroll):
                     # Increment following count in user profile
                     current_user = api.get_current_user()
                     current_user.following += 1
-                    self.app.notify(f"✓ Following @{self.username}!", severity="success")
+                    self.app.notify(
+                        f"✓ Following @{self.username}!", severity="success"
+                    )
                 else:
                     follow_btn.label = "👥 Follow"
                     follow_btn.remove_class("following")
@@ -2378,6 +2759,7 @@ class UserProfileViewPanel(VerticalScroll):
             # Open DM with this user
             self.app.action_open_dm(self.username)
 
+
 class UserProfileViewScreen(Container):
     """Screen for viewing another user's profile."""
 
@@ -2389,8 +2771,10 @@ class UserProfileViewScreen(Container):
         yield Sidebar(current="discover", id="sidebar")
         yield UserProfileViewPanel(username=self.username, id="user-profile-panel")
 
+
 class DraftsPanel(VerticalScroll):
     """Main panel for viewing all drafts."""
+
     cursor_position = reactive(0)
     selected_action = reactive("open")  # "open" or "delete"
 
@@ -2398,11 +2782,15 @@ class DraftsPanel(VerticalScroll):
         self.border_title = "Drafts"
         drafts = load_drafts()
 
-        yield Static(f"drafts.all | {len(drafts)} saved | line 1", classes="panel-header")
+        yield Static(
+            f"drafts.all | {len(drafts)} saved | line 1", classes="panel-header"
+        )
 
         if not drafts:
-            yield Static("\n📝 No drafts saved yet\n\nPress :n to create a new post",
-                        classes="no-drafts-message")
+            yield Static(
+                "\n📝 No drafts saved yet\n\nPress :n to create a new post",
+                classes="no-drafts-message",
+            )
         else:
             # Show most recent first
             for i, draft in enumerate(reversed(drafts)):
@@ -2412,8 +2800,11 @@ class DraftsPanel(VerticalScroll):
                     box.add_class("vim-cursor")
                 yield box
 
-        yield Static("\n[j/k] Navigate [h/l] Select Action [Enter] Execute [:o#/:x#] Direct [Esc] Back",
-                    classes="help-text", markup=False)
+        yield Static(
+            "\n[j/k] Navigate [h/l] Select Action [Enter] Execute [:o#/:x#] Direct [Esc] Back",
+            classes="help-text",
+            markup=False,
+        )
 
     def on_mount(self) -> None:
         """Watch for cursor position changes"""
@@ -2524,27 +2915,10 @@ class DraftsPanel(VerticalScroll):
             return
         self.selected_action = "delete"
 
-    def key_enter(self) -> None:
-        """Execute the selected action on the current draft"""
-        # Don't process if app is in command mode
-        if self.app.command_mode:
-            return
 
-        try:
-            drafts = load_drafts()
-            if 0 <= self.cursor_position < len(drafts):
-                # Get the actual draft index (reversed display)
-                actual_index = len(drafts) - 1 - self.cursor_position
-
-                if self.selected_action == "open":
-                    self.app.action_open_draft(actual_index)
-                else:  # delete
-                    self.app.push_screen(DeleteDraftDialog(actual_index))
-        except Exception:
-            pass
 
     def on_key(self, event) -> None:
-        """Handle g+g key combination for top and escape for command mode"""
+        """Handle g+g key combination for top, enter for actions, and escape for command mode"""
         if event.key == "escape":
             # If in command mode, let the app handle it (don't stop propagation)
             if self.app.command_mode:
@@ -2554,9 +2928,30 @@ class DraftsPanel(VerticalScroll):
             event.prevent_default()
             event.stop()
             return
-        if event.key == "g" and event.is_repeat:
-            self.cursor_position = 0
+        if event.key == "enter":
+            if self.app.command_mode:
+                return
             event.prevent_default()
+            event.stop()
+            try:
+                drafts = load_drafts()
+                if 0 <= self.cursor_position < len(drafts):
+                    actual_index = len(drafts) - 1 - self.cursor_position
+                    if self.selected_action == "open":
+                        self.app.action_open_draft(actual_index)
+                    else:
+                        self.app.push_screen(DeleteDraftDialog(actual_index))
+            except Exception:
+                pass
+            return
+        if event.key == "g":
+            now = time.time()
+            if hasattr(self, "last_g_time") and now - self.last_g_time < 0.5:
+                self.cursor_position = 0
+                event.prevent_default()
+                delattr(self, 'last_g_time')
+            else:
+                self.last_g_time = now
 
     def _create_draft_box(self, draft: Dict, index: int) -> Container:
         """Create a nice box for displaying a draft."""
@@ -2565,24 +2960,32 @@ class DraftsPanel(VerticalScroll):
         box.border_title = f"💾 Draft {index + 1}"
 
         # Header with timestamp
-        time_ago = format_time_ago(draft['timestamp'])
+        time_ago = format_time_ago(draft["timestamp"])
         box.mount(Static(f"⏰ Saved {time_ago}", classes="draft-timestamp"))
 
         # Content preview
-        content = draft['content']
+        content = draft["content"]
         preview = content if len(content) <= 200 else content[:200] + "..."
         box.mount(Static(preview, classes="draft-content-preview"))
 
         # Attachments info
-        attachments = draft.get('attachments', [])
+        attachments = draft.get("attachments", [])
         if attachments:
             attach_text = f"📎 {len(attachments)} attachment(s)"
             box.mount(Static(attach_text, classes="draft-attachments-info"))
 
         # Action buttons
         actions_container = Container(classes="draft-actions")
-        actions_container.mount(Button(f"✏️ Open", id=f"open-draft-{index}", classes="draft-action-btn"))
-        actions_container.mount(Button(f"🗑️ Delete", id=f"delete-draft-{index}", classes="draft-action-btn-delete"))
+        actions_container.mount(
+            Button(f"✏️ Open", id=f"open-draft-{index}", classes="draft-action-btn")
+        )
+        actions_container.mount(
+            Button(
+                f"🗑️ Delete",
+                id=f"delete-draft-{index}",
+                classes="draft-action-btn-delete",
+            )
+        )
         box.mount(actions_container)
 
         return box
@@ -2604,11 +3007,17 @@ class DraftsPanel(VerticalScroll):
         self.remove_children()
         drafts = load_drafts()
 
-        self.mount(Static(f"drafts.all | {len(drafts)} saved | line 1", classes="panel-header"))
+        self.mount(
+            Static(f"drafts.all | {len(drafts)} saved | line 1", classes="panel-header")
+        )
 
         if not drafts:
-            self.mount(Static("\n📝 No drafts saved yet\n\nPress :n to create a new post",
-                        classes="no-drafts-message"))
+            self.mount(
+                Static(
+                    "\n📝 No drafts saved yet\n\nPress :n to create a new post",
+                    classes="no-drafts-message",
+                )
+            )
         else:
             # Show most recent first
             for i, draft in enumerate(reversed(drafts)):
@@ -2618,11 +3027,17 @@ class DraftsPanel(VerticalScroll):
                     box.add_class("vim-cursor")
                 self.mount(box)
 
-        self.mount(Static("\n[j/k] Navigate [h/l] Select Action [Enter] Execute [:o#/:x#] Direct [Esc] Back",
-                    classes="help-text", markup=False))
+        self.mount(
+            Static(
+                "\n[j/k] Navigate [h/l] Select Action [Enter] Execute [:o#/:x#] Direct [Esc] Back",
+                classes="help-text",
+                markup=False,
+            )
+        )
 
         # Reset cursor position
         self.cursor_position = 0
+
 
 class DraftsScreen(Container):
     """Screen for viewing and managing all drafts."""
@@ -2630,6 +3045,7 @@ class DraftsScreen(Container):
     def compose(self) -> ComposeResult:
         yield Sidebar(current="drafts", id="sidebar")
         yield DraftsPanel(id="drafts-panel")
+
 
 class Proj101App(App):
     CSS_PATH = "main.tcss"
@@ -2642,7 +3058,6 @@ class Proj101App(App):
         Binding("q", "quit", "Quit", show=False),
         Binding("i", "insert_mode", "Insert", show=True),
         Binding("escape", "normal_mode", "Normal", show=False),
-
         # Screen navigation
         Binding("0", "focus_main_content", "Main Content", show=False),
         Binding("1", "show_timeline", "Timeline", show=False),
@@ -2655,7 +3070,6 @@ class Proj101App(App):
         Binding("6", "focus_messages", "Messages List", show=False),
         Binding("shift+n", "focus_navigation", "Nav Focus", show=False),
         Binding("colon", "show_command_bar", "Command", show=False),
-
         # Vim-style navigation bindings
         Binding("j", "vim_down", "Down", show=False),
         Binding("k", "vim_up", "Up", show=False),
@@ -2663,7 +3077,6 @@ class Proj101App(App):
         Binding("l", "vim_right", "Right", show=False),
         Binding("w", "vim_word_forward", "Word Forward", show=False),
         Binding("b", "vim_word_backward", "Word Backward", show=False),
-        Binding("g g", "vim_top", "Top", show=False),
         Binding("G", "vim_bottom", "Bottom", show=False),
         Binding("ctrl+d", "vim_half_page_down", "Half Page Down", show=False),
         Binding("ctrl+u", "vim_half_page_up", "Half Page Up", show=False),
@@ -2690,7 +3103,11 @@ class Proj101App(App):
         yield Static("tuitter [timeline] @yourname", id="app-header", markup=False)
         yield TopNav(id="top-navbar", current="timeline")
         yield TimelineScreen(id="screen-container")
-        yield Static("[1-5] Screens [p] Profile [d] Drafts [j/k] Navigate [:n] New Post [:q] Quit", id="app-footer", markup=False)
+        yield Static(
+            "[1-5] Screens [p] Profile [d] Drafts [j/k] Navigate [:n] New Post [:q] Quit",
+            id="app-footer",
+            markup=False,
+        )
         yield Static("", id="command-bar")
 
     def on_mount(self) -> None:
@@ -2715,14 +3132,38 @@ class Proj101App(App):
         if screen_name == self.current_screen_name and not kwargs:
             return
         screen_map = {
-            "timeline": (TimelineScreen, "[1-5] Screens [p] Profile [d] Drafts [j/k] Navigate [:n] New Post [:q] Quit"),
-            "discover": (DiscoverScreen, "[1-5] Screens [p] Profile [d] Drafts [j/k] Navigate [/] Search [:n] New Post [:q] Quit"),
-            "notifications": (NotificationsScreen, "[1-5] Screens [p] Profile [d] Drafts [j/k] Navigate [:q] Quit"),
-            "messages": (MessagesScreen, "[0] Chat [6] Messages [1-5] Screens [p] Profile [d] Drafts [j/k] Navigate [:n] New Message [:q] Quit"),
-            "profile": (ProfileScreen, "[1-5] Screens [d] Drafts [j/k] Navigate [:q] Quit"),
-            "settings": (SettingsScreen, "[1-5] Screens [p] Profile [d] Drafts [j/k] Navigate [:q] Quit"),
-            "drafts": (DraftsScreen, "[1-5] Screens [p] Profile [j/k] Navigate [h/l] Select [Enter] Execute [:q] Quit"),
-            "user_profile": (UserProfileViewScreen, "[1-5] Screens [p] Profile [d] Drafts [:m] Message [:q] Quit"),
+            "timeline": (
+                TimelineScreen,
+                "[1-5] Screens [p] Profile [d] Drafts [j/k] Navigate [:n] New Post [:q] Quit",
+            ),
+            "discover": (
+                DiscoverScreen,
+                "[1-5] Screens [p] Profile [d] Drafts [j/k] Navigate [/] Search [:n] New Post [:q] Quit",
+            ),
+            "notifications": (
+                NotificationsScreen,
+                "[1-5] Screens [p] Profile [d] Drafts [j/k] Navigate [:q] Quit",
+            ),
+            "messages": (
+                MessagesScreen,
+                "[0] Chat [6] Messages [1-5] Screens [p] Profile [d] Drafts [j/k] Navigate [:n] New Message [:q] Quit",
+            ),
+            "profile": (
+                ProfileScreen,
+                "[1-5] Screens [d] Drafts [j/k] Navigate [:q] Quit",
+            ),
+            "settings": (
+                SettingsScreen,
+                "[1-5] Screens [p] Profile [d] Drafts [j/k] Navigate [:q] Quit",
+            ),
+            "drafts": (
+                DraftsScreen,
+                "[1-5] Screens [p] Profile [j/k] Navigate [h/l] Select [Enter] Execute [:q] Quit",
+            ),
+            "user_profile": (
+                UserProfileViewScreen,
+                "[1-5] Screens [p] Profile [d] Drafts [:m] Message [:q] Quit",
+            ),
         }
         if screen_name in screen_map:
             self._switching = True  # Set flag to prevent concurrent switches
@@ -2730,15 +3171,23 @@ class Proj101App(App):
             for container in self.query("#screen-container"):
                 container.remove()
             ScreenClass, footer_text = screen_map[screen_name]
-            self.call_after_refresh(self.mount, ScreenClass(id="screen-container", **kwargs))
+            self.call_after_refresh(
+                self.mount, ScreenClass(id="screen-container", **kwargs)
+            )
 
             # Update header based on screen
-            if screen_name == "user_profile" and 'username' in kwargs:
-                self.query_one("#app-header", Static).update(f"tuitter [@{kwargs['username']}] @yourname")
-            elif screen_name == "messages" and 'username' in kwargs:
-                self.query_one("#app-header", Static).update(f"tuitter [dm:@{kwargs['username']}] @yourname")
+            if screen_name == "user_profile" and "username" in kwargs:
+                self.query_one("#app-header", Static).update(
+                    f"tuitter [@{kwargs['username']}] @yourname"
+                )
+            elif screen_name == "messages" and "username" in kwargs:
+                self.query_one("#app-header", Static).update(
+                    f"tuitter [dm:@{kwargs['username']}] @yourname"
+                )
             else:
-                self.query_one("#app-header", Static).update(f"tuitter [{screen_name}] @yourname")
+                self.query_one("#app-header", Static).update(
+                    f"tuitter [{screen_name}] @yourname"
+                )
 
             self.query_one("#app-footer", Static).update(footer_text)
             self.current_screen_name = screen_name
@@ -2766,7 +3215,7 @@ class Proj101App(App):
             self.call_after_refresh(self._focus_main_content_for_screen, screen_name)
 
             # Reset the switching flag after a brief delay
-            self.set_timer(0.1, lambda: setattr(self, '_switching', False))
+            self.set_timer(0.1, lambda: setattr(self, "_switching", False))
 
     def _focus_main_content_for_screen(self, screen_name: str) -> None:
         """Focus the main content feed/panel for the current screen"""
@@ -2789,7 +3238,7 @@ class Proj101App(App):
                 widget.focus()
 
                 # Reset cursor position to 0 for feeds with cursor navigation
-                if hasattr(widget, 'cursor_position'):
+                if hasattr(widget, "cursor_position"):
                     widget.cursor_position = 0
         except Exception:
             pass
@@ -2934,8 +3383,9 @@ class Proj101App(App):
 
     def action_vim_bottom(self) -> None:
         """Move to the bottom (G key)"""
-        # The key will be handled by the focused widget's key_G method if it exists
-        pass
+        focused = self.focused
+        if focused and hasattr(focused, "key_G"):
+            focused.key_G()
 
     def action_vim_half_page_down(self) -> None:
         """Move half page down (Ctrl+d)"""
@@ -2982,6 +3432,7 @@ class Proj101App(App):
 
     def action_new_post(self) -> None:
         """Show the new post dialog."""
+
         def check_refresh(result):
             if result:
                 if self.current_screen_name == "timeline":
@@ -3022,10 +3473,10 @@ class Proj101App(App):
 
                 self.push_screen(
                     NewPostDialog(
-                        draft_content=draft['content'],
-                        draft_attachments=draft.get('attachments', [])
+                        draft_content=draft["content"],
+                        draft_attachments=draft.get("attachments", []),
                     ),
-                    check_refresh
+                    check_refresh,
                 )
             else:
                 self.notify("Draft not found", severity="error")
@@ -3047,7 +3498,6 @@ class Proj101App(App):
                 self.command_text = ""
                 self.command_mode = False
             elif event.key == "enter":
-
                 command = self.command_text.strip()
                 try:
                     command_bar = self.query_one("#command-bar", Static)
@@ -3062,7 +3512,13 @@ class Proj101App(App):
                 elif command.startswith("/"):
                     command = command[1:]
 
-                screen_map = {"1": "timeline", "2": "discover", "3": "notifications", "4": "messages", "5": "settings"}
+                screen_map = {
+                    "1": "timeline",
+                    "2": "discover",
+                    "3": "notifications",
+                    "4": "messages",
+                    "5": "settings",
+                }
                 if command in screen_map:
                     self.switch_screen(screen_map[command])
                 elif command in ("q", "quit"):
@@ -3095,6 +3551,7 @@ class Proj101App(App):
                                 post = getattr(post_item, "post", None)
                                 if post:
                                     api.like_post(post.id)
+                                    self.notify("Post liked!", severity="success")
                                     # Refresh timeline
                                     self.switch_screen("timeline")
                         except Exception:
@@ -3109,6 +3566,7 @@ class Proj101App(App):
                                 post = getattr(post_item, "post", None)
                                 if post:
                                     api.like_post(post.id)
+                                    self.notify("Post liked!", severity="success")
                                     # Refresh discover
                                     self.switch_screen("discover")
                         except Exception:
@@ -3121,11 +3579,15 @@ class Proj101App(App):
                             timeline_feed = self.query_one("#timeline-feed")
                             items = list(timeline_feed.query(".post-item"))
                             idx = getattr(timeline_feed, "cursor_position", 0)
-                            logging.debug(f"timeline_feed.cursor_position={idx}, items={len(items)}")
+                            logging.debug(
+                                f"timeline_feed.cursor_position={idx}, items={len(items)}"
+                            )
                             if 0 <= idx < len(items):
                                 post_item = items[idx]
                                 post = getattr(post_item, "post", None)
-                                logging.debug(f"Opening comment screen for post id={getattr(post, 'id', None)} author={getattr(post, 'author', None)}")
+                                logging.debug(
+                                    f"Opening comment screen for post id={getattr(post, 'id', None)} author={getattr(post, 'author', None)}"
+                                )
                                 if post:
                                     self.push_screen(CommentScreen(post))
                             else:
@@ -3137,11 +3599,15 @@ class Proj101App(App):
                             discover_feed = self.query_one("#discover-feed")
                             items = list(discover_feed.query(".post-item"))
                             idx = getattr(discover_feed, "cursor_position", 0)
-                            logging.debug(f"discover_feed.cursor_position={idx}, items={len(items)}")
+                            logging.debug(
+                                f"discover_feed.cursor_position={idx}, items={len(items)}"
+                            )
                             if 0 <= idx < len(items):
                                 post_item = items[idx]
                                 post = getattr(post_item, "post", None)
-                                logging.debug(f"Opening comment screen for post id={getattr(post, 'id', None)} author={getattr(post, 'author', None)}")
+                                logging.debug(
+                                    f"Opening comment screen for post id={getattr(post, 'id', None)} author={getattr(post, 'author', None)}"
+                                )
                                 if post:
                                     self.push_screen(CommentScreen(post))
                             else:
@@ -3162,10 +3628,19 @@ class Proj101App(App):
                                     api.repost(post.id)
                                     # Insert a reposted copy at the top of the timeline
                                     from copy import deepcopy
+
                                     repost_copy = deepcopy(post)
                                     repost_copy.timestamp = datetime.now()
                                     # Add to reposted_posts in TimelineFeed
-                                    timeline_feed.reposted_posts = [(repost_copy, repost_copy.timestamp)] + [p for p in getattr(timeline_feed, 'reposted_posts', [])]
+                                    timeline_feed.reposted_posts = [
+                                        (repost_copy, repost_copy.timestamp)
+                                    ] + [
+                                        p
+                                        for p in getattr(
+                                            timeline_feed, "reposted_posts", []
+                                        )
+                                    ]
+                                    self.notify("Post reposted!", severity="success")
                                     # Refresh timeline
                                     self.switch_screen("timeline")
                         except Exception:
@@ -3187,14 +3662,14 @@ class Proj101App(App):
                 elif command.startswith("o") and len(command) > 1:
                     try:
                         draft_number = int(command[1:])  # User enters 1-indexed
-                        draft_index = draft_number - 1   # Convert to 0-indexed for array
+                        draft_index = draft_number - 1  # Convert to 0-indexed for array
                         self.action_open_draft(draft_index)
                     except:
                         pass
                 elif command.startswith("x") and len(command) > 1:
                     try:
                         draft_number = int(command[1:])  # User enters 1-indexed
-                        draft_index = draft_number - 1   # Convert to 0-indexed for array
+                        draft_index = draft_number - 1  # Convert to 0-indexed for array
                         self.push_screen(DeleteDraftDialog(draft_index))
                     except:
                         pass
@@ -3208,13 +3683,16 @@ class Proj101App(App):
             # All other keys are already stopped at the top of command_mode block
             return
 
+
 def main():
-    logging.debug('inside __main__ guard, about to run app')
+    logging.debug("inside __main__ guard, about to run app")
     try:
         Proj101App().run()
     except Exception as e:
         import traceback
-        logging.exception('Exception occurred while running Proj101App:')
+
+        logging.exception("Exception occurred while running Proj101App:")
+
 
 if __name__ == "__main__":
     main()
