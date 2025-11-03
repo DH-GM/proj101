@@ -577,6 +577,8 @@ class NewPostDialog(ModalScreen):
 
     def key_escape(self) -> None:
         """Exit insert mode and enter navigation mode."""
+        if self.app.command_mode:
+            return
         if self.in_insert_mode:
             self.in_insert_mode = False
             self.cursor_position = 1  # Start at first button
@@ -584,6 +586,8 @@ class NewPostDialog(ModalScreen):
 
     def key_i(self) -> None:
         """Enter insert mode (focus textarea)."""
+        if self.app.command_mode:
+            return
         if not self.in_insert_mode:
             self.in_insert_mode = True
             self.cursor_position = 0
@@ -591,6 +595,8 @@ class NewPostDialog(ModalScreen):
 
     def key_j(self) -> None:
         """Move cursor down (to next row)."""
+        if self.app.command_mode:
+            return
         if not self.in_insert_mode:
             buttons = self._get_navigable_buttons()
             if not buttons:
@@ -609,6 +615,8 @@ class NewPostDialog(ModalScreen):
 
     def key_k(self) -> None:
         """Move cursor up (to previous row)."""
+        if self.app.command_mode:
+            return
         if not self.in_insert_mode:
             # Current position: 3-5 (action buttons) -> 1-2 (media buttons)
             if self.cursor_position in [3, 4, 5]:  # Action buttons row
@@ -625,6 +633,8 @@ class NewPostDialog(ModalScreen):
 
     def key_h(self) -> None:
         """Move cursor left (within same row)."""
+        if self.app.command_mode:
+            return
         if not self.in_insert_mode:
             # Move left within the same row
             if self.cursor_position in [1, 2]:  # Media buttons row
@@ -634,6 +644,8 @@ class NewPostDialog(ModalScreen):
 
     def key_l(self) -> None:
         """Move cursor right (within same row)."""
+        if self.app.command_mode:
+            return
         if not self.in_insert_mode:
             buttons = self._get_navigable_buttons()
             if not buttons:
@@ -647,6 +659,8 @@ class NewPostDialog(ModalScreen):
 
     def on_key(self, event) -> None:
         """Handle key events to prevent double-triggering."""
+        if self.app.command_mode:
+            return
         # In navigation mode, prevent Enter from bubbling to buttons
         if not self.in_insert_mode and event.key == "enter":
             event.prevent_default()
@@ -901,45 +915,62 @@ class TimelineFeed(VerticalScroll):
 
     def key_j(self) -> None:
         """Move down with j key"""
+        if self.app.command_mode:
+            return
         items = list(self.query(".post-item"))
         if self.cursor_position < len(items) - 1:
             self.cursor_position += 1
 
     def key_k(self) -> None:
         """Move up with k key"""
+        if self.app.command_mode:
+            return
         if self.cursor_position > 0:
             self.cursor_position -= 1
 
     def key_g(self) -> None:
         """Go to top with gg"""
-        # g is handled in on_key for double-press
-        pass
+        pass  # g is handled in on_key for double-press
 
     def key_G(self) -> None:
         """Go to bottom with G"""
+        if self.app.command_mode:
+            return
         items = list(self.query(".post-item"))
         self.cursor_position = len(items) - 1
 
     def key_ctrl_d(self) -> None:
         """Half page down"""
+        if self.app.command_mode:
+            return
         items = list(self.query(".post-item"))
         self.cursor_position = min(self.cursor_position + 5, len(items) - 1)
 
     def key_ctrl_u(self) -> None:
         """Half page up"""
+        if self.app.command_mode:
+            return
         self.cursor_position = max(self.cursor_position - 5, 0)
 
     def key_w(self) -> None:
         """Word forward - move down by 3"""
+        if self.app.command_mode:
+            return
         items = list(self.query(".post-item"))
         self.cursor_position = min(self.cursor_position + 3, len(items) - 1)
 
     def key_b(self) -> None:
         """Word backward - move up by 3"""
+        if self.app.command_mode:
+            return
         self.cursor_position = max(self.cursor_position - 3, 0)
 
     def on_key(self, event) -> None:
         """Handle g+g key combination for top and prevent escape from unfocusing"""
+        # Don't process keys if app is in command mode
+        if self.app.command_mode:
+            return
+
         if event.key == "escape":
             # Prevent escape from unfocusing the feed
             event.prevent_default()
@@ -1010,6 +1041,8 @@ class DiscoverFeed(VerticalScroll):
 
     def key_slash(self) -> None:
         """Focus search input with / key"""
+        if self.app.command_mode:
+            return
         # Set cursor to position 0 and focus the input
         self.cursor_position = 0
         try:
@@ -1064,44 +1097,62 @@ class DiscoverFeed(VerticalScroll):
 
     def key_j(self) -> None:
         """Move down with j key"""
+        if self.app.command_mode:
+            return
         items = self._get_navigable_items()
         if self.cursor_position < len(items) - 1:
             self.cursor_position += 1
 
     def key_k(self) -> None:
         """Move up with k key"""
+        if self.app.command_mode:
+            return
         if self.cursor_position > 0:
             self.cursor_position -= 1
 
     def key_g(self) -> None:
         """Go to top with gg"""
+        if self.app.command_mode:
+            return
         pass  # Handled in on_key for double-press
 
     def key_G(self) -> None:
         """Go to bottom with G"""
+        if self.app.command_mode:
+            return
         items = self._get_navigable_items()
         self.cursor_position = len(items) - 1
 
     def key_ctrl_d(self) -> None:
         """Half page down"""
+        if self.app.command_mode:
+            return
         items = self._get_navigable_items()
         self.cursor_position = min(self.cursor_position + 5, len(items) - 1)
 
     def key_ctrl_u(self) -> None:
         """Half page up"""
+        if self.app.command_mode:
+            return
         self.cursor_position = max(self.cursor_position - 5, 0)
 
     def key_w(self) -> None:
         """Word forward - move down by 3"""
+        if self.app.command_mode:
+            return
         items = self._get_navigable_items()
         self.cursor_position = min(self.cursor_position + 3, len(items) - 1)
 
     def key_b(self) -> None:
         """Word backward - move up by 3"""
+        if self.app.command_mode:
+            return
         self.cursor_position = max(self.cursor_position - 3, 0)
 
     def key_i(self) -> None:
         """Focus search input with i key (insert mode) when cursor is on it"""
+        if self.app.command_mode:
+            return
         if self.cursor_position == 0:
             try:
                 search_input = self.query_one("#discover-search", Input)
@@ -1111,6 +1162,10 @@ class DiscoverFeed(VerticalScroll):
 
     def on_key(self, event) -> None:
         """Handle g+g key combination for top and escape from search"""
+        # Don't process keys if app is in command mode
+        if self.app.command_mode:
+            return
+
         if event.key == "escape":
             # If search input has focus, move cursor to first post and return focus to feed
             try:
@@ -1183,44 +1238,64 @@ class NotificationsFeed(VerticalScroll):
 
     def key_j(self) -> None:
         """Move down with j key"""
+        if self.app.command_mode:
+            return
         items = list(self.query(".notification-item"))
         if self.cursor_position < len(items) - 1:
             self.cursor_position += 1
 
     def key_k(self) -> None:
         """Move up with k key"""
+        if self.app.command_mode:
+            return
         if self.cursor_position > 0:
             self.cursor_position -= 1
 
     def key_g(self) -> None:
         """Go to top with gg"""
+        if self.app.command_mode:
+            return
         pass  # Handled in on_key for double-press
 
     def key_G(self) -> None:
         """Go to bottom with G"""
+        if self.app.command_mode:
+            return
         items = list(self.query(".notification-item"))
         self.cursor_position = len(items) - 1
 
     def key_ctrl_d(self) -> None:
         """Half page down"""
+        if self.app.command_mode:
+            return
         items = list(self.query(".notification-item"))
         self.cursor_position = min(self.cursor_position + 5, len(items) - 1)
 
     def key_ctrl_u(self) -> None:
         """Half page up"""
+        if self.app.command_mode:
+            return
         self.cursor_position = max(self.cursor_position - 5, 0)
 
     def key_w(self) -> None:
         """Word forward - move down by 3"""
+        if self.app.command_mode:
+            return
         items = list(self.query(".notification-item"))
         self.cursor_position = min(self.cursor_position + 3, len(items) - 1)
 
     def key_b(self) -> None:
         """Word backward - move up by 3"""
+        if self.app.command_mode:
+            return
         self.cursor_position = max(self.cursor_position - 3, 0)
 
     def on_key(self, event) -> None:
         """Handle g+g key combination for top and prevent escape from unfocusing"""
+        # Don't process keys if app is in command mode
+        if self.app.command_mode:
+            return
+
         if event.key == "escape":
             # Prevent escape from unfocusing the feed
             event.prevent_default()
@@ -1283,45 +1358,63 @@ class ConversationsList(VerticalScroll):
 
     def key_j(self) -> None:
         """Move down with j key"""
+        if self.app.command_mode:
+            return
         items = list(self.query(".conversation-item"))
         if self.cursor_position < len(items) - 1:
             self.cursor_position += 1
 
     def key_k(self) -> None:
         """Move up with k key"""
+        if self.app.command_mode:
+            return
         if self.cursor_position > 0:
             self.cursor_position -= 1
 
     def key_g(self) -> None:
         """Go to top with gg"""
+        if self.app.command_mode:
+            return
         # g is handled in on_key for double-press
         pass
 
     def key_G(self) -> None:
         """Go to bottom with G"""
+        if self.app.command_mode:
+            return
         items = list(self.query(".conversation-item"))
         self.cursor_position = len(items) - 1
 
     def key_ctrl_d(self) -> None:
         """Half page down"""
+        if self.app.command_mode:
+            return
         items = list(self.query(".conversation-item"))
         self.cursor_position = min(self.cursor_position + 5, len(items) - 1)
 
     def key_ctrl_u(self) -> None:
         """Half page up"""
+        if self.app.command_mode:
+            return
         self.cursor_position = max(self.cursor_position - 5, 0)
 
     def key_w(self) -> None:
         """Word forward - move down by 3"""
+        if self.app.command_mode:
+            return
         items = list(self.query(".conversation-item"))
         self.cursor_position = min(self.cursor_position + 3, len(items) - 1)
 
     def key_b(self) -> None:
         """Word backward - move up by 3"""
+        if self.app.command_mode:
+            return
         self.cursor_position = max(self.cursor_position - 3, 0)
 
     def on_key(self, event) -> None:
         """Handle g+g key combination for top and prevent escape from unfocusing"""
+        if self.app.command_mode:
+            return
         if event.key == "escape":
             # Prevent escape from unfocusing the conversation list
             event.prevent_default()
@@ -1382,21 +1475,29 @@ class ChatView(VerticalScroll):
 
     def key_j(self) -> None:
         """Vim-style down navigation"""
+        if self.app.command_mode:
+            return
         messages = self.query(".chat-message")
         if self.cursor_position < len(messages) - 1:
             self.cursor_position += 1
 
     def key_k(self) -> None:
         """Vim-style up navigation"""
+        if self.app.command_mode:
+            return
         if self.cursor_position > 0:
             self.cursor_position -= 1
 
     def key_g(self) -> None:
         """Vim-style go to top"""
+        if self.app.command_mode:
+            return
         self.cursor_position = 0
 
     def key_G(self) -> None:
         """Vim-style go to bottom"""
+        if self.app.command_mode:
+            return
         messages = self.query(".chat-message")
         self.cursor_position = max(0, len(messages) - 1)
 
@@ -1501,6 +1602,8 @@ class SettingsPanel(VerticalScroll):
 
     def key_j(self) -> None:
         """Vim-style down navigation"""
+        if self.app.command_mode:
+            return
         selectable_classes = [".upload-profile-picture", ".oauth-item", ".checkbox-item"]
         items = []
         for cls in selectable_classes:
@@ -1511,15 +1614,21 @@ class SettingsPanel(VerticalScroll):
 
     def key_k(self) -> None:
         """Vim-style up navigation"""
+        if self.app.command_mode:
+            return
         if self.cursor_position > 0:
             self.cursor_position -= 1
 
     def key_g(self) -> None:
         """Vim-style go to top"""
+        if self.app.command_mode:
+            return
         self.cursor_position = 0
 
     def key_G(self) -> None:
         """Vim-style go to bottom"""
+        if self.app.command_mode:
+            return
         selectable_classes = [".upload-profile-picture", ".oauth-item", ".checkbox-item"]
         items = []
         for cls in selectable_classes:
@@ -1628,18 +1737,26 @@ class ProfilePanel(VerticalScroll):
 
     def key_j(self) -> None:
         """Scroll down with j key"""
+        if self.app.command_mode:
+            return
         self.scroll_down()
 
     def key_k(self) -> None:
         """Scroll up with k key"""
+        if self.app.command_mode:
+            return
         self.scroll_up()
 
     def key_g(self) -> None:
         """Go to top with gg"""
+        if self.app.command_mode:
+            return
         pass  # Handled in on_key for double-press
 
     def key_G(self) -> None:
         """Go to bottom with G"""
+        if self.app.command_mode:
+            return
         self.scroll_end(animate=False)
 
     def key_ctrl_d(self) -> None:
@@ -2442,6 +2559,10 @@ class Proj101App(App):
 
     def on_key(self, event) -> None:
         if self.command_mode:
+            # CRITICAL: Stop event propagation IMMEDIATELY when in command mode
+            event.prevent_default()
+            event.stop()
+
             if event.key == "escape":
                 try:
                     command_bar = self.query_one("#command-bar", Static)
@@ -2450,12 +2571,7 @@ class Proj101App(App):
                     pass
                 self.command_text = ""
                 self.command_mode = False
-                event.prevent_default()
-                event.stop()
             elif event.key == "enter":
-                # Prevent the event from propagating to underlying widgets
-                event.prevent_default()
-                event.stop()
 
                 command = self.command_text.strip()
                 try:
@@ -2508,21 +2624,12 @@ class Proj101App(App):
                         pass
 
                 self.command_text = ""
-                event.prevent_default()
-                event.stop()
             elif event.key == "backspace":
                 if len(self.command_text) > 1:
                     self.command_text = self.command_text[:-1]
-                event.prevent_default()
-                event.stop()
             elif len(event.key) == 1 and event.key.isprintable():
                 self.command_text += event.key
-                event.prevent_default()
-                event.stop()
-            else:
-                # Stop all other keys from propagating when in command mode
-                event.prevent_default()
-                event.stop()
+            # All other keys are already stopped at the top of command_mode block
             return
 
 if __name__ == "__main__":
