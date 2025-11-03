@@ -410,14 +410,14 @@ class Sidebar(VerticalScroll):
             yield nav_container
 
         profile_container = Container(classes="profile-box")
-        profile_container.border_title = "Profile [:P]"
+        profile_container.border_title = "\\[p] Profile"
         with profile_container:
             yield ProfileDisplay()
         yield profile_container
 
         # Drafts section
         drafts_container = Container(classes="drafts-box")
-        drafts_container.border_title = "Drafts [:D]"
+        drafts_container.border_title = "\\[d] Drafts"
         with drafts_container:
             drafts = load_drafts()
             if drafts:
@@ -451,7 +451,8 @@ class Sidebar(VerticalScroll):
 
             # Common commands (limited to save space)
             yield CommandItem(":s", "search", classes="command-item")
-            yield CommandItem(":D", "drafts", classes="command-item")
+            yield CommandItem("p", "profile", classes="command-item")
+            yield CommandItem("d", "drafts", classes="command-item")
             yield CommandItem("0", "main", classes="command-item")
         yield commands_container
 
@@ -1619,7 +1620,6 @@ class Proj101App(App):
         Binding("q", "quit", "Quit", show=False),
         Binding("i", "insert_mode", "Insert", show=True),
         Binding("escape", "normal_mode", "Normal", show=False),
-        Binding("d", "toggle_dark", "Dark", show=True),
 
         # Screen navigation
         Binding("0", "focus_main_content", "Main Content", show=False),
@@ -1628,6 +1628,8 @@ class Proj101App(App):
         Binding("3", "show_notifications", "Notifications", show=False),
         Binding("4", "show_messages", "Messages", show=False),
         Binding("5", "show_settings", "Settings", show=False),
+        Binding("p", "show_profile", "Profile", show=False),
+        Binding("d", "show_drafts", "Drafts", show=False),
         Binding("6", "focus_messages", "Messages List", show=False),
         Binding("shift+n", "focus_navigation", "Nav Focus", show=False),
         Binding("colon", "show_command_bar", "Command", show=False),
@@ -1669,7 +1671,7 @@ class Proj101App(App):
         yield Static("tuitter [timeline] @yourname", id="app-header", markup=False)
         yield TopNav(id="top-navbar", current="timeline")
         yield TimelineScreen(id="screen-container")
-        yield Static(":↑↓ Navigate [0] Main [1-5] Sidebar [n] New Post [f] Follow [/] Search [?] Help", id="app-footer", markup=False)
+        yield Static("[0] Main [1-5] Screens [p] Profile [d] Drafts [j/k] Navigate [:n] New Post [:q] Quit", id="app-footer", markup=False)
         yield Static("", id="command-bar")
 
     def switch_screen(self, screen_name: str, **kwargs):
@@ -1679,14 +1681,14 @@ class Proj101App(App):
         if screen_name == self.current_screen_name and not kwargs:
             return
         screen_map = {
-            "timeline": (TimelineScreen, ":[0] Main [1-5] Sidebar [↑↓] Navigate [n] New Post [f] Follow [/] Search [?] Help"),
-            "discover": (DiscoverScreen, ":[0] Main [1-5] Sidebar [/] Search [f] Follow [↑↓] Navigate [Enter] Open [?] Help"),
-            "notifications": (NotificationsScreen, ":[0] Main [1-5] Sidebar [↑] Previous [n] Next [m] Mark Read [Enter] Open [q] Quit"),
-            "messages": (MessagesScreen, ":[0] Chat [6] Messages [1-5] Sidebar [i] Insert [j/k] Navigate [Enter] Open [Esc] Exit"),
-            "profile": (ProfileScreen, ":[0] Main [1-5] Sidebar [:e] Edit Profile [Esc] Back"),
-            "settings": (SettingsScreen, ":[0] Main [1-5] Sidebar [w] Save [:e] Edit field [Tab] Next field [Esc] Cancel"),
-            "drafts": (DraftsScreen, ":[0] Main [:D] View Drafts [:o#] Open [:x#] Delete [Esc] Back"),
-            "user_profile": (UserProfileViewScreen, ":[0] Main [1-5] Sidebar [:f] Follow [:m] Message [Esc] Back"),
+            "timeline": (TimelineScreen, "[0] Main [1-5] Screens [p] Profile [d] Drafts [j/k] Navigate [:n] New Post [:q] Quit"),
+            "discover": (DiscoverScreen, "[0] Main [1-5] Screens [p] Profile [d] Drafts [j/k] Navigate [/] Search [:q] Quit"),
+            "notifications": (NotificationsScreen, "[0] Main [1-5] Screens [p] Profile [d] Drafts [j/k] Navigate [:q] Quit"),
+            "messages": (MessagesScreen, "[0] Chat [6] Messages [1-5] Screens [p] Profile [d] Drafts [j/k] Navigate [i] Type [:q] Quit"),
+            "profile": (ProfileScreen, "[0] Main [1-5] Screens [d] Drafts [j/k] Navigate [:q] Quit"),
+            "settings": (SettingsScreen, "[0] Main [1-5] Screens [p] Profile [d] Drafts [j/k] Navigate [:q] Quit"),
+            "drafts": (DraftsScreen, "[0] Main [1-5] Screens [p] Profile [:o#] Open [:x#] Delete [:q] Quit"),
+            "user_profile": (UserProfileViewScreen, "[0] Main [1-5] Screens [p] Profile [d] Drafts [:m] Message [:q] Quit"),
         }
         if screen_name in screen_map:
             self._switching = True  # Set flag to prevent concurrent switches
@@ -1732,9 +1734,6 @@ class Proj101App(App):
     def action_quit(self) -> None:
         self.exit()
 
-    def action_toggle_dark(self) -> None:
-        self.theme = "textual-dark" if self.theme == "textual-light" else "textual-light"
-
     def action_insert_mode(self) -> None:
         try:
             self.query_one("#message-input", Input).focus()
@@ -1762,6 +1761,11 @@ class Proj101App(App):
 
     def action_show_settings(self) -> None:
         self.switch_screen("settings")
+        self.action_focus_main_content()
+
+    def action_show_profile(self) -> None:
+        """Show the user's own profile screen."""
+        self.switch_screen("profile")
         self.action_focus_main_content()
 
     def action_show_drafts(self) -> None:
