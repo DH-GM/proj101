@@ -943,6 +943,7 @@ class DeleteDraftDialog(ModalScreen):
 class TimelineFeed(VerticalScroll):
     cursor_position = reactive(0)
     reposted_posts = reactive([])  # List of (post, timestamp) tuples
+    scroll_y = reactive(0)  # Track scroll position
     _all_posts = []  # Cache all posts locally
     _displayed_count = 20  # Number of posts currently displayed
     _batch_size = 20  # Number of posts to load at a time
@@ -989,6 +990,20 @@ class TimelineFeed(VerticalScroll):
 
     def on_mount(self) -> None:
         self.watch(self, "cursor_position", self._update_cursor)
+        self.watch(self, "scroll_y", self._check_scroll_load)
+
+    def _check_scroll_load(self) -> None:
+        """Check if we need to load more posts based on scroll position"""
+        try:
+            # Get the virtual size (total content height) and viewport size
+            virtual_size = self.virtual_size.height
+            container_size = self.container_size.height
+
+            # If we're within 100 pixels of the bottom, load more
+            if virtual_size > 0 and self.scroll_y + container_size >= virtual_size - 100:
+                self._load_more_posts()
+        except Exception:
+            pass
 
     def _load_more_posts(self) -> None:
         """Load the next batch of posts from cache"""
@@ -1042,6 +1057,10 @@ class TimelineFeed(VerticalScroll):
     def on_blur(self) -> None:
         """When feed loses focus"""
         pass
+
+    def on_scroll(self, event) -> None:
+        """Update scroll position reactive when scrolling"""
+        self.scroll_y = self.scroll_offset.y
 
     def key_j(self) -> None:
         """Move down with j key"""
@@ -1118,6 +1137,7 @@ class TimelineScreen(Container):
 class DiscoverFeed(VerticalScroll):
     cursor_position = reactive(0)
     query_text = reactive("")
+    scroll_y = reactive(0)  # Track scroll position
     _search_timer = None  # Timer for debouncing search
     _all_posts = []  # Cache all posts locally
     _filtered_posts = []  # Currently filtered posts
@@ -1166,6 +1186,20 @@ class DiscoverFeed(VerticalScroll):
 
     def on_mount(self) -> None:
         self.watch(self, "cursor_position", self._update_cursor)
+        self.watch(self, "scroll_y", self._check_scroll_load)
+
+    def _check_scroll_load(self) -> None:
+        """Check if we need to load more posts based on scroll position"""
+        try:
+            # Get the virtual size (total content height) and viewport size
+            virtual_size = self.virtual_size.height
+            container_size = self.container_size.height
+
+            # If we're within 100 pixels of the bottom, load more
+            if virtual_size > 0 and self.scroll_y + container_size >= virtual_size - 100:
+                self._load_more_posts()
+        except Exception:
+            pass
 
     def on_input_changed(self, event: Input.Changed) -> None:
         """Handle search input changes with debouncing"""
@@ -1285,6 +1319,10 @@ class DiscoverFeed(VerticalScroll):
     def on_blur(self) -> None:
         """When feed loses focus"""
         pass
+
+    def on_scroll(self, event) -> None:
+        """Update scroll position reactive when scrolling"""
+        self.scroll_y = self.scroll_offset.y
 
     def key_j(self) -> None:
         """Move down with j key"""
