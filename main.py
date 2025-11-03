@@ -2055,7 +2055,9 @@ class Proj101App(App):
                 event.prevent_default()
                 event.stop()
             else:
+                # Stop all other keys from propagating when in command mode
                 event.prevent_default()
+                event.stop()
             return
 
 if __name__ == "__main__":
