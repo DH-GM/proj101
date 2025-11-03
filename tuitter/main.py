@@ -510,6 +510,7 @@ class Sidebar(VerticalScroll):
                 yield CommandItem(":n", "new post", classes="command-item")
                 yield CommandItem(":l", "like", classes="command-item")
                 yield CommandItem(":rt", "repost", classes="command-item")
+                yield CommandItem(":c", "comment", classes="command-item")
             elif self.current_screen == "notifications":
                 yield CommandItem(":m", "mark read", classes="command-item")
                 yield CommandItem(":ma", "mark all", classes="command-item")
