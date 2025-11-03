@@ -1,3 +1,97 @@
+/* ======================================================================
+   DESIGN SYSTEM - DRACULA COLOR PALETTE
+   ====================================================================== */
+
+/* Dracula Base Colors */
+$dracula-bg: #282A36;
+$dracula-current-line: #44475A;
+$dracula-selection: #44475A;
+$dracula-fg: #F8F8F2;
+$dracula-comment: #6272A4;
+$dracula-cyan: #8BE9FD;
+$dracula-green: #50FA7B;
+$dracula-orange: #FFB86C;
+$dracula-pink: #FF79C6;
+$dracula-purple: #BD93F9;
+$dracula-red: #FF5555;
+$dracula-yellow: #F1FA8C;
+
+/* Primary Colors (using Dracula Cyan as primary) */
+$primary: $dracula-cyan;
+$primary-hover: #9FEDFD;
+$primary-dark: #6AC9E3;
+$primary-darker: #4AA9C3;
+$primary-light: #BFFAFE;
+$primary-lighter: #DFFCFF;
+
+/* Accent Colors */
+$accent-cyan: $dracula-cyan;
+$accent-green: $dracula-green;
+$accent-red: $dracula-red;
+$accent-red-hover: #FF6E6E;
+
+/* Background Colors */
+$bg-dark: $dracula-bg;
+$bg-darker: #21222C;
+$bg-lighter: #343746;
+$bg-highlight: $dracula-current-line;
+$bg-nav: #21222C;
+$bg-header: #21222C;
+$bg-focused: #3B3F5C;
+$bg-hover: #3B3F5C;
+
+/* Border Colors */
+$border-default: $dracula-current-line;
+$border-subtle: #4B4E6D;
+$border-hover: $dracula-comment;
+$border-green: #3C9A5F;
+$border-green-hover: $dracula-green;
+$border-drafts: $dracula-current-line;
+
+/* Text Colors */
+$text-primary: $dracula-fg;
+$text-secondary: #E4E4DC;
+$text-muted: #A0A0A0;
+$text-dim: $dracula-comment;
+$text-subtle: #7A7A7A;
+$text-content: #D8D8D0;
+
+/* Named Colors (using Dracula palette) */
+$color-cyan: $dracula-cyan;
+$color-magenta: $dracula-pink;
+$color-green: $dracula-green;
+$color-yellow: $dracula-yellow;
+$color-lime: $dracula-green;
+
+/* Danger Colors (using Dracula Red) */
+$danger-border: $dracula-red;
+$danger-text: #FFAAAA;
+$danger-bg: #441818;
+$danger-bg-hover: #553030;
+
+/* Notification Colors */
+$notif-unread: #5A5C7A;
+$notif-unread-hover: $dracula-comment;
+
+/* Chat Message Colors */
+$chat-received: #3C5A3C;
+$chat-sent: #5A3C5A;
+$chat-new: #3C6A3C;
+$chat-new-border: $dracula-green;
+$chat-new-sent: $dracula-purple;
+
+/* Scrollbar Colors */
+$scrollbar: $dracula-current-line;
+$scrollbar-hover: $dracula-comment;
+$scrollbar-active: $dracula-purple;
+$scrollbar-sidebar: #4B4E6D;
+$scrollbar-sidebar-hover: $dracula-comment;
+$scrollbar-sidebar-active: $dracula-cyan;
+
+/* ======================================================================
+   STYLES
+   ====================================================================== */
+
 /* Auth screen layout */
 #auth-center {
     width: 1fr;
@@ -15,13 +109,13 @@
 Button#oauth-signin {
     padding: 2 6;
     margin: 2 10;
-    border: solid #4a9eff;
+    border: solid $primary;
 }
 
 Button.danger {
-    border: solid #aa3333;
-    color: #ffcccc;
-    background: #331111;
+    border: solid $danger-border;
+    color: $danger-text;
+    background: $danger-bg;
     padding: 1 4;
     margin: 1 2;
 }
@@ -33,27 +127,261 @@ Button.danger {
 
 /* Global Styles */
 Screen {
-    background: #1a1a1a;
-    color: #e0e0e0;
+    background: $bg-dark;
+    color: $text-secondary;
+}
+
+/* Drafts Screen Layout */
+DraftsScreen {
+    layout: horizontal;
+    height: 2fr;
+}
+
+#drafts-panel {
+    width: 1fr;
+    background: $bg-dark;
+    padding: 2 4;
+    height: 100%;
+    border: round $color-lime;
+    border-title-align: center;
+    border-title-color: $color-lime;
+    border-title-style: bold;
+}
+
+/* Draft Box Styling */
+.draft-box {
+    width: 100%;
+    height: auto;
+    margin: 0 0 2 0;
+    padding: 2;
+    background: $bg-dark;
+    border: round $border-green;
+    border-title-color: $color-green;
+    border-title-style: bold;
+}
+
+.draft-box:hover {
+    border: round $border-green-hover;
+    background: $bg-lighter;
+}
+
+/* Less intense cursor for draft boxes to let action buttons stand out */
+.draft-box.vim-cursor {
+    border: round $border-hover;
+    background: $bg-highlight;
+}
+
+.draft-timestamp {
+    color: $text-dim;
+    text-style: italic;
+    margin-bottom: 1;
+}
+
+.draft-content-preview {
+    color: $text-content;
+    margin-bottom: 1;
+    padding: 1;
+    background: $bg-darker;
+    border: solid $border-default;
+}
+
+.draft-attachments-info {
+    color: $primary;
+    margin-bottom: 2;
+}
+
+.draft-actions {
+    layout: horizontal;
+    width: 100%;
+    height: auto;
+    align: center middle;
+}
+
+.draft-action-btn, .draft-action-btn-delete {
+    width: 1fr;
+    margin: 0 1;
+    height: 3;
+    padding: 0 2;
+    background: $bg-dark;
+    color: $text-primary;
+    border: solid $color-cyan;
+    text-style: bold;
+    content-align: center middle;
+    text-align: center;
+    min-width: 15;
+}
+
+.draft-action-btn:hover {
+    background: $bg-highlight;
+    border: heavy $accent-cyan;
+    color: $text-primary;
+}
+
+.draft-action-btn-delete {
+    border: solid $accent-red;
+    color: $text-primary;
+}
+
+.draft-action-btn-delete:hover {
+    background: $danger-bg-hover;
+    border: heavy $accent-red-hover;
+    color: $text-primary;
+}
+
+/* Selected action highlight */
+.draft-action-btn.action-selected {
+    background: $primary-dark;
+    border: heavy $primary;
+    color: $text-primary;
+    text-style: bold;
+}
+
+.draft-action-btn-delete.action-selected {
+    background: $danger-bg-hover;
+    border: heavy $accent-red-hover;
+    color: $text-primary;
+    text-style: bold;
+}
+
+.no-drafts-message {
+    color: $text-subtle;
+    text-align: center;
+    margin: 10;
+    padding: 4;
+    text-style: italic;
+}
+
+/* Sidebar Draft Item Styling */
+.draft-item {
+    color: $text-muted;
+    padding: 1 1;
+    margin: 0 0 1 0;
+    background: $bg-dark;
+    border: round $chat-received;
+    border-title-color: $primary;
+    border-title-style: bold;
+    height: auto;
+}
+
+.draft-item:hover {
+    border: round $primary;
+    background: $bg-lighter;
+}
+
+.draft-time {
+    color: $text-dim;
+    text-style: italic;
+    margin-bottom: 0;
+}
+
+.draft-preview {
+    color: $text-content;
+    margin: 0 0 1 0;
+}
+
+.draft-attach {
+    color: $primary;
+    margin-bottom: 1;
+}
+
+.draft-item-actions {
+    layout: horizontal;
+    width: 100%;
+    height: auto;
+    align: center middle;
+    margin-top: 1;
+}
+
+.draft-btn-open, .draft-btn-delete {
+    width: 1fr;
+    margin: 0 0;
+    height: 3;
+    padding: 0 1;
+    background: $bg-dark;
+    color: $text-primary;
+    border: solid $color-cyan;
+    text-style: bold;
+    content-align: center middle;
+    text-align: center;
+}
+
+.draft-btn-open:hover {
+    background: $bg-highlight;
+    border: solid $accent-cyan;
+}
+
+.draft-btn-delete {
+    border: solid $accent-red;
+}
+
+.draft-btn-delete:hover {
+    background: $danger-bg-hover;
+    border: solid $accent-red-hover;
 }
 
 /* App Header */
 #app-header {
     dock: top;
     height: 1;
-    background: #2d2d2d;
-    color: #ffffff;
+    background: $bg-header;
+    color: $text-primary;
     padding: 0 2;
     content-align: left middle;
     text-style: bold;
+}
+
+/* Top Navbar */
+#top-navbar {
+    dock: top;
+    width: 100%;
+    height: 1;
+    /* use a darker, subtle navbar to match the app's dark theme */
+    background: $bg-nav;
+    color: $primary-lighter;
+    layout: horizontal;
+    margin-bottom: 1;
+}
+
+#top-navbar .nav-item {
+    width: auto;
+    padding: 0 3;
+    /* keep items visually subtle until hovered/active */
+    background: transparent;
+    color: $primary-light;
+    /* 'normal' is not a valid value for text-style in this TUI stylesheet; use 'none' instead */
+    text-style: none;
+    content-align: center middle;
+}
+
+#top-navbar .nav-item:hover {
+    /* gentle highlight on hover */
+    background: $primary-darker;
+    color: $text-primary;
+}
+
+#top-navbar .nav-item:focus {
+    /* clear keyboard focus state: visible outline + stronger background */
+    outline: thick $primary;
+    background: $primary-dark;
+    color: $text-primary;
+    text-style: bold;
+    border-bottom: heavy $primary;
+}
+
+#top-navbar .nav-item.active {
+    /* active tab: stronger background and accent underline */
+    background: $primary-dark;
+    color: $text-primary;
+    text-style: bold;
+    border-bottom: heavy $primary;
 }
 
 /* App Footer */
 #app-footer {
     dock: bottom;
     height: 1;
-    background: #2d2d2d;
-    color: #888888;
+    background: $bg-header;
+    color: $text-dim;
     padding: 0 2;
     content-align: left middle;
 }
@@ -65,64 +393,63 @@ TimelineScreen, DiscoverScreen, NotificationsScreen, MessagesScreen, SettingsScr
 }
 
 /* Command Bar */
-#command-input {
+#command-bar {
     dock: bottom;
     height: 1;
     width: 100%;
-    background: #252525;
-    border: solid #4a9eff;
-    color: #ffffff;
-    padding: 0 1;
+    background: $bg-header;
+    color: $text-dim;
+    padding: 0 2;
     display: none;
-    offset-y: -1;
-}
-
-#command-input:focus {
-    background: #252525;
-    color: #ffffff;
-    border: solid #4a9eff;
+    content-align: left middle;
+    text-style: bold;
 }
 
 /* Vim-style cursor */
 .vim-cursor {
-    background: #184070;
-    color: #ffffff;
-    border: heavy #4a9eff;
+    background: $primary-dark;
+    color: $text-primary;
+    border: heavy $primary;
     text-style: bold;
 }
 
 .vim-cursor .post-text {
-    color: #ffffff;
+    color: $text-primary;
 }
 
 .vim-cursor .post-stats {
-    color: #ffffff;
+    color: $text-primary;
 }
 
 /* Chat message cursor */
 .chat-message.vim-cursor {
-    background: #184070;
-    color: #ffffff;
-    border-left: heavy #4a9eff;
-    border-right: heavy #4a9eff;
+    background: $primary-dark;
+    color: $text-primary;
+    border-left: heavy $primary;
+    border-right: heavy $primary;
+}
+
+/* Search input cursor (visual indicator only, not focused) */
+Input.vim-cursor {
+    border: heavy $primary;
 }
 
 /* Settings panel cursor */
 .oauth-item.vim-cursor,
 .checkbox-item.vim-cursor,
 .upload-profile-picture.vim-cursor {
-    background: #184070;
-    color: #ffffff;
-    border-left: heavy #4a9eff;
-    border-right: heavy #4a9eff;
+    background: $primary-dark;
+    color: $text-primary;
+    border-left: heavy $primary;
+    border-right: heavy $primary;
 }
 
 /* Profile panel cursor */
 .profile-stat-item.vim-cursor {
-    background: #184070;
-    color: #ffffff;
-    border-left: heavy #4a9eff;
-    border-right: heavy #4a9eff;
+    background: $primary-dark;
+    color: $text-primary;
+    border-left: heavy $primary;
+    border-right: heavy $primary;
 }
 
 *:focus {
@@ -130,19 +457,19 @@ TimelineScreen, DiscoverScreen, NotificationsScreen, MessagesScreen, SettingsScr
 }
 
 *:focus .vim-cursor-container {
-    border: thick #4a9eff;
+    border: thick $primary;
 }
 
-TimelineFeed:focus, DiscoverFeed:focus, NotificationsFeed:focus, ChatView:focus, SettingsPanel:focus, ProfilePanel:focus, ConversationsList:focus {
+TimelineFeed:focus, DiscoverFeed:focus, NotificationsFeed:focus, ChatView:focus, SettingsPanel:focus, ProfilePanel:focus, ConversationsList:focus, DraftsPanel:focus {
     border-subtitle-align: center;
-    border-subtitle-color: #4a9eff;
+    border-subtitle-color: $primary;
     border-subtitle-style: bold;
-    border: round #4a9eff;
-    background: #11223a;
+    border: round $primary;
+    background: $bg-focused;
 }
 
 .vim-mode-active {
-    border-title-color: #4a9eff;
+    border-title-color: $primary;
     border-title-style: bold;
     border-title-align: left;
 }
@@ -150,7 +477,7 @@ TimelineFeed:focus, DiscoverFeed:focus, NotificationsFeed:focus, ChatView:focus,
 /* Sidebar */
 #sidebar {
     width: 25;
-    background: #1e1e1e;
+    background: $bg-lighter;
     height: 100%;
     dock: left;
     layout: vertical;
@@ -162,9 +489,9 @@ TimelineFeed:focus, DiscoverFeed:focus, NotificationsFeed:focus, ChatView:focus,
 
 /* Navigation Section Box - Cyan */
 .navigation-box {
-    border: round cyan;
+    border: round $color-cyan;
     border-title-align: left;
-    border-title-color: cyan;
+    border-title-color: $color-cyan;
     border-title-style: bold;
     padding: 0 1;
     margin: 0 0 1 0;
@@ -173,9 +500,9 @@ TimelineFeed:focus, DiscoverFeed:focus, NotificationsFeed:focus, ChatView:focus,
 
 /* Profile Section Box - Magenta */
 .profile-box {
-    border: round magenta;
+    border: round $color-magenta;
     border-title-align: left;
-    border-title-color: magenta;
+    border-title-color: $color-magenta;
     border-title-style: bold;
     padding: 0 1;
     margin: 0 0 1 0;
@@ -183,27 +510,45 @@ TimelineFeed:focus, DiscoverFeed:focus, NotificationsFeed:focus, ChatView:focus,
 }
 
 .profile-username {
-    color: #ffffff;
+    color: $text-primary;
     text-style: bold;
     padding: 0;
     margin: 0;
 }
 
 .profile-name {
-    display: none; /* Hide to save space */
+    display: none;
 }
 
 .profile-stat {
-    color: #888888;
+    color: $text-dim;
     padding: 0;
     margin: 0;
 }
 
+/* Drafts Section Box - Green */
+.drafts-box {
+    border: round $color-green;
+    border-title-align: left;
+    border-title-color: $color-green;
+    border-title-style: bold;
+    padding: 0 1;
+    margin: 0 0 1 0;
+    height: auto;
+}
+
+.no-drafts-text {
+    color: $text-subtle;
+    padding: 1;
+    text-align: center;
+    text-style: italic;
+}
+
 /* Commands Section Box - Yellow */
 .commands-box {
-    border: round yellow;
+    border: round $color-yellow;
     border-title-align: left;
-    border-title-color: yellow;
+    border-title-color: $color-yellow;
     border-title-style: bold;
     padding: 0 1;
     margin: 0;
@@ -212,7 +557,7 @@ TimelineFeed:focus, DiscoverFeed:focus, NotificationsFeed:focus, ChatView:focus,
 
 /* Section headers inside boxes */
 .section-header {
-    color: #666666;
+    color: $text-subtle;
     text-style: bold;
     margin-top: 1;
     margin-bottom: 1;
@@ -221,35 +566,35 @@ TimelineFeed:focus, DiscoverFeed:focus, NotificationsFeed:focus, ChatView:focus,
 
 /* Navigation items */
 .nav-item {
-    color: #888888;
+    color: $text-dim;
     padding: 0 1;
 }
 
 .nav-item.active {
-    color: #ffffff;
-    background: #184070;
+    color: $text-primary;
+    background: $primary-dark;
     text-style: bold;
-    border-left: solid #4a9eff;
+    border-left: solid $primary;
     padding-left: 1;
 }
 
 /* Command items */
 .command-item {
-    color: #888888;
+    color: $text-dim;
     padding: 0;
     margin: 0;
 }
 
 /* Stats or other sidebar items */
 .stat-item {
-    color: #888888;
+    color: $text-dim;
     padding: 0 1;
 }
 
 /* Hover effects for items */
 .nav-item:hover {
-    background: #183050;
-    color: #ffffff;
+    background: $bg-hover;
+    color: $text-primary;
 }
 
 .upload-profile-picture:hover {
@@ -271,14 +616,14 @@ TimelineFeed:focus, DiscoverFeed:focus, NotificationsFeed:focus, ChatView:focus,
 /* Timeline Feed Container */
 #timeline-feed {
     width: 1fr;
-    background: #1a1a1a;
+    background: $bg-dark;
     height: 1fr;
     layout: vertical;
     padding: 1 2;
     overflow: auto;
-    border: round lime;
+    border: round $color-lime;
     border-title-align: center;
-    border-title-color: lime;
+    border-title-color: $color-lime;
     border-title-style: bold;
 }
 
@@ -288,99 +633,100 @@ TimelineFeed:focus, DiscoverFeed:focus, NotificationsFeed:focus, ChatView:focus,
     height: auto;
     margin: 0 0 1 0;
     padding: 1 2;
-    background: #1a1a1a;
-    color: #cccccc;
-    border: solid #2a2a2a;
+    background: $bg-dark;
+    color: $text-content;
+    border: solid $border-default;
 }
 
 .post-item:hover {
-    border: solid #555555;
+    border: solid $border-hover;
 }
 
 /* Scrollbar */
 #timeline-feed VerticalScroll {
-    scrollbar-color: #444444;
-    scrollbar-color-hover: #666666;
-    scrollbar-color-active: #888888;
-    scrollbar-background: #1a1a1a;
+    scrollbar-color: $scrollbar;
+    scrollbar-color-hover: $text-subtle;
+    scrollbar-color-active: $text-dim;
+    scrollbar-background: $bg-dark;
 }
 
 /* Discover Feed */
 #discover-feed {
     width: 1fr;
-    background: #1a1a1a;
+    background: $bg-dark;
     padding: 1 2;
     height: 100%;
-    border: round lime;
+    border: round $color-lime;
     border-title-align: center;
-    border-title-color: lime;
+    border-title-color: $color-lime;
     border-title-style: bold;
 }
 
 #search-results-container {
     width: 100%;
     height: 1fr;
-    background: #1a1a1a;
+    background: $bg-dark;
     overflow: auto;
 }
 
 /* Notifications Feed */
 #notifications-feed {
     width: 1fr;
-    background: #1a1a1a;
+    background: $bg-dark;
     padding: 1 2;
     height: 100%;
-    border: round lime;
+    border: round $color-lime;
     border-title-align: center;
-    border-title-color: lime;
+    border-title-color: $color-lime;
     border-title-style: bold;
 }
 
 .notification-item {
-    background: #1a1a1a;
-    color: #aaaaaa;
+    background: $bg-dark;
+    color: $text-muted;
     padding: 2 3;
     margin: 0 0 1 0;
-    border: solid #333333;
+    border: solid $border-subtle;
     height: auto;
     width: 100%;
 }
 
 .notification-item.unread {
-    background: #1a1a1a;
-    border: solid #4a4a5a;
+    background: $bg-dark;
+    border: solid $notif-unread;
 }
 
 .notification-item:hover {
-    border: solid #555555;
+    border: solid $border-hover;
 }
 
 .notification-item.unread:hover {
-    border: solid #6a6a7a;
+    border: solid $notif-unread-hover;
 }
 
 /* Conversations List */
 #conversations {
     width: 35;
-    background: #1a1a1a;
+    background: $bg-dark;
     padding: 1 2;
     height: 100%;
+    border: round $primary;
     border-title-align: center;
-    border-title-color: #4a9eff;
+    border-title-color: $primary;
     border-title-style: bold;
 }
 
 /* Conversation cursor */
 .conversation-item.vim-cursor {
-    background: #184070;
-    color: #ffffff;
-    border: heavy #4a9eff;
+    background: $primary-dark;
+    color: $text-primary;
+    border: heavy $primary;
     text-style: bold;
 }
 
 .panel-header {
-    background: #252525;
-    color: #cccccc;
+    background: $bg-dark;
+    color: $text-content;
     padding: 1 1;
     overflow: ellipsis;
     width: 100%;
@@ -389,27 +735,27 @@ TimelineFeed:focus, DiscoverFeed:focus, NotificationsFeed:focus, ChatView:focus,
 }
 
 .conversation-item {
-    background: #1a1a1a;
-    color: #aaaaaa;
+    background: $bg-dark;
+    color: $text-muted;
     padding: 1 2;
-    border: solid #2a2a2a;
+    border: solid $border-default;
     height: auto;
     margin: 0 0 1 0;
 }
 
 .conversation-item:hover {
-    border: solid #555555;
+    border: solid $border-hover;
 }
 
 /* Chat View */
 #chat {
     width: 1fr;
-    background: #1a1a1a;
+    background: $bg-dark;
     padding: 1 2;
     height: 100%;
-    border: round lime;
+    border: round $color-lime;
     border-title-align: center;
-    border-title-color: lime;
+    border-title-color: $color-lime;
     border-title-style: bold;
 }
 
@@ -421,23 +767,23 @@ TimelineFeed:focus, DiscoverFeed:focus, NotificationsFeed:focus, ChatView:focus,
 }
 
 .chat-message.received {
-    background: #1a1a1a;
-    color: #e0e0e0;
+    background: $bg-dark;
+    color: $text-secondary;
     align: left top;
     margin-right: 15;
-    border: solid #2a3a2a;
+    border: solid $chat-received;
 }
 
 .chat-message.sent {
-    background: #1a1a1a;
-    color: #e0e0e0;
+    background: $bg-dark;
+    color: $text-secondary;
     align: right top;
     margin-left: 15;
-    border: solid #3a2a2a;
+    border: solid $danger-bg-hover;
 }
 
 .mode-indicator {
-    color: #888888;
+    color: $text-dim;
     margin-top: 2;
     margin-bottom: 1;
     text-align: center;
@@ -446,27 +792,27 @@ TimelineFeed:focus, DiscoverFeed:focus, NotificationsFeed:focus, ChatView:focus,
 .message-input {
     width: 100%;
     height: 3;
-    background: #252525;
-    border: solid #444444;
+    background: $bg-dark;
+    border: solid $color-cyan;
     padding: 0 1;
     margin-top: 1;
 }
 
 /* Search Input */
 .search-input {
-    background: #252525;
-    color: #666666;
+    background: $bg-dark;
+    color: $text-subtle;
     padding: 1 2;
-    border-bottom: solid #333333;
+    border-bottom: solid $border-subtle;
 }
 
 /* Suggested User */
 .suggested-user {
-    background: #1a1a1a;
-    color: #aaaaaa;
+    background: $bg-dark;
+    color: $text-muted;
     padding: 2 3;
     margin: 0 0 1 0;
-    border: solid #2a2a2a;
+    border: solid $border-default;
     height: auto;
     width: 100%;
 }
@@ -474,66 +820,66 @@ TimelineFeed:focus, DiscoverFeed:focus, NotificationsFeed:focus, ChatView:focus,
 /* Settings Panel */
 #settings-panel {
     width: 1fr;
-    background: #1a1a1a;
+    background: $bg-dark;
     padding: 2 4;
     height: 100%;
-    border: round lime;
+    border: round $color-lime;
     border-title-align: center;
-    border-title-color: lime;
+    border-title-color: $color-lime;
     border-title-style: bold;
 }
 
 .settings-section-header {
-    color: #cccccc;
+    color: $text-content;
     text-style: bold;
     margin-top: 2;
     margin-bottom: 1;
 }
 
 .settings-help {
-    color: #666666;
+    color: $text-subtle;
     margin-left: 4;
     margin-bottom: 1;
 }
 
 .settings-action {
-    color: #888888;
+    color: $text-dim;
     margin-left: 4;
     margin-bottom: 1;
 }
 
 .settings-field {
-    color: #aaaaaa;
+    color: $text-muted;
     margin-left: 2;
     padding: 1 2;
-    background: #1a1a1a;
-    border: solid #333333;
+    background: $bg-dark;
+    border: solid $border-subtle;
 }
 
 .oauth-item {
-    color: #aaaaaa;
+    color: $text-muted;
     margin-left: 2;
     margin-bottom: 1;
     padding: 1 2;
-    background: #1a1a1a;
-    border: solid #333333;
+    background: $bg-dark;
+    border: solid $border-subtle;
 }
 
 .checkbox-item {
-    color: #aaaaaa;
+    color: $text-muted;
     margin-left: 2;
     margin-bottom: 1;
     padding: 1 2;
 }
 
 .settings-actions {
-    color: #888888;
+    color: $text-dim;
     margin-left: 2;
     margin-top: 2;
 }
 
 .help-text {
-    color: #666666;
+    color: $text-subtle;
     margin: 2;
     padding: 1 2;
     text-align: center;
@@ -541,24 +887,24 @@ TimelineFeed:focus, DiscoverFeed:focus, NotificationsFeed:focus, ChatView:focus,
 
 /* Scrollbars */
 VerticalScroll {
-    scrollbar-color: #444444;
-    scrollbar-color-hover: #666666;
-    scrollbar-color-active: #888888;
-    scrollbar-background: #1a1a1a;
+    scrollbar-color: $scrollbar;
+    scrollbar-color-hover: $text-subtle;
+    scrollbar-color-active: $text-dim;
+    scrollbar-background: $bg-dark;
 }
 
 /* Sidebar specific scrollbar */
 #sidebar {
-    scrollbar-color: #555555;
-    scrollbar-color-hover: #777777;
-    scrollbar-color-active: #999999;
-    scrollbar-background: #1e1e1e;
+    scrollbar-color: $border-hover;
+    scrollbar-color-hover: $scrollbar-sidebar-hover;
+    scrollbar-color-active: $scrollbar-sidebar-active;
+    scrollbar-background: $bg-lighter;
     scrollbar-size: 1 1;
 }
 
 /* ASCII Video Player */
 .ascii-video {
-    background: #0a0a0a;
+    background: $bg-dark;
     color: #00ff00;
     border: solid #00ff00;
     padding: 1 2;
@@ -570,39 +916,39 @@ VerticalScroll {
 }
 
 .post-author {
-    color: #aaaaaa;
+    color: $text-muted;
     padding: 0 2;
     margin: 1 2 0 2;
 }
 
 .post-stats {
-    color: #888888;
+    color: $text-dim;
     padding: 1 2;
     margin: 0 2 1 2;
 }
 
 .video-controls {
-    color: #aaaaaa;
-    background: #1e1e1e;
+    color: $text-muted;
+    background: $bg-lighter;
     padding: 1 2;
     text-align: center;
 }
 
 /* Input Focus */
 Input:focus {
-    border: solid #4a9eff;
+    border: solid $primary;
 }
 
 /* Profile Panel */
 #profile-panel {
     width: 1fr;
-    background: #1a1a1a;
+    background: $bg-dark;
     padding: 2 4;
     height: 100%;
     align: center top;
-    border: round lime;
+    border: round $color-lime;
     border-title-align: center;
-    border-title-color: lime;
+    border-title-color: $color-lime;
     border-title-style: bold;
 }
 
@@ -615,18 +961,18 @@ Input:focus {
 }
 
 .profile-avatar-large {
-    color: #4a9eff;
+    color: $primary;
     text-style: bold;
     text-align: center;
     width: 100%;
     margin-bottom: 2;
-    background: #1a1a1a;
-    border: round #4a9eff;
+    background: $bg-dark;
+    border: round $primary;
     padding: 2;
 }
 
 .profile-name-large {
-    color: #ffffff;
+    color: $text-primary;
     text-style: bold;
     text-align: center;
     width: 100%;
@@ -634,7 +980,7 @@ Input:focus {
 }
 
 .profile-username-display {
-    color: #4a9eff;
+    color: $primary;
     text-align: center;
     width: 100%;
     margin-bottom: 3;
@@ -649,29 +995,84 @@ Input:focus {
 }
 
 .profile-stat-item {
-    color: #cccccc;
+    color: $text-content;
     text-align: center;
     width: 1fr;
     padding: 2;
-    background: #1a1a1a;
-    border: solid #333333;
+    background: $bg-dark;
+    border: solid $border-subtle;
     margin: 0 1;
 }
 
 .profile-bio-container {
     width: 100%;
     height: auto;
-    border: round #666666;
+    border: round $text-subtle;
     border-title-align: center;
-    border-title-color: #888888;
+    border-title-color: $text-dim;
     padding: 2;
-    background: #1a1a1a;
+    background: $bg-dark;
 }
 
 .profile-bio-display {
-    color: #aaaaaa;
+    color: $text-muted;
     text-align: center;
     width: 100%;
+}
+
+/* Profile Action Buttons */
+.profile-action-buttons {
+    layout: horizontal;
+    width: 100%;
+    height: auto;
+    align: center middle;
+    margin-top: 2;
+    margin-bottom: 3;
+}
+
+.profile-action-btn {
+    width: 1fr;
+    margin: 0 1;
+    height: 5;
+    padding: 1 2;
+    background: $bg-dark;
+    color: $text-primary;
+    border: solid $color-cyan;
+    text-style: bold;
+    content-align: center middle;
+    text-align: center;
+}
+
+.profile-action-btn:hover {
+    background: $bg-highlight;
+    border: heavy $accent-cyan;
+    color: $text-primary;
+}
+
+/* Override primary variant for Follow button to match Message button */
+.profile-action-btn.-primary {
+    background: $bg-dark;
+    color: $text-primary;
+    border: solid $color-cyan;
+}
+
+.profile-action-btn.-primary:hover {
+    background: $bg-highlight;
+    border: heavy $accent-cyan;
+    color: $text-primary;
+}
+
+/* Following state - when button shows "Following" */
+#follow-user-btn.following {
+    background: $chat-new;
+    color: #88ff88;
+    border: solid $accent-green;
+}
+
+#follow-user-btn.following:hover {
+    background: #3a5a3a;
+    border: heavy #5aaa5a;
+    color: #aaffaa;
 }
 
 /* Messages Container */
@@ -682,18 +1083,18 @@ Input:focus {
 
 /* New message animation */
 .chat-message.message-new {
-    background: #2a4a2a;
-    border: solid #4a7a4a;
+    background: $chat-new;
+    border: solid $chat-new-border;
 }
 
 .chat-message.sent.message-new {
-    background: #2a4a2a;
-    border: solid #3a6a3a;
+    background: $chat-new;
+    border: solid $chat-new-sent;
 }
 
 /* Mode indicator styling */
 .mode-indicator {
-    color: #888888;
+    color: $text-dim;
     margin-top: 1;
     margin-bottom: 1;
     text-align: center;
@@ -702,14 +1103,14 @@ Input:focus {
 
 /* Chat input focus */
 #chat-message-input:focus {
-    border: solid #4a9eff;
-    background: #2a2a2a;
+    border: solid $primary;
+    background: $border-default;
 }
 
 /* Comment new animation */
 .comment-new {
-    background: #2a3a2a !important;
-    color: #e0e0e0 !important;
+    background: $chat-received !important;
+    color: $text-secondary !important;
 }
 
 /* User Profile Card Styles */
@@ -719,35 +1120,79 @@ Input:focus {
     height: auto;
     margin: 0 0 2 0;
     padding: 2;
-    background: #1a1a1a;
-    border: solid #2a2a2a;
+    background: $bg-dark;
+    border: solid $border-default;
 }
 
 .user-profile-card:hover {
-    border: solid #555555;
+    border: solid $border-hover;
+}
+
+.user-card-container {
+    layout: horizontal;
+    width: 100%;
+    height: auto;
+}
+
+.user-card-pic {
+    width: auto;
+    height: auto;
+    margin-right: 3;
+}
+
+.user-card-info {
+    width: 1fr;
+    layout: vertical;
 }
 
 .user-card-avatar {
     width: 15;
-    color: #4a9eff;
+    color: $primary;
     text-style: bold;
     text-align: center;
     margin-right: 3;
 }
 
 .user-card-name {
-    color: #ffffff;
+    color: $text-primary;
     text-style: bold;
     margin-bottom: 0;
 }
 
 .user-card-username {
-    color: #4a9eff;
+    color: $primary;
     margin-bottom: 1;
 }
 
+/* Clickable Username Button Styling */
+.user-card-username-btn {
+    width: auto;
+    height: 1;
+    min-width: 0;
+    padding: 0 1;
+    margin: 0 0 1 0;
+    background: transparent;
+    color: $primary;
+    border: none;
+    text-align: left;
+    content-align: left middle;
+}
+
+.user-card-username-btn:hover {
+    background: #2a3a4a;
+    color: $primary-hover;
+    text-style: bold underline;
+    border: none;
+}
+
+.user-card-username-btn:focus {
+    background: #2a3a4a;
+    color: $primary-hover;
+    border: solid $primary;
+}
+
 .user-card-bio {
-    color: #aaaaaa;
+    color: $text-muted;
     margin-bottom: 2;
 }
 
@@ -757,214 +1202,269 @@ Input:focus {
 }
 
 .user-card-stat {
-    color: #888888;
+    color: $text-dim;
     margin-right: 3;
 }
 
 .user-card-buttons {
     height: 3;
+    layout: horizontal;
 }
 
 .user-card-button {
     margin-right: 1;
-    background: #2a2a2a;
-    color: #ffffff;
-    border: solid #444444;
+    background: $bg-dark;
+    color: $text-primary;
+    border: solid $color-cyan;
 }
 
 .user-card-button:hover {
-    background: #3a3a3a;
-    border: solid #666666;
+    background: $bg-highlight;
+    border: heavy $accent-cyan;
 }
 
 /* TextArea Styles for New Post Dialog */
 TextArea {
-    background: #252525;
-    color: #ffffff;
-    border: solid #444444;
+    background: $bg-dark;
+    color: $text-primary;
+    border: solid $color-cyan;
 }
 
 TextArea:focus {
-    border: solid cyan;
+    border: heavy $accent-cyan;
 }
 
 /* Button Styles */
 Button {
-    background: #2a2a2a;
-    color: #ffffff;
-    border: solid #444444;
+    background: $bg-dark;
+    color: $text-primary;
+    border: solid $color-cyan;
+    content-align: center middle;
+    text-align: center;
 }
 
 Button:hover {
-    background: #3a3a3a;
-    border: solid #666666;
+    background: $bg-highlight;
+    border: heavy $accent-cyan;
+    color: $text-primary;
 }
 
 Button.-primary {
-    background: #4a9eff;
-    color: #ffffff;
-    border: solid #4a9eff;
+    background: $primary;
+    color: $text-primary;
+    border: solid $primary;
 }
 
 Button.-primary:hover {
-    background: #5aaeff;
-    border: solid #5aaeff;
+    background: $primary-hover;
+    border: solid $primary-hover;
 }
 
 Button.-error {
-    background: #ff4a4a;
-    color: #ffffff;
-    border: solid #ff4a4a;
+    background: $accent-red;
+    color: $text-primary;
+    border: solid $accent-red;
 }
 
 Button.-error:hover {
-    background: #ff5a5a;
-    border: solid #ff5a5a;
+    background: $accent-red-hover;
+    border: solid $accent-red-hover;
 }
 
 /* ========== NEW POST DIALOG STYLES ========== */
 
-/* New Post Dialog Container */
-NewPostDialog {
+NewPostDialog, DeleteDraftDialog {
     align: center middle;
 }
 
 #dialog-container {
     width: 90;
     height: auto;
-    background: #1a1a1a;
-    border: round cyan;
+    background: $bg-dark;
+    border: round $color-cyan;
     border-title-align: center;
     padding: 2;
 }
 
 #dialog-title {
-    color: cyan;
+    color: $color-cyan;
     text-style: bold;
     text-align: center;
     margin-bottom: 1;
 }
 
+.dialog-message {
+    color: $text-muted;
+    text-align: center;
+    margin: 2;
+    padding: 1;
+}
+
 #post-textarea {
     width: 100%;
     height: 10;
-    margin-bottom: 1;
-    background: #252525;
-    color: #ffffff;
-    border: solid #444444;
+    margin: 1;
+    background: $bg-dark;
+    color: $text-primary;
+    border: solid $color-cyan;
 }
 
 #post-textarea:focus {
-    border: solid cyan;
+    border: solid $accent-cyan;
+    background: $bg-dark;
 }
 
-/* Media Section Styles */
-#media-section {
+/* Vim Navigation Hints */
+.vim-hints {
     width: 100%;
     height: auto;
-    margin-bottom: 1;
-    padding: 1;
-    border: solid #333333;
-    background: #0a0a0a;
+    margin: 0 1;
+    padding: 0 1;
+    color: $text-muted;
+    text-align: center;
+    text-style: italic;
 }
 
-#media-label {
-    color: #888888;
+/* Attachments List */
+.attachments-list {
+    width: 100%;
+    margin: 1;
+    color: $text-dim;
+    min-height: 3;
+    padding: 1;
+    background: $bg-dark;
+    border: none;
+}
+
+/* Status Message */
+.status-message {
+    width: 100%;
+    margin: 1;
+    color: $primary;
+    text-align: center;
     text-style: bold;
-    margin-bottom: 1;
+    min-height: 1;
 }
 
+/* Media Buttons Container */
 #media-buttons {
-    width: 100%;
-    height: auto;
-    layout: horizontal;
-    margin-bottom: 1;
-}
-
-#media-buttons Button {
-    margin-right: 1;
-    background: #2a2a2a;
-    color: #ffffff;
-    border: solid #444444;
-}
-
-#media-buttons Button:hover {
-    background: #3a3a3a;
-    border: solid #666666;
-}
-
-#add-photo-button {
-    background: #2a3a2a;
-    border: solid #4a6a4a;
-}
-
-#add-photo-button:hover {
-    background: #3a4a3a;
-    border: solid #5a7a5a;
-}
-
-#add-video-button {
-    background: #2a2a3a;
-    border: solid #4a4a6a;
-}
-
-#add-video-button:hover {
-    background: #3a3a4a;
-    border: solid #5a5a7a;
-}
-
-#remove-media-button {
-    background: #3a2a2a;
-    border: solid #6a4a4a;
-}
-
-#remove-media-button:hover {
-    background: #4a3a3a;
-    border: solid #7a5a5a;
-}
-
-#media-preview {
-    color: #00ff00;
-    padding: 1;
-    border: solid #00ff00;
-    margin-top: 1;
-    background: #0a0a0a;
-    display: none;
-}
-
-/* Dialog Buttons */
-#dialog-buttons {
     width: 100%;
     height: auto;
     align: center middle;
     layout: horizontal;
+    margin: 1;
+    background: $bg-dark;
 }
 
-#dialog-buttons Button {
+#media-buttons Button {
+    width: 1fr;
     margin: 0 1;
-    padding: 1 4;
-    width: 20;
+    min-width: 15;
+    height: 5;
+    padding: 1 2;
+    background: $bg-dark;
+    color: $text-primary;
+    border: solid $color-cyan;
+    text-style: bold;
+    content-align: center middle;
+    text-align: center;
 }
 
-#post-button {
-    background: #4a9eff;
-    color: #ffffff;
-    border: solid #4a9eff;
+#media-buttons Button:hover {
+    background: $bg-highlight;
+    border: heavy $accent-cyan;
+    color: $text-primary;
 }
 
-#post-button:hover {
-    background: #5aaeff;
-    border: solid #5aaeff;
+#media-buttons Button.vim-cursor {
+    background: $bg-highlight;
+    border: heavy $primary;
+    color: $text-primary;
 }
 
-#cancel-button {
-    background: #2a2a2a;
-    color: #ffffff;
-    border: none;
-    padding: 0 1;
+/* Action Buttons Container */
+#action-buttons {
+    width: 100%;
+    height: auto;
+    align: center middle;
+    layout: horizontal;
+    margin: 1;
+    background: $bg-dark;
 }
 
-#cancel-button:hover {
-    background: #3a3a3a;
-    border: none;
+#action-buttons Button {
+    width: 1fr;
+    margin: 0 1;
+    min-width: 15;
+    height: 5;
+    padding: 1 2;
+    background: $bg-dark;
+    color: $text-primary;
+    border: solid $color-cyan;
+    text-style: bold;
+    content-align: center middle;
+    text-align: center;
+}
+
+#action-buttons Button:hover {
+    background: $bg-highlight;
+    border: heavy $accent-cyan;
+    color: $text-primary;
+}
+
+#action-buttons Button.vim-cursor {
+    background: $bg-highlight;
+    border: heavy $primary;
+    color: $text-primary;
+}
+
+Button#post-button {
+    background: $bg-dark;
+    color: $text-primary;
+    border: solid $color-cyan;
+    height: 5;
+}
+
+Button#post-button:hover {
+    background: $bg-highlight;
+    border: heavy $accent-cyan;
+    color: $text-primary;
+}
+
+Button#draft-button {
+    background: $bg-dark;
+    color: $text-primary;
+    border: solid $color-cyan;
+    height: 5;
+}
+
+Button#draft-button:hover {
+    background: $bg-highlight;
+    border: heavy $accent-cyan;
+    color: $text-primary;
+}
+
+Button#cancel-button, Button#cancel-delete {
+    background: $bg-dark;
+    color: $text-primary;
+    border: solid $color-cyan;
+    height: 5;
+}
+
+Button#cancel-button:hover, Button#cancel-delete:hover {
+    background: $bg-highlight;
+    border: heavy $accent-cyan;
+    color: $text-primary;
+}
+
+Button#confirm-delete {
+    background: $accent-red;
+    color: $text-primary;
+    border: solid $accent-red;
+    height: 5;
+}
+
+Button#confirm-delete:hover {
+    background: $accent-red-hover;
+    border: solid $accent-red-hover;
 }
