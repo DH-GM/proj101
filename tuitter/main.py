@@ -1084,6 +1084,7 @@ class TimelineScreen(Container):
 class DiscoverFeed(VerticalScroll):
     cursor_position = reactive(0)
     query_text = reactive("")
+    _search_timer = None  # Timer for debouncing search
 
     def key_enter(self) -> None:
         """Open comment screen when pressing enter on a post"""
@@ -1123,10 +1124,16 @@ class DiscoverFeed(VerticalScroll):
         self.watch(self, "cursor_position", self._update_cursor)
 
     def on_input_changed(self, event: Input.Changed) -> None:
-        """Handle search input changes"""
+        """Handle search input changes with debouncing"""
         if event.input.id == "discover-search":
             self.query_text = event.value
-            self._filter_posts()
+
+            # Cancel any existing timer
+            if self._search_timer is not None:
+                self._search_timer.stop()
+
+            # Set a new timer to filter after 300ms of no typing
+            self._search_timer = self.set_timer(0.3, self._filter_posts)
 
     def _filter_posts(self) -> None:
         """Filter posts based on search query"""
