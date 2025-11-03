@@ -501,6 +501,27 @@ Input.vim-cursor {
     color: $text-content;
 }
 
+/* Discover search input - match comment input styling */
+#discover-search {
+    margin: 0 0 1 0;
+    padding: 0 1;
+    background: $bg-dark;
+    color: $text-content;
+    border: solid $border-default;
+}
+
+#discover-search:focus {
+    border: solid $border-hover;
+    background: $bg-highlight;
+    color: $text-content;
+}
+
+#discover-search.vim-cursor {
+    border: solid $border-hover;
+    background: $bg-highlight;
+    color: $text-content;
+}
+
 /* Comment items - base state styling (background set via inline style) */
 .comment-thread-item {
     width: 100%;
@@ -515,6 +536,16 @@ Input.vim-cursor {
     color: $text-primary;
     border: solid $border-hover;
     text-style: bold;
+}
+
+/* Comment screen footer */
+#comment-footer {
+    dock: bottom;
+    height: 1;
+    background: $bg-header;
+    color: $text-dim;
+    padding: 0 2;
+    content-align: left middle;
 }
 
 TimelineFeed:focus, DiscoverFeed:focus, NotificationsFeed:focus, ChatView:focus, SettingsPanel:focus, ProfilePanel:focus, ConversationsList:focus, DraftsPanel:focus {

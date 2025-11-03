@@ -118,7 +118,7 @@ class CommentFeed(VerticalScroll):
         yield Static("─ Comments ─", classes="comment-thread-header", markup=False)
 
         # Input for new comment
-        yield Input(placeholder="[i] Type your comment and press Enter… [q] to exit", id="comment-input")
+        yield Input(placeholder="[i] Type your comment and press Enter… [q] to go back", id="comment-input")
 
         # Comments
         self.comments = api.get_comments(self.post.id)
@@ -326,6 +326,13 @@ class CommentFeed(VerticalScroll):
             return
         self.cursor_position = max(self.cursor_position - 3, 0)
 
+    def key_d(self) -> None:
+        """Prevent 'd' from triggering drafts when in comment screen"""
+        if self.app.command_mode:
+            return
+        # Just prevent propagation - 'd' has no function in comment screen
+        pass
+
     def on_key(self, event) -> None:
         """Handle g+g key combination for top and escape from input"""
         # Don't process keys if app is in command mode
@@ -350,6 +357,11 @@ class CommentFeed(VerticalScroll):
             self.cursor_position = 0
             event.prevent_default()
 
+        # Prevent 'd' from propagating to app level (show drafts)
+        if event.key == "d":
+            event.prevent_default()
+            event.stop()
+
 
 class CommentScreen(Screen):
     """Screen wrapper for CommentFeed"""
@@ -360,6 +372,7 @@ class CommentScreen(Screen):
 
     def compose(self) -> ComposeResult:
         yield CommentFeed(self.post, id="comment-feed")
+        yield Static("[i] Input [q] Back [j/k] Navigate", id="comment-footer", markup=False)
 
 
 # ───────── Items ─────────
@@ -2620,6 +2633,9 @@ class DraftsScreen(Container):
 
 class Proj101App(App):
     CSS_PATH = "main.tcss"
+
+    # Disable dark mode toggle - we use our own colors
+    ENABLE_COMMAND_PALETTE = False
 
     BINDINGS = [
         # Basic app controls
