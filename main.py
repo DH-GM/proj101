@@ -151,7 +151,7 @@ class DraftItem(Static):
         attachments_count = len(self.draft.get('attachments', []))
         attach_text = f" 📎{attachments_count}" if attachments_count > 0 else ""
 
-        return f"⏰ {time_ago}\n{content}{attach_text}\n\n✏️ Open  🗑️ Delete"
+        return f"{time_ago}\n{content}{attach_text}"
 
     def on_click(self) -> None:
         """Handle click on draft item - for now just open it."""
@@ -163,7 +163,6 @@ class ProfileDisplay(Static):
     def compose(self) -> ComposeResult:
         user = api.get_current_user()
         yield Static(f"@{user.username} • {user.display_name}", classes="profile-username")
-        yield Static(f"P:{user.posts_count} F:{user.following} F:{user.followers}", classes="profile-stat")
 
 class ConversationItem(Static):
     def __init__(self, conversation, **kwargs):
@@ -730,7 +729,7 @@ class TimelineFeed(VerticalScroll):
     def compose(self) -> ComposeResult:
         posts = api.get_timeline()
         unread_count = len([p for p in posts if (datetime.now() - p.timestamp).seconds < 3600])
-        self.border_title = "[0] Main Timeline"
+        self.border_title = "Main Timeline"
         yield Static(f"timeline.home | {unread_count} new posts | line 1", classes="panel-header", markup=False)
         for i, post in enumerate(posts):
             post_item = PostItem(post, classes="post-item", id=f"post-{i}")
@@ -819,102 +818,194 @@ class TimelineScreen(Container):
         yield Sidebar(current="timeline", id="sidebar")
         yield TimelineFeed(id="timeline-feed")
 
-class DiscoverFeed(Container):
+class DiscoverFeed(VerticalScroll):
+    cursor_position = reactive(0)
     query_text = reactive("")
 
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
-        self._all_posts = []
-        self.border_title = "[0] Discover"
-        self._dummy_users = {
-            "john doe": {
-                "username": "johndoe",
-                "display_name": "John Doe",
-                "bio": "Software engineer and coffee enthusiast ☕ | Building cool stuff",
-                "followers": 1543,
-                "following": 892,
-                "ascii_pic": "  [👀]\n  |≈ ◡ ≈|\n  |▓███▓|"
-            },
-            "jane smith": {
-                "username": "janesmith",
-                "display_name": "Jane Smith",
-                "bio": "Designer | Creative thinker | Love minimalism 🎨",
-                "followers": 2341,
-                "following": 456,
-                "ascii_pic": "  [👀]\n  |^ ▽ ^|\n  |▓███▓|"
-            },
-            "alice wonder": {
-                "username": "alicewonder",
-                "display_name": "Alice Wonder",
-                "bio": "Explorer of digital worlds | Tech blogger | Cat lover 🐱",
-                "followers": 987,
-                "following": 234,
-                "ascii_pic": "  [👀]\n  |◡ ω ◡|\n  |▓███▓|"
-            }
-        }
+    def compose(self) -> ComposeResult:
+        self.border_title = "Discover"
+
+        # Search input at the top
+        yield Input(placeholder="[/] Search posts, people, tags...", classes="discover-search-input", id="discover-search")
+
+        # Display posts
+        posts = api.get_discover_posts()
+        yield Static("discover.trending | explore posts | line 1", classes="panel-header", markup=False)
+        for i, post in enumerate(posts):
+            post_item = PostItem(post, classes="post-item", id=f"discover-post-{i}")
+            # Don't add cursor here, will be handled by _update_cursor
+            yield post_item
 
     def on_mount(self) -> None:
-        self._all_posts = api.get_discover_posts()
+        self.watch(self, "cursor_position", self._update_cursor)
 
-    def _filtered_posts(self):
-        if not self.query_text:
-            return self._all_posts
-        q = self.query_text.lower()
-        return [p for p in self._all_posts if q in p.author.lower() or q in p.content.lower()]
+    def on_input_changed(self, event: Input.Changed) -> None:
+        """Handle search input changes"""
+        if event.input.id == "discover-search":
+            self.query_text = event.value
+            self._filter_posts()
 
-    def _search_users(self):
-        if not self.query_text:
-            return []
-        q = self.query_text.lower()
-        matching_users = []
-        for name, data in self._dummy_users.items():
-            if q in name or q in data["username"].lower() or q in data["display_name"].lower():
-                matching_users.append(data)
-        return matching_users
-
-    def compose(self) -> ComposeResult:
-        yield Input(placeholder="Search posts, people, tags...", classes="message-input", id="discover-search")
-        yield VerticalScroll(id="search-results-container")
-        yield Static("\n→ Suggested Follow", classes="section-header")
-        yield Static(
-            "  @opensource_dev\n  Building tools for developers | 1.2k followers\n  [f] Follow  [↑↓] Navigate  [Enter] Open  [?] Help",
-            classes="suggested-user",
-            markup=False,
-        )
-
-    def watch_query_text(self, _: str) -> None:
+    def _filter_posts(self) -> None:
+        """Filter posts based on search query"""
         try:
-            container = self.query_one("#search-results-container", VerticalScroll)
-            container.remove_children()
+            # Get all posts
+            all_posts = api.get_discover_posts()
 
-            matching_users = self._search_users()
+            # Filter if there's a search query
+            if self.query_text:
+                q = self.query_text.lower()
+                filtered = [p for p in all_posts if q in p.author.lower() or q in p.content.lower()]
+            else:
+                filtered = all_posts
 
-            if matching_users:
-                container.mount(Static("\n→ People", classes="section-header"))
-                for user_data in matching_users:
-                    card = UserProfileCard(
-                        username=user_data["username"],
-                        display_name=user_data["display_name"],
-                        bio=user_data["bio"],
-                        followers=user_data["followers"],
-                        following=user_data["following"],
-                        ascii_pic=user_data["ascii_pic"],
-                        classes="user-profile-card"
-                    )
-                    container.mount(card)
+            # Remove existing post items
+            for item in self.query(".post-item"):
+                item.remove()
 
-            filtered_posts = self._filtered_posts()
-            if filtered_posts:
-                if matching_users:
-                    container.mount(Static("\n→ Posts", classes="section-header"))
-                for post in filtered_posts:
-                    container.mount(PostItem(post, classes="post-item"))
+            # Add filtered posts
+            for i, post in enumerate(filtered):
+                post_item = PostItem(post, classes="post-item", id=f"discover-post-{i}")
+                self.mount(post_item)
+
+            # Reset cursor to search input (position 0)
+            self.cursor_position = 0
         except Exception:
             pass
 
-    def on_input_changed(self, event: Input.Changed) -> None:
-        if event.input.id == "discover-search":
-            self.query_text = event.value
+    def key_slash(self) -> None:
+        """Focus search input with / key"""
+        # Set cursor to position 0 and focus the input
+        self.cursor_position = 0
+        try:
+            search_input = self.query_one("#discover-search", Input)
+            search_input.focus()
+        except Exception:
+            pass
+
+    def _get_navigable_items(self) -> list:
+        """Get all navigable items (search input + posts)"""
+        try:
+            search_input = self.query_one("#discover-search", Input)
+            post_items = list(self.query(".post-item"))
+            return [search_input] + post_items
+        except Exception:
+            return []
+
+    def _update_cursor(self) -> None:
+        """Update the cursor position - includes search input + posts"""
+        try:
+            items = self._get_navigable_items()
+            post_items = list(self.query(".post-item"))
+            search_input = self.query_one("#discover-search", Input)
+
+            # Remove cursor from all post items and search input
+            for item in post_items:
+                item.remove_class("vim-cursor")
+            search_input.remove_class("vim-cursor")
+
+            if 0 <= self.cursor_position < len(items):
+                item = items[self.cursor_position]
+                if isinstance(item, Input):
+                    # Don't focus the input, just add visual indicator
+                    item.add_class("vim-cursor")
+                    # Make sure feed has focus so vim keys work
+                    self.focus()
+                else:
+                    # Add cursor class to post
+                    item.add_class("vim-cursor")
+                self.scroll_to_widget(item, top=True)
+        except Exception:
+            pass
+
+    def on_focus(self) -> None:
+        """When the feed gets focus"""
+        self.cursor_position = 0
+        self._update_cursor()
+
+    def on_blur(self) -> None:
+        """When feed loses focus"""
+        pass
+
+    def key_j(self) -> None:
+        """Move down with j key"""
+        items = self._get_navigable_items()
+        if self.cursor_position < len(items) - 1:
+            self.cursor_position += 1
+
+    def key_k(self) -> None:
+        """Move up with k key"""
+        if self.cursor_position > 0:
+            self.cursor_position -= 1
+
+    def key_g(self) -> None:
+        """Go to top with gg"""
+        pass  # Handled in on_key for double-press
+
+    def key_G(self) -> None:
+        """Go to bottom with G"""
+        items = self._get_navigable_items()
+        self.cursor_position = len(items) - 1
+
+    def key_ctrl_d(self) -> None:
+        """Half page down"""
+        items = self._get_navigable_items()
+        self.cursor_position = min(self.cursor_position + 5, len(items) - 1)
+
+    def key_ctrl_u(self) -> None:
+        """Half page up"""
+        self.cursor_position = max(self.cursor_position - 5, 0)
+
+    def key_w(self) -> None:
+        """Word forward - move down by 3"""
+        items = self._get_navigable_items()
+        self.cursor_position = min(self.cursor_position + 3, len(items) - 1)
+
+    def key_b(self) -> None:
+        """Word backward - move up by 3"""
+        self.cursor_position = max(self.cursor_position - 3, 0)
+
+    def key_i(self) -> None:
+        """Focus search input with i key (insert mode) when cursor is on it"""
+        if self.cursor_position == 0:
+            try:
+                search_input = self.query_one("#discover-search", Input)
+                search_input.focus()
+            except Exception:
+                pass
+
+    def on_key(self, event) -> None:
+        """Handle g+g key combination for top and escape from search"""
+        if event.key == "escape":
+            # If search input has focus, move cursor to first post and return focus to feed
+            try:
+                search_input = self.query_one("#discover-search", Input)
+                if search_input.has_focus:
+                    # Move cursor to first post (position 1)
+                    self.cursor_position = 1
+                    # Remove focus from input and give it back to feed
+                    self.focus()
+                    event.prevent_default()
+                    event.stop()
+                    return
+            except Exception:
+                pass
+
+        # If cursor is on search input (position 0) and user types a letter/number/space
+        # Focus the search input to start typing
+        if self.cursor_position == 0:
+            # Check if it's a typeable character (letter, number, space, punctuation except vim keys)
+            if len(event.key) == 1 and event.key not in ['j', 'k', 'g', 'G', 'w', 'b', 'h', 'l', '0', '1', '2', '3', '4', '5', '6', 'p', 'd', 'i', 'q', ':', '/']:
+                try:
+                    search_input = self.query_one("#discover-search", Input)
+                    search_input.focus()
+                    # Let the event propagate to the input
+                    return
+                except Exception:
+                    pass
+
+        if event.key == "g" and event.is_repeat:
+            self.cursor_position = 0
+            event.prevent_default()
 
 class DiscoverScreen(Container):
     def compose(self) -> ComposeResult:
@@ -922,14 +1013,81 @@ class DiscoverScreen(Container):
         yield DiscoverFeed(id="discover-feed")
 
 class NotificationsFeed(VerticalScroll):
+    cursor_position = reactive(0)
+
     def compose(self) -> ComposeResult:
         notifications = api.get_notifications()
         unread_count = len([n for n in notifications if not n.read])
-        self.border_title = "[0] Notifications"
+        self.border_title = "Notifications"
         yield Static(f"notifications.all | {unread_count} unread | line 1", classes="panel-header")
-        for notif in notifications:
-            yield NotificationItem(notif, classes="notification-item")
-        yield Static("\n[↑] Previous [n] Next [m] Mark Read [Enter] Open [q] Quit", classes="help-text", markup=False)
+        for i, notif in enumerate(notifications):
+            item = NotificationItem(notif, classes="notification-item", id=f"notif-{i}")
+            if i == 0:
+                item.add_class("vim-cursor")
+            yield item
+        yield Static("\n[j/k] Navigate [g/G] Top/Bottom [Enter] Open [:q] Quit", classes="help-text", markup=False)
+
+    def on_mount(self) -> None:
+        """Watch for cursor position changes"""
+        self.watch(self, "cursor_position", self._update_cursor)
+
+    def _update_cursor(self) -> None:
+        """Update the cursor position"""
+        try:
+            items = list(self.query(".notification-item"))
+            for item in items:
+                item.remove_class("vim-cursor")
+
+            if 0 <= self.cursor_position < len(items):
+                item = items[self.cursor_position]
+                item.add_class("vim-cursor")
+                self.scroll_to_widget(item)
+        except Exception:
+            pass
+
+    def key_j(self) -> None:
+        """Move down with j key"""
+        items = list(self.query(".notification-item"))
+        if self.cursor_position < len(items) - 1:
+            self.cursor_position += 1
+
+    def key_k(self) -> None:
+        """Move up with k key"""
+        if self.cursor_position > 0:
+            self.cursor_position -= 1
+
+    def key_g(self) -> None:
+        """Go to top with gg"""
+        pass  # Handled in on_key for double-press
+
+    def key_G(self) -> None:
+        """Go to bottom with G"""
+        items = list(self.query(".notification-item"))
+        self.cursor_position = len(items) - 1
+
+    def key_ctrl_d(self) -> None:
+        """Half page down"""
+        items = list(self.query(".notification-item"))
+        self.cursor_position = min(self.cursor_position + 5, len(items) - 1)
+
+    def key_ctrl_u(self) -> None:
+        """Half page up"""
+        self.cursor_position = max(self.cursor_position - 5, 0)
+
+    def key_w(self) -> None:
+        """Word forward - move down by 3"""
+        items = list(self.query(".notification-item"))
+        self.cursor_position = min(self.cursor_position + 3, len(items) - 1)
+
+    def key_b(self) -> None:
+        """Word backward - move up by 3"""
+        self.cursor_position = max(self.cursor_position - 3, 0)
+
+    def on_key(self, event) -> None:
+        """Handle g+g key combination for top"""
+        if event.key == "g" and event.is_repeat:
+            self.cursor_position = 0
+            event.prevent_default()
 
 class NotificationsScreen(Container):
     def compose(self) -> ComposeResult:
@@ -1038,7 +1196,7 @@ class ChatView(VerticalScroll):
         self.conversation_username = username
 
     def compose(self) -> ComposeResult:
-        self.border_title = "[0] Chat "
+        self.border_title = "[0] Chat"
         messages = api.get_conversation_messages(self.conversation_id)
         yield Static(f"@{self.conversation_username} | conversation", classes="panel-header")
         for msg in messages:
@@ -1143,7 +1301,7 @@ class SettingsPanel(VerticalScroll):
     cursor_position = reactive(0)
 
     def compose(self) -> ComposeResult:
-        self.border_title = "[0] Settings"
+        self.border_title = "Settings"
         settings = api.get_user_settings()
         yield Static("settings.profile | line 1", classes="panel-header")
         yield Static("\n→ Profile Picture (ASCII)", classes="settings-section-header")
@@ -1293,7 +1451,7 @@ class ProfilePanel(VerticalScroll):
     cursor_position = reactive(0)
 
     def compose(self) -> ComposeResult:
-        self.border_title = "[0] Profile"
+        self.border_title = "Profile"
         user = api.get_current_user()
         settings = api.get_user_settings()
 
@@ -1320,56 +1478,37 @@ class ProfilePanel(VerticalScroll):
             yield bio_container
 
         yield profile_container
-        yield Static("\n[:e] Edit Profile  [Esc] Back", classes="help-text", markup=False)
-
-    def watch_cursor_position(self, old_position: int, new_position: int) -> None:
-        """Update the cursor when position changes"""
-        # For profile panel, we'll treat the profile-stat-item elements as navigable
-        items = list(self.query(".profile-stat-item"))
-
-        # Remove cursor from old position
-        if old_position < len(items):
-            old_item = items[old_position]
-            if "vim-cursor" in old_item.classes:
-                old_item.remove_class("vim-cursor")
-
-        # Add cursor to new position
-        if new_position < len(items):
-            new_item = items[new_position]
-            new_item.add_class("vim-cursor")
-            self.scroll_to_widget(new_item)
+        yield Static("\n[j/k] Navigate  [:e] Edit Profile  [Esc] Back", classes="help-text", markup=False)
 
     def key_j(self) -> None:
-        """Vim-style down navigation"""
-        items = list(self.query(".profile-stat-item"))
-        if self.cursor_position < len(items) - 1:
-            self.cursor_position += 1
+        """Scroll down with j key"""
+        self.scroll_down()
 
     def key_k(self) -> None:
-        """Vim-style up navigation"""
-        if self.cursor_position > 0:
-            self.cursor_position -= 1
-
-    def key_h(self) -> None:
-        """Vim-style left navigation"""
-        items = list(self.query(".profile-stat-item"))
-        if self.cursor_position > 0:
-            self.cursor_position -= 1
-
-    def key_l(self) -> None:
-        """Vim-style right navigation"""
-        items = list(self.query(".profile-stat-item"))
-        if self.cursor_position < len(items) - 1:
-            self.cursor_position += 1
+        """Scroll up with k key"""
+        self.scroll_up()
 
     def key_g(self) -> None:
-        """Vim-style go to top"""
-        self.cursor_position = 0
+        """Go to top with gg"""
+        pass  # Handled in on_key for double-press
 
     def key_G(self) -> None:
-        """Vim-style go to bottom"""
-        items = list(self.query(".profile-stat-item"))
-        self.cursor_position = max(0, len(items) - 1)
+        """Go to bottom with G"""
+        self.scroll_end(animate=False)
+
+    def key_ctrl_d(self) -> None:
+        """Half page down"""
+        self.scroll_page_down()
+
+    def key_ctrl_u(self) -> None:
+        """Half page up"""
+        self.scroll_page_up()
+
+    def on_key(self, event) -> None:
+        """Handle g+g key combination for top"""
+        if event.key == "g" and event.is_repeat:
+            self.scroll_home(animate=False)
+            event.prevent_default()
 
 class ProfileScreen(Container):
     def compose(self) -> ComposeResult:
@@ -1386,7 +1525,7 @@ class UserProfileViewPanel(VerticalScroll):
         self.username = username
 
     def compose(self) -> ComposeResult:
-        self.border_title = f"[0] @{self.username}"
+        self.border_title = f"@{self.username}"
 
         # Get user data from the dummy users or generate fake data
         user_data = self._get_user_data()
@@ -1526,9 +1665,10 @@ class UserProfileViewScreen(Container):
 
 class DraftsPanel(VerticalScroll):
     """Main panel for viewing all drafts."""
+    cursor_position = reactive(0)
 
     def compose(self) -> ComposeResult:
-        self.border_title = "[0] Drafts"
+        self.border_title = "Drafts"
         drafts = load_drafts()
 
         yield Static(f"drafts.all | {len(drafts)} saved | line 1", classes="panel-header")
@@ -1540,10 +1680,75 @@ class DraftsPanel(VerticalScroll):
             # Show most recent first
             for i, draft in enumerate(reversed(drafts)):
                 actual_index = len(drafts) - 1 - i
-                yield self._create_draft_box(draft, actual_index)
+                box = self._create_draft_box(draft, actual_index)
+                if i == 0:
+                    box.add_class("vim-cursor")
+                yield box
 
-        yield Static("\n[:o#] Open draft  [:x#] Delete draft  [Esc] Back",
+        yield Static("\n[:o#] Open draft  [:x#] Delete draft  [j/k] Navigate [Esc] Back",
                     classes="help-text", markup=False)
+
+    def on_mount(self) -> None:
+        """Watch for cursor position changes"""
+        self.watch(self, "cursor_position", self._update_cursor)
+
+    def _update_cursor(self) -> None:
+        """Update the cursor position"""
+        try:
+            items = list(self.query(".draft-box"))
+            for item in items:
+                item.remove_class("vim-cursor")
+
+            if 0 <= self.cursor_position < len(items):
+                item = items[self.cursor_position]
+                item.add_class("vim-cursor")
+                self.scroll_to_widget(item)
+        except Exception:
+            pass
+
+    def key_j(self) -> None:
+        """Move down with j key"""
+        items = list(self.query(".draft-box"))
+        if self.cursor_position < len(items) - 1:
+            self.cursor_position += 1
+
+    def key_k(self) -> None:
+        """Move up with k key"""
+        if self.cursor_position > 0:
+            self.cursor_position -= 1
+
+    def key_g(self) -> None:
+        """Go to top with gg"""
+        pass  # Handled in on_key for double-press
+
+    def key_G(self) -> None:
+        """Go to bottom with G"""
+        items = list(self.query(".draft-box"))
+        self.cursor_position = len(items) - 1
+
+    def key_ctrl_d(self) -> None:
+        """Half page down"""
+        items = list(self.query(".draft-box"))
+        self.cursor_position = min(self.cursor_position + 5, len(items) - 1)
+
+    def key_ctrl_u(self) -> None:
+        """Half page up"""
+        self.cursor_position = max(self.cursor_position - 5, 0)
+
+    def key_w(self) -> None:
+        """Word forward - move down by 3"""
+        items = list(self.query(".draft-box"))
+        self.cursor_position = min(self.cursor_position + 3, len(items) - 1)
+
+    def key_b(self) -> None:
+        """Word backward - move up by 3"""
+        self.cursor_position = max(self.cursor_position - 3, 0)
+
+    def on_key(self, event) -> None:
+        """Handle g+g key combination for top"""
+        if event.key == "g" and event.is_repeat:
+            self.cursor_position = 0
+            event.prevent_default()
 
     def _create_draft_box(self, draft: Dict, index: int) -> Container:
         """Create a nice box for displaying a draft."""
@@ -1565,12 +1770,6 @@ class DraftsPanel(VerticalScroll):
         if attachments:
             attach_text = f"📎 {len(attachments)} attachment(s)"
             box.mount(Static(attach_text, classes="draft-attachments-info"))
-
-        # Action buttons
-        actions_container = Container(classes="draft-actions")
-        actions_container.mount(Button(f"✏️ Open", id=f"open-draft-{index}", classes="draft-action-btn"))
-        actions_container.mount(Button(f"🗑️ Delete", id=f"delete-draft-{index}", classes="draft-action-btn-delete"))
-        box.mount(actions_container)
 
         return box
 
@@ -1600,10 +1799,16 @@ class DraftsPanel(VerticalScroll):
             # Show most recent first
             for i, draft in enumerate(reversed(drafts)):
                 actual_index = len(drafts) - 1 - i
-                self.mount(self._create_draft_box(draft, actual_index))
+                box = self._create_draft_box(draft, actual_index)
+                if i == 0:
+                    box.add_class("vim-cursor")
+                self.mount(box)
 
-        self.mount(Static("\n[:o#] Open draft  [:x#] Delete draft  [Esc] Back",
+        self.mount(Static("\n[:o#] Open draft  [:x#] Delete draft  [j/k] Navigate [Esc] Back",
                     classes="help-text", markup=False))
+
+        # Reset cursor position
+        self.cursor_position = 0
 
 class DraftsScreen(Container):
     """Screen for viewing and managing all drafts."""
@@ -1647,9 +1852,6 @@ class Proj101App(App):
         Binding("ctrl+u", "vim_half_page_up", "Half Page Up", show=False),
         Binding("ctrl+f", "vim_page_down", "Page Down", show=False),
         Binding("ctrl+b", "vim_page_up", "Page Up", show=False),
-        Binding("/", "vim_search", "Search", show=False),
-        Binding("n", "vim_next_search", "Next Search", show=False),
-        Binding("N", "vim_prev_search", "Previous Search", show=False),
         Binding("$", "vim_line_end", "End of Line", show=False),
         Binding("^", "vim_line_start", "Start of Line", show=False),
     ]
@@ -1671,7 +1873,7 @@ class Proj101App(App):
         yield Static("tuitter [timeline] @yourname", id="app-header", markup=False)
         yield TopNav(id="top-navbar", current="timeline")
         yield TimelineScreen(id="screen-container")
-        yield Static("[0] Main [1-5] Screens [p] Profile [d] Drafts [j/k] Navigate [:n] New Post [:q] Quit", id="app-footer", markup=False)
+        yield Static("[1-5] Screens [p] Profile [d] Drafts [j/k] Navigate [:n] New Post [:q] Quit", id="app-footer", markup=False)
         yield Static("", id="command-bar")
 
     def on_mount(self) -> None:
@@ -1696,14 +1898,14 @@ class Proj101App(App):
         if screen_name == self.current_screen_name and not kwargs:
             return
         screen_map = {
-            "timeline": (TimelineScreen, "[0] Main [1-5] Screens [p] Profile [d] Drafts [j/k] Navigate [:n] New Post [:q] Quit"),
-            "discover": (DiscoverScreen, "[0] Main [1-5] Screens [p] Profile [d] Drafts [j/k] Navigate [/] Search [:q] Quit"),
-            "notifications": (NotificationsScreen, "[0] Main [1-5] Screens [p] Profile [d] Drafts [j/k] Navigate [:q] Quit"),
+            "timeline": (TimelineScreen, "[1-5] Screens [p] Profile [d] Drafts [j/k] Navigate [:n] New Post [:q] Quit"),
+            "discover": (DiscoverScreen, "[1-5] Screens [p] Profile [d] Drafts [j/k] Navigate [/] Search [i] Type [:q] Quit"),
+            "notifications": (NotificationsScreen, "[1-5] Screens [p] Profile [d] Drafts [j/k] Navigate [:q] Quit"),
             "messages": (MessagesScreen, "[0] Chat [6] Messages [1-5] Screens [p] Profile [d] Drafts [j/k] Navigate [i] Type [:q] Quit"),
-            "profile": (ProfileScreen, "[0] Main [1-5] Screens [d] Drafts [j/k] Navigate [:q] Quit"),
-            "settings": (SettingsScreen, "[0] Main [1-5] Screens [p] Profile [d] Drafts [j/k] Navigate [:q] Quit"),
-            "drafts": (DraftsScreen, "[0] Main [1-5] Screens [p] Profile [:o#] Open [:x#] Delete [:q] Quit"),
-            "user_profile": (UserProfileViewScreen, "[0] Main [1-5] Screens [p] Profile [d] Drafts [:m] Message [:q] Quit"),
+            "profile": (ProfileScreen, "[1-5] Screens [d] Drafts [j/k] Navigate [:q] Quit"),
+            "settings": (SettingsScreen, "[1-5] Screens [p] Profile [d] Drafts [j/k] Navigate [:q] Quit"),
+            "drafts": (DraftsScreen, "[1-5] Screens [p] Profile [:o#] Open [:x#] Delete [:q] Quit"),
+            "user_profile": (UserProfileViewScreen, "[1-5] Screens [p] Profile [d] Drafts [:m] Message [:q] Quit"),
         }
         if screen_name in screen_map:
             self._switching = True  # Set flag to prevent concurrent switches
@@ -1743,8 +1945,37 @@ class Proj101App(App):
             except Exception:
                 pass
 
+            # Focus the main content area after screen switch
+            self.call_after_refresh(self._focus_main_content_for_screen, screen_name)
+
             # Reset the switching flag after a brief delay
             self.set_timer(0.1, lambda: setattr(self, '_switching', False))
+
+    def _focus_main_content_for_screen(self, screen_name: str) -> None:
+        """Focus the main content feed/panel for the current screen"""
+        try:
+            # Map screen names to their main content widget IDs
+            content_map = {
+                "timeline": "#timeline-feed",
+                "discover": "#discover-feed",
+                "notifications": "#notifications-feed",
+                "messages": "#chat",
+                "profile": "#profile-panel",
+                "settings": "#settings-panel",
+                "drafts": "#drafts-panel",
+                "user_profile": "#user-profile-panel",
+            }
+
+            if screen_name in content_map:
+                widget_id = content_map[screen_name]
+                widget = self.query_one(widget_id)
+                widget.focus()
+
+                # Reset cursor position to 0 for feeds with cursor navigation
+                if hasattr(widget, 'cursor_position'):
+                    widget.cursor_position = 0
+        except Exception:
+            pass
 
     def action_quit(self) -> None:
         self.exit()
@@ -1760,38 +1991,30 @@ class Proj101App(App):
 
     def action_show_timeline(self) -> None:
         self.switch_screen("timeline")
-        self.action_focus_main_content()
 
     def action_show_discover(self) -> None:
         self.switch_screen("discover")
-        self.action_focus_main_content()
 
     def action_show_notifications(self) -> None:
         self.switch_screen("notifications")
-        self.action_focus_main_content()
 
     def action_show_messages(self) -> None:
         self.switch_screen("messages")
-        self.action_focus_main_content()
 
     def action_show_settings(self) -> None:
         self.switch_screen("settings")
-        self.action_focus_main_content()
 
     def action_show_profile(self) -> None:
         """Show the user's own profile screen."""
         self.switch_screen("profile")
-        self.action_focus_main_content()
 
     def action_show_drafts(self) -> None:
         """Show the drafts screen."""
         self.switch_screen("drafts")
-        self.action_focus_main_content()
 
     def action_view_user_profile(self, username: str) -> None:
         """View another user's profile."""
         self.switch_screen("user_profile", username=username)
-        self.action_focus_main_content()
 
     def action_open_dm(self, username: str) -> None:
         """Open a DM with a specific user."""
@@ -1915,26 +2138,6 @@ class Proj101App(App):
     def action_vim_page_up(self) -> None:
         """Move one page up (Ctrl+b)"""
         # The key will be handled by the focused widget's key_ctrl_b method if it exists
-        pass
-
-    def action_vim_search(self) -> None:
-        """Start a search (/ key)"""
-        try:
-            command_bar = self.query_one("#command-bar", Static)
-            command_bar.styles.display = "block"
-            self.command_text = "/"
-            self.command_mode = True
-        except Exception:
-            pass
-
-    def action_vim_next_search(self) -> None:
-        """Find next search match (n key)"""
-        # Will be implemented in the content panels
-        pass
-
-    def action_vim_prev_search(self) -> None:
-        """Find previous search match (N key)"""
-        # Will be implemented in the content panels
         pass
 
     def action_vim_line_start(self) -> None:

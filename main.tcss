@@ -408,6 +408,11 @@ TimelineScreen, DiscoverScreen, NotificationsScreen, MessagesScreen, SettingsScr
     border-right: heavy $primary;
 }
 
+/* Search input cursor (visual indicator only, not focused) */
+Input.vim-cursor {
+    border: heavy $primary;
+}
+
 /* Settings panel cursor */
 .oauth-item.vim-cursor,
 .checkbox-item.vim-cursor,
