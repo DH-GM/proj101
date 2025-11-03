@@ -531,6 +531,15 @@ class PostItem(Static):
         self.reposted_by_you = reposted_by_you
         self.has_video = hasattr(post, "video_path") and post.video_path
 
+        # Check for ASCII art attachments in both the post.attachments property and dict
+        attachments = getattr(post, "attachments", None)
+        if isinstance(attachments, list):
+            self.has_ascii_art = any(
+                att.get("type") == "ascii_photo" for att in attachments
+            )
+        else:
+            self.has_ascii_art = False
+
     def compose(self) -> ComposeResult:
         """Compose compact post."""
         time_ago = format_time_ago(self.post.timestamp)
@@ -549,6 +558,19 @@ class PostItem(Static):
             classes="post-text",
             markup=False,
         )
+
+        # Display ASCII art attachments
+        if self.has_ascii_art:
+            attachments = getattr(self.post, "attachments", [])
+            for attachment in attachments:
+                if attachment.get("type") == "ascii_photo":
+                    art_content = attachment.get("content", "")
+                    if art_content:  # Only yield if we have content
+                        yield Static(
+                            art_content,
+                            classes="ascii-art",
+                            markup=False,
+                        )
 
         # Video player if post has video
         if self.has_video and Path(self.post.video_path).exists():
@@ -1106,14 +1128,38 @@ class NewPostDialog(ModalScreen):
                     filetypes=[("Image files", "*.png *.jpg *.jpeg *.gif *.bmp")],
                 )
                 root.destroy()
-                if file_path:
-                    try:
-                        Image.open(file_path).verify()
-                        self._attachments.append(("photo", file_path))
-                        self._update_attachments_display()
-                        self._show_status("✓ Photo added!")
-                    except Exception:
-                        self._show_status("⚠ Invalid image file", error=True)
+                if not file_path:
+                    return
+
+                try:
+                    # Convert image to ASCII art
+                    img = Image.open(file_path).convert('L')  # Convert to grayscale
+
+                    # Calculate new dimensions
+                    width = 60  # Desired width in characters
+                    aspect_ratio = img.height / img.width
+                    height = int(width * aspect_ratio * 0.5)  # Multiply by 0.5 since characters are taller than wide
+                    img = img.resize((width, height))
+
+                    # Convert pixels to ASCII
+                    pixels = img.load()
+                    ascii_chars = ['@', '#', 'S', '%', '?', '*', '+', ';', ':', ',', '.']
+                    ascii_lines = []
+                    for y in range(height):
+                        line = ""
+                        for x in range(width):
+                            pixel_value = pixels[x, y]
+                            char_index = (pixel_value * (len(ascii_chars) - 1)) // 255
+                            line += ascii_chars[char_index]
+                        ascii_lines.append(line)
+                    ascii_art = '\n'.join(ascii_lines)
+
+                    # Store ASCII version instead of original photo
+                    self._attachments.append(("ascii_photo", ascii_art))
+                    self._update_attachments_display()
+                    self._show_status("✓ Photo converted to ASCII!")
+                except Exception as e:
+                    self._show_status(f"⚠ Error converting image: {str(e)}", error=True)
             except Exception as e:
                 self._show_status(f"⚠ Error: {str(e)}", error=True)
 
@@ -1137,12 +1183,28 @@ class NewPostDialog(ModalScreen):
 
         self._show_status("📤 Publishing post...")
 
-        # Prepare attachments payload
-        attachments_payload = [{"type": t, "path": p} for (t, p) in self._attachments]
+        # Prepare attachments payload - ensure attachments is a list that gets set on the post
+        attachments = []
+        for t, p in self._attachments:
+            if t == "ascii_photo":
+                attachments.append({
+                    "type": "ascii_photo",
+                    "content": p
+                })
+            else:
+                attachments.append({
+                    "type": t,
+                    "path": p
+                })
 
-        # Call API to create post
+        # Call API to create post with attachments properly set
         try:
-            new_post = api.create_post(content, attachments=attachments_payload)
+            # Create post with attachments set as a list property
+            new_post = api.create_post(content, attachments=attachments)
+
+            # Set the attachments on the post object directly to ensure they're available
+            setattr(new_post, 'attachments', attachments)
+
             self._show_status("✓ Post published successfully!")
             try:
                 self.app.notify("📤 Post published!", severity="success")
@@ -1207,9 +1269,9 @@ class NewPostDialog(ModalScreen):
             for i, (t, p) in enumerate(self._attachments, start=1):
                 short = Path(p).name
                 icon = {"file": "📁", "photo": "🖼️"}.get(t, "📎")
-                icon = "🖼️"  # Only photos now
-                lines.append(f"  {i}. {icon} {short}")
-            widget.update("\n".join(lines))
+                if t == "ascii_photo":
+                    lines.append(f"\n{p}")  # p is the ASCII art itself
+                widget.update("\n".join(lines))
         except Exception:
             pass
 

@@ -1447,10 +1447,10 @@ NewPostDialog, DeleteDraftDialog {
 /* Attachments List */
 .attachments-list {
     width: 100%;
-    margin: 1;
+    margin: 0;
     color: $text-dim;
-    min-height: 3;
-    padding: 1;
+    min-height: 1;
+    padding: 0 1;
     background: $bg-dark;
     border: none;
 }
@@ -1471,7 +1471,8 @@ NewPostDialog, DeleteDraftDialog {
     height: auto;
     align: center middle;
     layout: horizontal;
-    margin: 1;
+    margin: 0;
+    padding: 0 1;
     background: $bg-dark;
 }
 
