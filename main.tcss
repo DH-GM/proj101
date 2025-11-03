@@ -374,10 +374,10 @@ TimelineScreen, DiscoverScreen, NotificationsScreen, MessagesScreen, SettingsScr
 /* Command Bar */
 #command-bar {
     dock: bottom;
-    height: 3;
+    height: 1;
     width: 100%;
-    background: $boost;
-    color: $text;
+    background: $bg-header;
+    color: $text-dim;
     padding: 0 2;
     display: none;
     content-align: left middle;
