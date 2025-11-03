@@ -335,6 +335,28 @@ class TopNav(Horizontal):
         """Set initial active state when mounted."""
         self.update_active(self.current)
 
+    def on_click(self, event) -> None:
+        """Handle clicks on nav items."""
+        # Map nav item IDs to screen names
+        id_to_screen = {
+            "nav-timeline": "timeline",
+            "nav-discover": "discover",
+            "nav-notifications": "notifications",
+            "nav-messages": "messages",
+            "nav-settings": "settings",
+        }
+
+        # Check which widget was clicked by examining all nav items
+        for nav_id, screen_name in id_to_screen.items():
+            try:
+                nav_item = self.query_one(f"#{nav_id}", Label)
+                # Check if the click coordinates are within this nav item's region
+                if nav_item.region.contains(event.screen_x, event.screen_y):
+                    self.app.switch_screen(screen_name)
+                    break
+            except Exception:
+                pass
+
     def update_active(self, screen_name: str):
         """Update which nav item is marked as active."""
         self.current = screen_name
@@ -1633,6 +1655,7 @@ class Proj101App(App):
     current_screen_name = reactive("timeline")
     command_mode = reactive(False)
     command_text = reactive("")
+    _switching = False  # Flag to prevent concurrent screen switches
 
     def watch_command_text(self, new_text: str) -> None:
         """Update command bar whenever command_text changes"""
@@ -1650,6 +1673,9 @@ class Proj101App(App):
         yield Static("", id="command-bar")
 
     def switch_screen(self, screen_name: str, **kwargs):
+        # Prevent concurrent screen switches
+        if self._switching:
+            return
         if screen_name == self.current_screen_name and not kwargs:
             return
         screen_map = {
@@ -1663,6 +1689,8 @@ class Proj101App(App):
             "user_profile": (UserProfileViewScreen, ":[0] Main [1-5] Sidebar [:f] Follow [:m] Message [Esc] Back"),
         }
         if screen_name in screen_map:
+            self._switching = True  # Set flag to prevent concurrent switches
+
             for container in self.query("#screen-container"):
                 container.remove()
             ScreenClass, footer_text = screen_map[screen_name]
@@ -1697,6 +1725,9 @@ class Proj101App(App):
                     sidebar.update_active(screen_name)
             except Exception:
                 pass
+
+            # Reset the switching flag after a brief delay
+            self.set_timer(0.1, lambda: setattr(self, '_switching', False))
 
     def action_quit(self) -> None:
         self.exit()
