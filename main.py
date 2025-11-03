@@ -449,7 +449,6 @@ class Sidebar(VerticalScroll):
                 yield CommandItem(":e", "edit", classes="command-item")
 
             # Common commands (limited to save space)
-            yield CommandItem(":s", "search", classes="command-item")
             yield CommandItem("p", "profile", classes="command-item")
             yield CommandItem("d", "drafts", classes="command-item")
             yield CommandItem("0", "main", classes="command-item")
@@ -513,7 +512,7 @@ class NewPostDialog(ModalScreen):
             # Action buttons
             with Container(id="action-buttons"):
                 yield Button("📤 Post", variant="primary", id="post-button")
-                yield Button("💾 Draft", id="draft-button")
+                yield Button("💾 Save", id="draft-button")
                 yield Button("❌ Cancel", id="cancel-button")
 
     def on_mount(self) -> None:
@@ -1666,6 +1665,7 @@ class UserProfileViewScreen(Container):
 class DraftsPanel(VerticalScroll):
     """Main panel for viewing all drafts."""
     cursor_position = reactive(0)
+    selected_action = reactive("open")  # "open" or "delete"
 
     def compose(self) -> ComposeResult:
         self.border_title = "Drafts"
@@ -1685,9 +1685,13 @@ class DraftsPanel(VerticalScroll):
                     box.add_class("vim-cursor")
                 yield box
 
+        yield Static("\n[j/k] Navigate [h/l] Select Action [Enter] Execute [:o#/:x#] Direct [Esc] Back",
+                    classes="help-text", markup=False)
+
     def on_mount(self) -> None:
         """Watch for cursor position changes"""
         self.watch(self, "cursor_position", self._update_cursor)
+        self.watch(self, "selected_action", self._update_action_highlight)
 
     def _update_cursor(self) -> None:
         """Update the cursor position"""
@@ -1700,6 +1704,28 @@ class DraftsPanel(VerticalScroll):
                 item = items[self.cursor_position]
                 item.add_class("vim-cursor")
                 self.scroll_to_widget(item)
+                # Update action highlight for new position
+                self._update_action_highlight()
+        except Exception:
+            pass
+
+    def _update_action_highlight(self) -> None:
+        """Update which action button is highlighted"""
+        try:
+            # Get all action buttons
+            open_buttons = list(self.query(".draft-action-btn"))
+            delete_buttons = list(self.query(".draft-action-btn-delete"))
+
+            # Remove highlight from all buttons
+            for btn in open_buttons + delete_buttons:
+                btn.remove_class("action-selected")
+
+            # Add highlight to selected button in current draft
+            if 0 <= self.cursor_position < len(open_buttons):
+                if self.selected_action == "open":
+                    open_buttons[self.cursor_position].add_class("action-selected")
+                else:
+                    delete_buttons[self.cursor_position].add_class("action-selected")
         except Exception:
             pass
 
@@ -1708,11 +1734,13 @@ class DraftsPanel(VerticalScroll):
         items = list(self.query(".draft-box"))
         if self.cursor_position < len(items) - 1:
             self.cursor_position += 1
+            self.selected_action = "open"  # Reset to open when moving
 
     def key_k(self) -> None:
         """Move up with k key"""
         if self.cursor_position > 0:
             self.cursor_position -= 1
+            self.selected_action = "open"  # Reset to open when moving
 
     def key_g(self) -> None:
         """Go to top with gg"""
@@ -1740,6 +1768,33 @@ class DraftsPanel(VerticalScroll):
     def key_b(self) -> None:
         """Word backward - move up by 3"""
         self.cursor_position = max(self.cursor_position - 3, 0)
+
+    def key_h(self) -> None:
+        """Select 'open' action with h key"""
+        self.selected_action = "open"
+
+    def key_l(self) -> None:
+        """Select 'delete' action with l key"""
+        self.selected_action = "delete"
+
+    def key_enter(self) -> None:
+        """Execute the selected action on the current draft"""
+        # Don't process if app is in command mode
+        if self.app.command_mode:
+            return
+
+        try:
+            drafts = load_drafts()
+            if 0 <= self.cursor_position < len(drafts):
+                # Get the actual draft index (reversed display)
+                actual_index = len(drafts) - 1 - self.cursor_position
+
+                if self.selected_action == "open":
+                    self.app.action_open_draft(actual_index)
+                else:  # delete
+                    self.app.push_screen(DeleteDraftDialog(actual_index))
+        except Exception:
+            pass
 
     def on_key(self, event) -> None:
         """Handle g+g key combination for top"""
@@ -1807,7 +1862,7 @@ class DraftsPanel(VerticalScroll):
                     box.add_class("vim-cursor")
                 self.mount(box)
 
-        self.mount(Static("\n[:o#] Open draft  [:x#] Delete draft  [j/k] Navigate [Esc] Back",
+        self.mount(Static("\n[j/k] Navigate [h/l] Select Action [Enter] Execute [:o#/:x#] Direct [Esc] Back",
                     classes="help-text", markup=False))
 
         # Reset cursor position
@@ -1902,12 +1957,12 @@ class Proj101App(App):
             return
         screen_map = {
             "timeline": (TimelineScreen, "[1-5] Screens [p] Profile [d] Drafts [j/k] Navigate [:n] New Post [:q] Quit"),
-            "discover": (DiscoverScreen, "[1-5] Screens [p] Profile [d] Drafts [j/k] Navigate [/] Search [i] Type [:q] Quit"),
+            "discover": (DiscoverScreen, "[1-5] Screens [p] Profile [d] Drafts [j/k] Navigate [/] Search [:n] New Post [:q] Quit"),
             "notifications": (NotificationsScreen, "[1-5] Screens [p] Profile [d] Drafts [j/k] Navigate [:q] Quit"),
-            "messages": (MessagesScreen, "[0] Chat [6] Messages [1-5] Screens [p] Profile [d] Drafts [j/k] Navigate [i] Type [:q] Quit"),
+            "messages": (MessagesScreen, "[0] Chat [6] Messages [1-5] Screens [p] Profile [d] Drafts [j/k] Navigate [:n] New Message [:q] Quit"),
             "profile": (ProfileScreen, "[1-5] Screens [d] Drafts [j/k] Navigate [:q] Quit"),
             "settings": (SettingsScreen, "[1-5] Screens [p] Profile [d] Drafts [j/k] Navigate [:q] Quit"),
-            "drafts": (DraftsScreen, "[1-5] Screens [p] Profile [:o#] Open [:x#] Delete [:q] Quit"),
+            "drafts": (DraftsScreen, "[1-5] Screens [p] Profile [j/k] Navigate [h/l] Select [Enter] Execute [:q] Quit"),
             "user_profile": (UserProfileViewScreen, "[1-5] Screens [p] Profile [d] Drafts [:m] Message [:q] Quit"),
         }
         if screen_name in screen_map:
@@ -2221,16 +2276,26 @@ class Proj101App(App):
     def on_key(self, event) -> None:
         if self.command_mode:
             if event.key == "escape":
-                command_bar = self.query_one("#command-bar", Static)
-                command_bar.styles.display = "none"
+                try:
+                    command_bar = self.query_one("#command-bar", Static)
+                    command_bar.styles.display = "none"
+                except:
+                    pass
                 self.command_text = ""
                 self.command_mode = False
                 event.prevent_default()
                 event.stop()
             elif event.key == "enter":
+                # Prevent the event from propagating to underlying widgets
+                event.prevent_default()
+                event.stop()
+
                 command = self.command_text.strip()
-                command_bar = self.query_one("#command-bar", Static)
-                command_bar.styles.display = "none"
+                try:
+                    command_bar = self.query_one("#command-bar", Static)
+                    command_bar.styles.display = "none"
+                except:
+                    pass
                 self.command_mode = False
 
                 # Process command
@@ -2247,7 +2312,17 @@ class Proj101App(App):
                 elif command.upper() == "P":
                     self.switch_screen("profile")
                 elif command == "n":
-                    self.action_new_post()
+                    # Handle :n differently based on screen
+                    if self.current_screen_name in ["timeline", "discover"]:
+                        self.action_new_post()
+                    elif self.current_screen_name == "messages":
+                        # Focus message input in messages screen
+                        try:
+                            msg_input = self.query_one("#message-input", Input)
+                            msg_input.focus()
+                        except:
+                            pass
+                    # Don't do anything for other screens (like drafts)
                 elif command.upper() == "D":
                     self.action_show_drafts()
                 elif command.startswith("o") and len(command) > 1:

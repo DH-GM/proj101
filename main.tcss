@@ -165,6 +165,12 @@ DraftsScreen {
     background: $bg-lighter;
 }
 
+/* Less intense cursor for draft boxes to let action buttons stand out */
+.draft-box.vim-cursor {
+    border: round $border-hover;
+    background: $bg-highlight;
+}
+
 .draft-timestamp {
     color: $text-dim;
     text-style: italic;
@@ -220,6 +226,21 @@ DraftsScreen {
     background: $danger-bg-hover;
     border: heavy $accent-red-hover;
     color: $text-primary;
+}
+
+/* Selected action highlight */
+.draft-action-btn.action-selected {
+    background: $primary-dark;
+    border: heavy $primary;
+    color: $text-primary;
+    text-style: bold;
+}
+
+.draft-action-btn-delete.action-selected {
+    background: $danger-bg-hover;
+    border: heavy $accent-red-hover;
+    color: $text-primary;
+    text-style: bold;
 }
 
 .no-drafts-message {
