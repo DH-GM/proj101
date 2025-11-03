@@ -943,6 +943,10 @@ class DeleteDraftDialog(ModalScreen):
 class TimelineFeed(VerticalScroll):
     cursor_position = reactive(0)
     reposted_posts = reactive([])  # List of (post, timestamp) tuples
+    _all_posts = []  # Cache all posts locally
+    _displayed_count = 20  # Number of posts currently displayed
+    _batch_size = 20  # Number of posts to load at a time
+    _loading_more = False  # Flag to prevent multiple simultaneous loads
 
     def key_enter(self) -> None:
         """Open comment screen for focused post"""
@@ -953,26 +957,31 @@ class TimelineFeed(VerticalScroll):
     def open_comment_screen(self):
         """Open the comment screen for the currently focused post"""
         logging.debug("open_comment_screen called in TimelineFeed")
-        posts = api.get_timeline()
-        reposted_sorted = sorted(self.reposted_posts, key=lambda x: x[1], reverse=True)
-        all_posts = [p for p, _ in reposted_sorted] + posts
-        logging.debug(f"cursor_position={self.cursor_position}, total_posts={len(all_posts)}")
-        if 0 <= self.cursor_position < len(all_posts):
-            post = all_posts[self.cursor_position]
+        items = list(self.query(".post-item"))
+        logging.debug(f"cursor_position={self.cursor_position}, total_items={len(items)}")
+        if 0 <= self.cursor_position < len(items):
+            post_item = items[self.cursor_position]
+            post = getattr(post_item, "post", None)
             logging.debug(f"Opening comment screen for post id={getattr(post, 'id', None)} author={getattr(post, 'author', None)}")
-            self.app.push_screen(CommentScreen(post))
+            if post:
+                self.app.push_screen(CommentScreen(post))
         else:
             logging.debug("Invalid cursor position in open_comment_screen")
 
     def compose(self) -> ComposeResult:
+        # Fetch all posts once and cache them
         posts = api.get_timeline()
         reposted_sorted = sorted(self.reposted_posts, key=lambda x: x[1], reverse=True)
-        all_posts = [p for p, _ in reposted_sorted] + posts
-        unread_count = len([p for p in all_posts if (datetime.now() - p.timestamp).seconds < 3600])
+        self._all_posts = [p for p, _ in reposted_sorted] + posts
+
+        unread_count = len([p for p in self._all_posts if (datetime.now() - p.timestamp).seconds < 3600])
         self.border_title = "Main Timeline"
         yield Static(f"timeline.home | {unread_count} new posts | line 1", classes="panel-header", markup=False)
-        for i, post in enumerate(all_posts):
-            is_repost = i < len(reposted_sorted)
+
+        # Initially display only the first batch
+        repost_count = len(reposted_sorted)
+        for i, post in enumerate(self._all_posts[:self._displayed_count]):
+            is_repost = i < repost_count
             post_item = PostItem(post, reposted_by_you=is_repost, classes="post-item", id=f"post-{i}")
             if i == 0:
                 post_item.add_class("vim-cursor")
@@ -981,8 +990,29 @@ class TimelineFeed(VerticalScroll):
     def on_mount(self) -> None:
         self.watch(self, "cursor_position", self._update_cursor)
 
+    def _load_more_posts(self) -> None:
+        """Load the next batch of posts from cache"""
+        if self._loading_more or self._displayed_count >= len(self._all_posts):
+            return
+
+        self._loading_more = True
+        try:
+            # Calculate how many new posts to add
+            old_count = self._displayed_count
+            self._displayed_count = min(self._displayed_count + self._batch_size, len(self._all_posts))
+
+            # Mount the new posts
+            repost_count = len([p for p, _ in sorted(self.reposted_posts, key=lambda x: x[1], reverse=True)])
+            for i in range(old_count, self._displayed_count):
+                post = self._all_posts[i]
+                is_repost = i < repost_count
+                post_item = PostItem(post, reposted_by_you=is_repost, classes="post-item", id=f"post-{i}")
+                self.mount(post_item)
+        finally:
+            self._loading_more = False
+
     def _update_cursor(self) -> None:
-        """Update the cursor position"""
+        """Update the cursor position and check if we need to load more"""
         try:
             # Find all post items
             items = list(self.query(".post-item"))
@@ -997,6 +1027,10 @@ class TimelineFeed(VerticalScroll):
                 item.add_class("vim-cursor")
                 # Ensure the cursor is visible
                 self.scroll_to_widget(item, top=True)
+
+                # Load more posts if we're near the end (within 5 posts)
+                if self.cursor_position >= len(items) - 5:
+                    self._load_more_posts()
         except Exception:
             pass
 
@@ -1085,6 +1119,11 @@ class DiscoverFeed(VerticalScroll):
     cursor_position = reactive(0)
     query_text = reactive("")
     _search_timer = None  # Timer for debouncing search
+    _all_posts = []  # Cache all posts locally
+    _filtered_posts = []  # Currently filtered posts
+    _displayed_count = 20  # Number of posts currently displayed
+    _batch_size = 20  # Number of posts to load at a time
+    _loading_more = False  # Flag to prevent multiple simultaneous loads
 
     def key_enter(self) -> None:
         """Open comment screen when pressing enter on a post"""
@@ -1112,10 +1151,15 @@ class DiscoverFeed(VerticalScroll):
         # Search input at the top
         yield Input(placeholder="[/] Search posts, people, tags...", classes="discover-search-input", id="discover-search")
 
-        # Display posts
-        posts = api.get_discover_posts()
+        # Fetch all posts once and cache them
+        self._all_posts = api.get_discover_posts()
+        self._filtered_posts = self._all_posts.copy()
+        self._displayed_count = min(self._batch_size, len(self._filtered_posts))
+
         yield Static("discover.trending | explore posts | line 1", classes="panel-header", markup=False)
-        for i, post in enumerate(posts):
+
+        # Initially display only the first batch
+        for i, post in enumerate(self._filtered_posts[:self._displayed_count]):
             post_item = PostItem(post, classes="post-item", id=f"discover-post-{i}")
             # Don't add cursor here, will be handled by _update_cursor
             yield post_item
@@ -1136,24 +1180,24 @@ class DiscoverFeed(VerticalScroll):
             self._search_timer = self.set_timer(0.3, self._filter_posts)
 
     def _filter_posts(self) -> None:
-        """Filter posts based on search query"""
+        """Filter posts based on search query from local cache"""
         try:
-            # Get all posts
-            all_posts = api.get_discover_posts()
-
-            # Filter if there's a search query
+            # Filter from cached posts
             if self.query_text:
                 q = self.query_text.lower()
-                filtered = [p for p in all_posts if q in p.author.lower() or q in p.content.lower()]
+                self._filtered_posts = [p for p in self._all_posts if q in p.author.lower() or q in p.content.lower()]
             else:
-                filtered = all_posts
+                self._filtered_posts = self._all_posts.copy()
+
+            # Reset displayed count
+            self._displayed_count = min(self._batch_size, len(self._filtered_posts))
 
             # Remove existing post items
             for item in self.query(".post-item"):
                 item.remove()
 
-            # Add filtered posts
-            for i, post in enumerate(filtered):
+            # Add filtered posts (only first batch)
+            for i, post in enumerate(self._filtered_posts[:self._displayed_count]):
                 post_item = PostItem(post, classes="post-item", id=f"discover-post-{i}")
                 self.mount(post_item)
 
@@ -1161,6 +1205,25 @@ class DiscoverFeed(VerticalScroll):
             self.cursor_position = 0
         except Exception:
             pass
+
+    def _load_more_posts(self) -> None:
+        """Load the next batch of posts from filtered cache"""
+        if self._loading_more or self._displayed_count >= len(self._filtered_posts):
+            return
+
+        self._loading_more = True
+        try:
+            # Calculate how many new posts to add
+            old_count = self._displayed_count
+            self._displayed_count = min(self._displayed_count + self._batch_size, len(self._filtered_posts))
+
+            # Mount the new posts
+            for i in range(old_count, self._displayed_count):
+                post = self._filtered_posts[i]
+                post_item = PostItem(post, classes="post-item", id=f"discover-post-{i}")
+                self.mount(post_item)
+        finally:
+            self._loading_more = False
 
     def key_slash(self) -> None:
         """Focus search input with / key"""
@@ -1206,6 +1269,11 @@ class DiscoverFeed(VerticalScroll):
                     # Add cursor class to post
                     item.add_class("vim-cursor")
                 self.scroll_to_widget(item, top=True)
+
+                # Load more posts if we're near the end (within 5 posts)
+                # Subtract 1 because position 0 is the search input
+                if self.cursor_position > 0 and self.cursor_position >= len(items) - 5:
+                    self._load_more_posts()
         except Exception:
             pass
 
