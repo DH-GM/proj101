@@ -1771,6 +1771,12 @@ class DraftsPanel(VerticalScroll):
             attach_text = f"📎 {len(attachments)} attachment(s)"
             box.mount(Static(attach_text, classes="draft-attachments-info"))
 
+        # Action buttons
+        actions_container = Container(classes="draft-actions")
+        actions_container.mount(Button(f"✏️ Open", id=f"open-draft-{index}", classes="draft-action-btn"))
+        actions_container.mount(Button(f"🗑️ Delete", id=f"delete-draft-{index}", classes="draft-action-btn-delete"))
+        box.mount(actions_container)
+
         return box
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
@@ -2249,13 +2255,15 @@ class Proj101App(App):
                     self.action_show_drafts()
                 elif command.startswith("o") and len(command) > 1:
                     try:
-                        draft_index = int(command[1:])
+                        draft_number = int(command[1:])  # User enters 1-indexed
+                        draft_index = draft_number - 1   # Convert to 0-indexed for array
                         self.action_open_draft(draft_index)
                     except:
                         pass
                 elif command.startswith("x") and len(command) > 1:
                     try:
-                        draft_index = int(command[1:])
+                        draft_number = int(command[1:])  # User enters 1-indexed
+                        draft_index = draft_number - 1   # Convert to 0-indexed for array
                         self.push_screen(DeleteDraftDialog(draft_index))
                     except:
                         pass
