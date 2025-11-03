@@ -1685,9 +1685,6 @@ class DraftsPanel(VerticalScroll):
                     box.add_class("vim-cursor")
                 yield box
 
-        yield Static("\n[:o#] Open draft  [:x#] Delete draft  [j/k] Navigate [Esc] Back",
-                    classes="help-text", markup=False)
-
     def on_mount(self) -> None:
         """Watch for cursor position changes"""
         self.watch(self, "cursor_position", self._update_cursor)
