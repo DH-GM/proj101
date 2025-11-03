@@ -939,7 +939,12 @@ class TimelineFeed(VerticalScroll):
         self.cursor_position = max(self.cursor_position - 3, 0)
 
     def on_key(self, event) -> None:
-        """Handle g+g key combination for top"""
+        """Handle g+g key combination for top and prevent escape from unfocusing"""
+        if event.key == "escape":
+            # Prevent escape from unfocusing the feed
+            event.prevent_default()
+            event.stop()
+            return
         if event.key == "g" and event.is_repeat:
             self.cursor_position = 0
             event.prevent_default()
@@ -1215,7 +1220,12 @@ class NotificationsFeed(VerticalScroll):
         self.cursor_position = max(self.cursor_position - 3, 0)
 
     def on_key(self, event) -> None:
-        """Handle g+g key combination for top"""
+        """Handle g+g key combination for top and prevent escape from unfocusing"""
+        if event.key == "escape":
+            # Prevent escape from unfocusing the feed
+            event.prevent_default()
+            event.stop()
+            return
         if event.key == "g" and event.is_repeat:
             self.cursor_position = 0
             event.prevent_default()
@@ -1311,7 +1321,12 @@ class ConversationsList(VerticalScroll):
         self.cursor_position = max(self.cursor_position - 3, 0)
 
     def on_key(self, event) -> None:
-        """Handle g+g key combination for top"""
+        """Handle g+g key combination for top and prevent escape from unfocusing"""
+        if event.key == "escape":
+            # Prevent escape from unfocusing the conversation list
+            event.prevent_default()
+            event.stop()
+            return
         if event.key == "g" and event.is_repeat:
             self.cursor_position = 0
             event.prevent_default()
@@ -1636,7 +1651,22 @@ class ProfilePanel(VerticalScroll):
         self.scroll_page_up()
 
     def on_key(self, event) -> None:
-        """Handle g+g key combination for top"""
+        """Handle g+g key combination for top and escape from input"""
+        if event.key == "escape":
+            # If message input has focus, unfocus it and return focus to chat
+            try:
+                msg_input = self.query_one("#message-input", Input)
+                if msg_input.has_focus:
+                    self.focus()
+                    event.prevent_default()
+                    event.stop()
+                    return
+            except Exception:
+                pass
+            # Otherwise prevent escape from unfocusing the chat view
+            event.prevent_default()
+            event.stop()
+            return
         if event.key == "g" and event.is_repeat:
             self.scroll_home(animate=False)
             event.prevent_default()
@@ -1929,7 +1959,12 @@ class DraftsPanel(VerticalScroll):
             pass
 
     def on_key(self, event) -> None:
-        """Handle g+g key combination for top"""
+        """Handle g+g key combination for top and prevent escape from unfocusing"""
+        if event.key == "escape":
+            # Prevent escape from unfocusing the drafts panel
+            event.prevent_default()
+            event.stop()
+            return
         if event.key == "g" and event.is_repeat:
             self.cursor_position = 0
             event.prevent_default()
