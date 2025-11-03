@@ -407,9 +407,17 @@ TimelineScreen, DiscoverScreen, NotificationsScreen, MessagesScreen, SettingsScr
 
 /* Vim-style cursor */
 .vim-cursor {
-    background: $primary-dark;
+    background: $bg-highlight;
     color: $text-primary;
-    border: heavy $primary;
+    border: solid $border-hover;
+    text-style: bold;
+}
+
+/* Post items with vim cursor - no background change, just border and text */
+.post-item.vim-cursor {
+    background: $bg-dark;
+    color: $text-primary;
+    border: solid $border-hover;
     text-style: bold;
 }
 
@@ -458,6 +466,55 @@ Input.vim-cursor {
 
 *:focus .vim-cursor-container {
     border: thick $primary;
+}
+
+/* ======================================================================
+   COMMENT THREAD STYLES
+   ====================================================================== */
+
+/* Comment thread header */
+.comment-thread-header {
+    color: $text-dim;
+    text-style: bold;
+    padding: 1 0 0 1;
+    background: $bg-dark;
+}
+
+/* Comment input */
+#comment-input {
+    margin: 0 0 1 0;
+    padding: 0 1;
+    background: $bg-dark;
+    color: $text-content;
+    border: solid $border-default;
+}
+
+#comment-input:focus {
+    border: solid $border-hover;
+    background: $bg-highlight;
+    color: $text-content;
+}
+
+#comment-input.vim-cursor {
+    border: solid $border-hover;
+    background: $bg-highlight;
+    color: $text-content;
+}
+
+/* Comment items - base state styling (background set via inline style) */
+.comment-thread-item {
+    width: 100%;
+    height: auto;
+    margin: 0 0 1 0;
+    padding: 1 2;
+    color: $text-content;
+    border: solid $border-default;
+}
+
+.comment-thread-item.vim-cursor {
+    color: $text-primary;
+    border: solid $border-hover;
+    text-style: bold;
 }
 
 TimelineFeed:focus, DiscoverFeed:focus, NotificationsFeed:focus, ChatView:focus, SettingsPanel:focus, ProfilePanel:focus, ConversationsList:focus, DraftsPanel:focus {
@@ -936,7 +993,8 @@ VerticalScroll {
 
 /* Input Focus */
 Input:focus {
-    border: solid $primary;
+    border: solid $border-hover;
+    background: $bg-highlight;
 }
 
 /* Profile Panel */

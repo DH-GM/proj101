@@ -100,27 +100,31 @@ def format_time_ago(dt: datetime) -> str:
 
 
 # ───────── Comment Screen ─────────
+class CommentFeed(VerticalScroll):
+    """Comment feed modeled after DiscoverFeed"""
+    cursor_position = reactive(0)  # 0 = post, 1 = input, 2+ = comments
+    scroll_y = reactive(0)  # Track scroll position
 
-
-class CommentScreen(Screen):
     def __init__(self, post, **kwargs):
         super().__init__(**kwargs)
         self.post = post
         self.comments = []
-        self.input_box = None
 
     def compose(self):
         # Post at the top
         yield Static("─ Post ─", classes="comment-thread-header", markup=False)
         yield PostItem(self.post)
+
+        yield Static("─ Comments ─", classes="comment-thread-header", markup=False)
+
+        # Input for new comment
+        yield Input(placeholder="[i] Type your comment and press Enter… [q] to exit", id="comment-input")
+
         # Comments
         self.comments = api.get_comments(self.post.id)
         logging.debug(f"[compose] Comments fetched: {self.comments}")
-        # Input for new comment (now above the comments)
-        self.input_box = Input(placeholder="Type your comment and press Enter… (Esc to go back)", id="comment-input")
-        yield self.input_box
-        yield Static("─ Comments ─", classes="comment-thread-header", markup=False)
-        for c in self.comments:
+
+        for i, c in enumerate(self.comments):
             author = c.get("user", "unknown")
             content = c.get("text", "")
             timestamp = c.get("timestamp") or c.get("created_at") or datetime.now().isoformat()
@@ -128,33 +132,234 @@ class CommentScreen(Screen):
                 c_time = format_time_ago(datetime.fromisoformat(timestamp))
             except Exception:
                 c_time = "just now"
-            yield Static(f"  @{author} • {c_time}\n  {content}\n", classes="comment-thread-item", markup=False)
-            yield Static("")  # Add a blank line between comments
+            comment = Static(f"  @{author} • {c_time}\n  {content}\n", classes="comment-thread-item comment-item", id=f"comment-{i}", markup=False)
+            comment.styles.background = "#282A36"  # Force dark background
+            yield comment
+
+    def on_mount(self) -> None:
+        """Watch cursor position for updates"""
+        self.watch(self, "cursor_position", self._update_cursor)
+        self.watch(self, "scroll_y", self._check_scroll_load)
+
+    def _check_scroll_load(self) -> None:
+        """Check if we need to load more comments based on scroll position"""
+        # Not needed for comments but keeping pattern consistent
+        pass
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
+        """Handle comment submission"""
         if event.input.id != "comment-input":
             return
         text = event.value.strip()
         if not text:
             return
+
         api.add_comment(self.post.id, text)
-        # Fetch updated comments and refresh the screen
-        self.comments = api.get_comments(self.post.id)
-        self.refresh()
-        # Clear and unfocus the input
-        if hasattr(self, 'input_box') and self.input_box:
-            self.input_box.value = ""
-            self.input_box.blur()
-        # Show a notification/toast (if supported by the app)
+
+        # Clear input
+        event.input.value = ""
+        event.input.blur()
+
+        # Refresh comments
+        self._refresh_comments()
+
+        # Show notification
         if hasattr(self.app, 'notify'):
             self.app.notify("Comment posted!", timeout=2)
 
+    def _refresh_comments(self) -> None:
+        """Refresh the comment list"""
+        try:
+            # Remove existing comment items
+            for item in self.query(".comment-item"):
+                item.remove()
+
+            # Fetch updated comments
+            self.comments = api.get_comments(self.post.id)
+
+            # Add new comments
+            for i, c in enumerate(self.comments):
+                author = c.get("user", "unknown")
+                content = c.get("text", "")
+                timestamp = c.get("timestamp") or c.get("created_at") or datetime.now().isoformat()
+                try:
+                    c_time = format_time_ago(datetime.fromisoformat(timestamp))
+                except Exception:
+                    c_time = "just now"
+                comment_widget = Static(f"  @{author} • {c_time}\n  {content}\n", classes="comment-thread-item comment-item", id=f"comment-{i}", markup=False)
+                comment_widget.styles.background = "#282A36"  # Force dark background
+                self.mount(comment_widget)
+
+            # Reset cursor position
+            self.cursor_position = 0
+        except Exception:
+            pass
+
+    def key_i(self) -> None:
+        """Focus comment input with i key"""
+        if self.app.command_mode:
+            return
+        # Set cursor to position 1 (input) and focus it
+        self.cursor_position = 1
+        try:
+            comment_input = self.query_one("#comment-input", Input)
+            comment_input.focus()
+        except Exception:
+            pass
+
+    def key_q(self) -> None:
+        """Exit comment screen with q key"""
+        if self.app.command_mode:
+            return
+        try:
+            self.app.pop_screen()
+        except Exception:
+            pass
+
+    def _get_navigable_items(self) -> list:
+        """Get all navigable items (post + input + comments)"""
+        try:
+            post_item = self.query_one(PostItem)
+            comment_input = self.query_one("#comment-input", Input)
+            comment_items = list(self.query(".comment-item"))
+            return [post_item, comment_input] + comment_items
+        except Exception:
+            return []
+
+    def _update_cursor(self) -> None:
+        """Update the cursor position - includes post + input + comments"""
+        try:
+            items = self._get_navigable_items()
+            post_item = self.query_one(PostItem)
+            comment_items = list(self.query(".comment-item"))
+            comment_input = self.query_one("#comment-input", Input)
+
+            # Remove cursor from all items
+            post_item.remove_class("vim-cursor")
+            comment_input.remove_class("vim-cursor")
+            for item in comment_items:
+                item.remove_class("vim-cursor")
+                item.styles.background = "#282A36"  # Reset to dark background, not empty
+
+            if 0 <= self.cursor_position < len(items):
+                item = items[self.cursor_position]
+                if isinstance(item, PostItem):
+                    # Add cursor to post
+                    item.add_class("vim-cursor")
+                    self.focus()
+                elif isinstance(item, Input):
+                    # Don't focus the input, just add visual indicator
+                    item.add_class("vim-cursor")
+                    # Make sure screen has focus so vim keys work
+                    self.focus()
+                else:
+                    # Add cursor class to comment (no background change, just text style)
+                    item.add_class("vim-cursor")
+                self.scroll_to_widget(item, top=True)
+        except Exception:
+            pass
+
+    def on_focus(self) -> None:
+        """When the screen gets focus"""
+        self.cursor_position = 0
+        self._update_cursor()
+
+    def on_blur(self) -> None:
+        """When screen loses focus"""
+        pass
+
+    def on_scroll(self, event) -> None:
+        """Update scroll position reactive when scrolling"""
+        self.scroll_y = self.scroll_offset.y
+
+    def key_j(self) -> None:
+        """Move down with j key"""
+        if self.app.command_mode:
+            return
+        items = self._get_navigable_items()
+        if self.cursor_position < len(items) - 1:
+            self.cursor_position += 1
+
+    def key_k(self) -> None:
+        """Move up with k key"""
+        if self.app.command_mode:
+            return
+        if self.cursor_position > 0:
+            self.cursor_position -= 1
+
+    def key_g(self) -> None:
+        """Go to top with gg"""
+        if self.app.command_mode:
+            return
+        pass  # Handled in on_key for double-press
+
+    def key_G(self) -> None:
+        """Go to bottom with G"""
+        if self.app.command_mode:
+            return
+        items = self._get_navigable_items()
+        self.cursor_position = len(items) - 1
+
+    def key_ctrl_d(self) -> None:
+        """Half page down"""
+        if self.app.command_mode:
+            return
+        items = self._get_navigable_items()
+        self.cursor_position = min(self.cursor_position + 5, len(items) - 1)
+
+    def key_ctrl_u(self) -> None:
+        """Half page up"""
+        if self.app.command_mode:
+            return
+        self.cursor_position = max(self.cursor_position - 5, 0)
+
+    def key_w(self) -> None:
+        """Word forward - move down by 3"""
+        if self.app.command_mode:
+            return
+        items = self._get_navigable_items()
+        self.cursor_position = min(self.cursor_position + 3, len(items) - 1)
+
+    def key_b(self) -> None:
+        """Word backward - move up by 3"""
+        if self.app.command_mode:
+            return
+        self.cursor_position = max(self.cursor_position - 3, 0)
+
     def on_key(self, event) -> None:
+        """Handle g+g key combination for top and escape from input"""
+        # Don't process keys if app is in command mode
+        if self.app.command_mode:
+            return
+
         if event.key == "escape":
+            # If comment input has focus, unfocus it and return focus to screen
             try:
-                self.app.pop_screen()
+                comment_input = self.query_one("#comment-input", Input)
+                if comment_input.has_focus:
+                    comment_input.blur()
+                    self.focus()
+                    self.cursor_position = 0
+                    event.prevent_default()
+                    event.stop()
+                    return
             except Exception:
                 pass
+
+        if event.key == "g" and event.is_repeat:
+            self.cursor_position = 0
+            event.prevent_default()
+
+
+class CommentScreen(Screen):
+    """Screen wrapper for CommentFeed"""
+
+    def __init__(self, post, **kwargs):
+        super().__init__(**kwargs)
+        self.post = post
+
+    def compose(self) -> ComposeResult:
+        yield CommentFeed(self.post, id="comment-feed")
 
 
 # ───────── Items ─────────
@@ -2240,6 +2445,8 @@ class DraftsPanel(VerticalScroll):
 
     def key_j(self) -> None:
         """Move down with j key"""
+        if self.app.command_mode:
+            return
         items = list(self.query(".draft-box"))
         if self.cursor_position < len(items) - 1:
             self.cursor_position += 1
@@ -2247,43 +2454,61 @@ class DraftsPanel(VerticalScroll):
 
     def key_k(self) -> None:
         """Move up with k key"""
+        if self.app.command_mode:
+            return
         if self.cursor_position > 0:
             self.cursor_position -= 1
             self.selected_action = "open"  # Reset to open when moving
 
     def key_g(self) -> None:
         """Go to top with gg"""
+        if self.app.command_mode:
+            return
         pass  # Handled in on_key for double-press
 
     def key_G(self) -> None:
         """Go to bottom with G"""
+        if self.app.command_mode:
+            return
         items = list(self.query(".draft-box"))
         self.cursor_position = len(items) - 1
 
     def key_ctrl_d(self) -> None:
         """Half page down"""
+        if self.app.command_mode:
+            return
         items = list(self.query(".draft-box"))
         self.cursor_position = min(self.cursor_position + 5, len(items) - 1)
 
     def key_ctrl_u(self) -> None:
         """Half page up"""
+        if self.app.command_mode:
+            return
         self.cursor_position = max(self.cursor_position - 5, 0)
 
     def key_w(self) -> None:
         """Word forward - move down by 3"""
+        if self.app.command_mode:
+            return
         items = list(self.query(".draft-box"))
         self.cursor_position = min(self.cursor_position + 3, len(items) - 1)
 
     def key_b(self) -> None:
         """Word backward - move up by 3"""
+        if self.app.command_mode:
+            return
         self.cursor_position = max(self.cursor_position - 3, 0)
 
     def key_h(self) -> None:
         """Select 'open' action with h key"""
+        if self.app.command_mode:
+            return
         self.selected_action = "open"
 
     def key_l(self) -> None:
         """Select 'delete' action with l key"""
+        if self.app.command_mode:
+            return
         self.selected_action = "delete"
 
     def key_enter(self) -> None:
@@ -2306,9 +2531,13 @@ class DraftsPanel(VerticalScroll):
             pass
 
     def on_key(self, event) -> None:
-        """Handle g+g key combination for top and prevent escape from unfocusing"""
+        """Handle g+g key combination for top and escape for command mode"""
         if event.key == "escape":
-            # Prevent escape from unfocusing the drafts panel
+            # If in command mode, let the app handle it (don't stop propagation)
+            if self.app.command_mode:
+                # Don't prevent or stop - let it bubble up to app's on_key
+                return
+            # Otherwise prevent escape from unfocusing the drafts panel
             event.prevent_default()
             event.stop()
             return
