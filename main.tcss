@@ -1,68 +1,92 @@
 /* ======================================================================
-   DESIGN SYSTEM - COLOR VARIABLES
+   DESIGN SYSTEM - DRACULA COLOR PALETTE
    ====================================================================== */
 
-$primary: #4a9eff;
-$primary-hover: #5aaeff;
-$primary-dark: #184070;
-$primary-darker: #14324f;
-$primary-light: #cfe8ff;
-$primary-lighter: #e8f6ff;
+/* Dracula Base Colors */
+$dracula-bg: #282A36;
+$dracula-current-line: #44475A;
+$dracula-selection: #44475A;
+$dracula-fg: #F8F8F2;
+$dracula-comment: #6272A4;
+$dracula-cyan: #8BE9FD;
+$dracula-green: #50FA7B;
+$dracula-orange: #FFB86C;
+$dracula-pink: #FF79C6;
+$dracula-purple: #BD93F9;
+$dracula-red: #FF5555;
+$dracula-yellow: #F1FA8C;
 
-$accent-cyan: #00ffff;
-$accent-green: #4a9a4a;
-$accent-red: #ff4a4a;
-$accent-red-hover: #ff5a5a;
+/* Primary Colors (using Dracula Cyan as primary) */
+$primary: $dracula-cyan;
+$primary-hover: #9FEDFD;
+$primary-dark: #6AC9E3;
+$primary-darker: #4AA9C3;
+$primary-light: #BFFAFE;
+$primary-lighter: #DFFCFF;
 
-$bg-dark: #1a1a1a;
-$bg-darker: #151515;
-$bg-lighter: #1e1e1e;
-$bg-highlight: #2a3a3a;
-$bg-nav: #212831;
-$bg-header: #2d2d2d;
-$bg-focused: #11223a;
-$bg-hover: #183050;
+/* Accent Colors */
+$accent-cyan: $dracula-cyan;
+$accent-green: $dracula-green;
+$accent-red: $dracula-red;
+$accent-red-hover: #FF6E6E;
 
-$border-default: #2a2a2a;
-$border-subtle: #333333;
-$border-hover: #555555;
-$border-green: #2a5a2a;
-$border-green-hover: #3a7a3a;
-$border-drafts: #2a3a2a;
+/* Background Colors */
+$bg-dark: $dracula-bg;
+$bg-darker: #21222C;
+$bg-lighter: #343746;
+$bg-highlight: $dracula-current-line;
+$bg-nav: #21222C;
+$bg-header: #21222C;
+$bg-focused: #3B3F5C;
+$bg-hover: #3B3F5C;
 
-$text-primary: #ffffff;
-$text-secondary: #e0e0e0;
-$text-muted: #aaaaaa;
-$text-dim: #888888;
-$text-subtle: #666666;
-$text-content: #cccccc;
+/* Border Colors */
+$border-default: $dracula-current-line;
+$border-subtle: #4B4E6D;
+$border-hover: $dracula-comment;
+$border-green: #3C9A5F;
+$border-green-hover: $dracula-green;
+$border-drafts: $dracula-current-line;
 
-$color-cyan: cyan;
-$color-magenta: magenta;
-$color-green: green;
-$color-yellow: yellow;
-$color-lime: lime;
+/* Text Colors */
+$text-primary: $dracula-fg;
+$text-secondary: #E4E4DC;
+$text-muted: #A0A0A0;
+$text-dim: $dracula-comment;
+$text-subtle: #7A7A7A;
+$text-content: #D8D8D0;
 
-$danger-border: #aa3333;
-$danger-text: #ffcccc;
-$danger-bg: #331111;
-$danger-bg-hover: #3a2a2a;
+/* Named Colors (using Dracula palette) */
+$color-cyan: $dracula-cyan;
+$color-magenta: $dracula-pink;
+$color-green: $dracula-green;
+$color-yellow: $dracula-yellow;
+$color-lime: $dracula-green;
 
-$notif-unread: #4a4a5a;
-$notif-unread-hover: #6a6a7a;
+/* Danger Colors (using Dracula Red) */
+$danger-border: $dracula-red;
+$danger-text: #FFAAAA;
+$danger-bg: #441818;
+$danger-bg-hover: #553030;
 
-$chat-received: #2a3a2a;
-$chat-sent: #3a2a2a;
-$chat-new: #2a4a2a;
-$chat-new-border: #4a7a4a;
-$chat-new-sent: #3a6a3a;
+/* Notification Colors */
+$notif-unread: #5A5C7A;
+$notif-unread-hover: $dracula-comment;
 
-$scrollbar: #444444;
-$scrollbar-hover: #666666;
-$scrollbar-active: #888888;
-$scrollbar-sidebar: #555555;
-$scrollbar-sidebar-hover: #777777;
-$scrollbar-sidebar-active: #999999;
+/* Chat Message Colors */
+$chat-received: #3C5A3C;
+$chat-sent: #5A3C5A;
+$chat-new: #3C6A3C;
+$chat-new-border: $dracula-green;
+$chat-new-sent: $dracula-purple;
+
+/* Scrollbar Colors */
+$scrollbar: $dracula-current-line;
+$scrollbar-hover: $dracula-comment;
+$scrollbar-active: $dracula-purple;
+$scrollbar-sidebar: #4B4E6D;
+$scrollbar-sidebar-hover: $dracula-comment;
+$scrollbar-sidebar-active: $dracula-cyan;
 
 /* ======================================================================
    STYLES
