@@ -218,26 +218,47 @@ DraftsScreen {
 /* Top Navbar */
 #top-navbar {
     dock: top;
-    height: 1;
     width: 100%;
-    background: #4a9eff;
-    color: #ffffff;
+    height: 1;
+    /* use a darker, subtle navbar to match the app's dark theme */
+    background: #212831;
+    color: #e8f6ff;
     layout: horizontal;
+    margin-bottom: 1;
 }
 
 #top-navbar .nav-item {
     width: auto;
-    padding: 0 2;
-    background: #4a9eff;
-    color: #ffffff;
+    padding: 0 3;
+    /* keep items visually subtle until hovered/active */
+    background: transparent;
+    color: #cfe8ff;
+    /* 'normal' is not a valid value for text-style in this TUI stylesheet; use 'none' instead */
+    text-style: none;
+    content-align: center middle;
 }
 
 #top-navbar .nav-item:hover {
-    background: #5aaaff;
+    /* gentle highlight on hover */
+    background: #14324f;
+    color: #ffffff;
+}
+
+#top-navbar .nav-item:focus {
+    /* clear keyboard focus state: visible outline + stronger background */
+    outline: thick #4a9eff;
+    background: #184070;
+    color: #ffffff;
+    text-style: bold;
+    border-bottom: heavy #4a9eff;
 }
 
 #top-navbar .nav-item.active {
+    /* active tab: stronger background and accent underline */
     background: #184070;
+    color: #ffffff;
+    text-style: bold;
+    border-bottom: heavy #4a9eff;
 }
 
 /* App Footer */

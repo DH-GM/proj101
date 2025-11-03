@@ -325,16 +325,44 @@ class TopNav(Horizontal):
         self.current = current
 
     def compose(self) -> ComposeResult:
-        yield Label("1: Timeline", classes="nav-item")
-        yield Label("2: Discover", classes="nav-item")
-        yield Label("3: Notifs", classes="nav-item")
-        yield Label("4: Messages", classes="nav-item")
-        yield Label("5: Settings", classes="nav-item")
+        yield Label("[1] Timeline", classes="nav-item", id="nav-timeline")
+        yield Label("[2] Discover", classes="nav-item", id="nav-discover")
+        yield Label("[3] Notifs", classes="nav-item", id="nav-notifications")
+        yield Label("[4] Messages", classes="nav-item", id="nav-messages")
+        yield Label("[5] Settings", classes="nav-item", id="nav-settings")
+
+    def on_mount(self) -> None:
+        """Set initial active state when mounted."""
+        self.update_active(self.current)
 
     def update_active(self, screen_name: str):
+        """Update which nav item is marked as active."""
         self.current = screen_name
-        # We'll update this once we confirm it's rendering
-        pass
+
+        # Map screen names to nav item IDs
+        nav_map = {
+            "timeline": "nav-timeline",
+            "discover": "nav-discover",
+            "notifications": "nav-notifications",
+            "messages": "nav-messages",
+            "settings": "nav-settings",
+        }
+
+        # Remove active class from all items
+        for nav_id in nav_map.values():
+            try:
+                item = self.query_one(f"#{nav_id}", Label)
+                item.remove_class("active")
+            except Exception:
+                pass
+
+        # Add active class to current screen's nav item
+        if screen_name in nav_map:
+            try:
+                item = self.query_one(f"#{nav_map[screen_name]}", Label)
+                item.add_class("active")
+            except Exception:
+                pass
 
 # ───────── Sidebar ─────────
 
@@ -679,7 +707,7 @@ class TimelineFeed(VerticalScroll):
     def compose(self) -> ComposeResult:
         posts = api.get_timeline()
         unread_count = len([p for p in posts if (datetime.now() - p.timestamp).seconds < 3600])
-        self.border_title = "Main Timeline [0]"
+        self.border_title = "[0] Main Timeline"
         yield Static(f"timeline.home | {unread_count} new posts | line 1", classes="panel-header", markup=False)
         for i, post in enumerate(posts):
             post_item = PostItem(post, classes="post-item", id=f"post-{i}")
@@ -774,7 +802,7 @@ class DiscoverFeed(Container):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self._all_posts = []
-        self.border_title = "Discover [0]"
+        self.border_title = "[0] Discover"
         self._dummy_users = {
             "john doe": {
                 "username": "johndoe",
@@ -874,7 +902,7 @@ class NotificationsFeed(VerticalScroll):
     def compose(self) -> ComposeResult:
         notifications = api.get_notifications()
         unread_count = len([n for n in notifications if not n.read])
-        self.border_title = "Notifications [0]"
+        self.border_title = "[0] Notifications"
         yield Static(f"notifications.all | {unread_count} unread | line 1", classes="panel-header")
         for notif in notifications:
             yield NotificationItem(notif, classes="notification-item")
@@ -986,7 +1014,7 @@ class ChatView(VerticalScroll):
         self.conversation_username = username
 
     def compose(self) -> ComposeResult:
-        self.border_title = "Chat [0]"
+        self.border_title = "[0] Chat "
         messages = api.get_conversation_messages(self.conversation_id)
         yield Static(f"@{self.conversation_username} | conversation", classes="panel-header")
         for msg in messages:
@@ -1092,7 +1120,7 @@ class SettingsPanel(VerticalScroll):
     cursor_position = reactive(0)
 
     def compose(self) -> ComposeResult:
-        self.border_title = "Settings [0]"
+        self.border_title = "[0] Settings"
         settings = api.get_user_settings()
         yield Static("settings.profile | line 1", classes="panel-header")
         yield Static("\n→ Profile Picture (ASCII)", classes="settings-section-header")
@@ -1242,7 +1270,7 @@ class ProfilePanel(VerticalScroll):
     cursor_position = reactive(0)
 
     def compose(self) -> ComposeResult:
-        self.border_title = "Profile [0]"
+        self.border_title = "[0] Profile"
         user = api.get_current_user()
         settings = api.get_user_settings()
 
@@ -1335,7 +1363,7 @@ class UserProfileViewPanel(VerticalScroll):
         self.username = username
 
     def compose(self) -> ComposeResult:
-        self.border_title = f"@{self.username} [0]"
+        self.border_title = f"[0] @{self.username}"
 
         # Get user data from the dummy users or generate fake data
         user_data = self._get_user_data()
@@ -1477,7 +1505,7 @@ class DraftsPanel(VerticalScroll):
     """Main panel for viewing all drafts."""
 
     def compose(self) -> ComposeResult:
-        self.border_title = "Drafts [0]"
+        self.border_title = "[0] Drafts"
         drafts = load_drafts()
 
         yield Static(f"drafts.all | {len(drafts)} saved | line 1", classes="panel-header")
@@ -1615,7 +1643,7 @@ class Proj101App(App):
             pass
 
     def compose(self) -> ComposeResult:
-        yield Static("proj101 [timeline] @yourname", id="app-header", markup=False)
+        yield Static("tuitter [timeline] @yourname", id="app-header", markup=False)
         yield TopNav(id="top-navbar", current="timeline")
         yield TimelineScreen(id="screen-container")
         yield Static(":↑↓ Navigate [0] Main [1-5] Sidebar [n] New Post [f] Follow [/] Search [?] Help", id="app-footer", markup=False)
@@ -1642,11 +1670,11 @@ class Proj101App(App):
 
             # Update header based on screen
             if screen_name == "user_profile" and 'username' in kwargs:
-                self.query_one("#app-header", Static).update(f"proj101 [@{kwargs['username']}] @yourname")
+                self.query_one("#app-header", Static).update(f"tuitter [@{kwargs['username']}] @yourname")
             elif screen_name == "messages" and 'username' in kwargs:
-                self.query_one("#app-header", Static).update(f"proj101 [dm:@{kwargs['username']}] @yourname")
+                self.query_one("#app-header", Static).update(f"tuitter [dm:@{kwargs['username']}] @yourname")
             else:
-                self.query_one("#app-header", Static).update(f"proj101 [{screen_name}] @yourname")
+                self.query_one("#app-header", Static).update(f"tuitter [{screen_name}] @yourname")
 
             self.query_one("#app-footer", Static).update(footer_text)
             self.current_screen_name = screen_name
@@ -1758,7 +1786,6 @@ class Proj101App(App):
 
             if target_id:
                 panel = self.query_one(target_id)
-                panel.border_title = f"{panel.border_title.split('[')[0]}[0]"
                 panel.add_class("vim-mode-active")
                 panel.focus()
 
