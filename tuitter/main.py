@@ -297,6 +297,13 @@ class PostItem(Static):
             self.border = ""
             self.styles.background = ""
 
+    def on_click(self) -> None:
+        """Handle click to open comment screen"""
+        try:
+            self.app.push_screen(CommentScreen(self.post))
+        except Exception:
+            pass
+
 class NotificationItem(Static):
     def __init__(self, notification, **kwargs):
         super().__init__(**kwargs)
