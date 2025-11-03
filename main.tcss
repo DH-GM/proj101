@@ -1314,6 +1314,17 @@ NewPostDialog, DeleteDraftDialog {
     background: $bg-dark;
 }
 
+/* Vim Navigation Hints */
+.vim-hints {
+    width: 100%;
+    height: auto;
+    margin: 0 1;
+    padding: 0 1;
+    color: $text-muted;
+    text-align: center;
+    text-style: italic;
+}
+
 /* Attachments List */
 .attachments-list {
     width: 100%;
@@ -1365,6 +1376,12 @@ NewPostDialog, DeleteDraftDialog {
     color: $text-primary;
 }
 
+#media-buttons Button.vim-cursor {
+    background: $bg-highlight;
+    border: heavy $primary;
+    color: $text-primary;
+}
+
 /* Action Buttons Container */
 #action-buttons {
     width: 100%;
@@ -1392,6 +1409,12 @@ NewPostDialog, DeleteDraftDialog {
 #action-buttons Button:hover {
     background: $bg-highlight;
     border: heavy $accent-cyan;
+    color: $text-primary;
+}
+
+#action-buttons Button.vim-cursor {
+    background: $bg-highlight;
+    border: heavy $primary;
     color: $text-primary;
 }
 

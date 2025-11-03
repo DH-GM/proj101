@@ -491,15 +491,20 @@ class Sidebar(VerticalScroll):
 class NewPostDialog(ModalScreen):
     """Modal dialog for creating a new post."""
 
+    cursor_position = reactive(0)  # 0 = textarea, 1-5 = buttons
+
     def __init__(self, draft_content: str = "", draft_attachments: List = None):
         super().__init__()
         self.draft_content = draft_content
         self.draft_attachments = draft_attachments or []
+        self.in_insert_mode = True  # Start in insert mode (textarea focused)
 
     def compose(self) -> ComposeResult:
         with Container(id="dialog-container"):
             yield Static("✨ Create New Post", id="dialog-title")
             yield TextArea(id="post-textarea")
+            # Key hints for vim navigation
+            yield Static("\\[i] edit | \\[esc] navigate", id="vim-hints", classes="vim-hints")
             # Status/attachments display area
             yield Static("", id="attachments-list", classes="attachments-list")
             yield Static("", id="status-message", classes="status-message")
@@ -530,6 +535,133 @@ class NewPostDialog(ModalScreen):
         self._update_attachments_display()
 
         textarea.focus()
+        self.in_insert_mode = True
+        self.cursor_position = 0
+
+    def _get_navigable_buttons(self) -> list:
+        """Get list of all navigable buttons in order."""
+        buttons = []
+        try:
+            # Media buttons
+            buttons.append(self.query_one("#attach-files", Button))
+            buttons.append(self.query_one("#attach-photo", Button))
+            # Action buttons
+            buttons.append(self.query_one("#post-button", Button))
+            buttons.append(self.query_one("#draft-button", Button))
+            buttons.append(self.query_one("#cancel-button", Button))
+        except:
+            pass
+        return buttons
+
+    def _update_cursor(self) -> None:
+        """Update visual cursor position."""
+        buttons = self._get_navigable_buttons()
+
+        # Remove vim-cursor from all buttons
+        for btn in buttons:
+            btn.remove_class("vim-cursor")
+
+        textarea = self.query_one("#post-textarea", TextArea)
+
+        if self.in_insert_mode:
+            # In insert mode, textarea has focus
+            textarea.focus()
+        else:
+            # In navigation mode, highlight current button
+            if 1 <= self.cursor_position <= len(buttons):
+                buttons[self.cursor_position - 1].add_class("vim-cursor")
+
+    def watch_cursor_position(self, old: int, new: int) -> None:
+        """React to cursor position changes."""
+        self._update_cursor()
+
+    def key_escape(self) -> None:
+        """Exit insert mode and enter navigation mode."""
+        if self.in_insert_mode:
+            self.in_insert_mode = False
+            self.cursor_position = 1  # Start at first button
+            self._update_cursor()
+
+    def key_i(self) -> None:
+        """Enter insert mode (focus textarea)."""
+        if not self.in_insert_mode:
+            self.in_insert_mode = True
+            self.cursor_position = 0
+            self._update_cursor()
+
+    def key_j(self) -> None:
+        """Move cursor down (to next row)."""
+        if not self.in_insert_mode:
+            buttons = self._get_navigable_buttons()
+            if not buttons:
+                return
+
+            # Current position: 1-2 (media buttons) -> 3-5 (action buttons)
+            if self.cursor_position in [1, 2]:  # Media buttons row
+                # Move to corresponding action button (Files->Post, Photo->Save)
+                if self.cursor_position == 1:
+                    self.cursor_position = 3  # Files -> Post
+                else:  # position == 2
+                    self.cursor_position = 4  # Photo -> Save
+            elif self.cursor_position in [3, 4, 5]:  # Already in action buttons row
+                # Stay in same row, or wrap if desired
+                pass
+
+    def key_k(self) -> None:
+        """Move cursor up (to previous row)."""
+        if not self.in_insert_mode:
+            # Current position: 3-5 (action buttons) -> 1-2 (media buttons)
+            if self.cursor_position in [3, 4, 5]:  # Action buttons row
+                # Move to corresponding media button (Post->Files, Save->Photo, Cancel->Photo)
+                if self.cursor_position == 3:
+                    self.cursor_position = 1  # Post -> Files
+                elif self.cursor_position == 4:
+                    self.cursor_position = 2  # Save -> Photo
+                else:  # position == 5 (Cancel)
+                    self.cursor_position = 2  # Cancel -> Photo
+            elif self.cursor_position in [1, 2]:  # Already in media buttons row
+                # Stay in same row, or wrap if desired
+                pass
+
+    def key_h(self) -> None:
+        """Move cursor left (within same row)."""
+        if not self.in_insert_mode:
+            # Move left within the same row
+            if self.cursor_position in [1, 2]:  # Media buttons row
+                self.cursor_position = max(self.cursor_position - 1, 1)
+            elif self.cursor_position in [3, 4, 5]:  # Action buttons row
+                self.cursor_position = max(self.cursor_position - 1, 3)
+
+    def key_l(self) -> None:
+        """Move cursor right (within same row)."""
+        if not self.in_insert_mode:
+            buttons = self._get_navigable_buttons()
+            if not buttons:
+                return
+
+            # Move right within the same row
+            if self.cursor_position in [1, 2]:  # Media buttons row
+                self.cursor_position = min(self.cursor_position + 1, 2)
+            elif self.cursor_position in [3, 4, 5]:  # Action buttons row
+                self.cursor_position = min(self.cursor_position + 1, 5)
+
+    def on_key(self, event) -> None:
+        """Handle key events to prevent double-triggering."""
+        # In navigation mode, prevent Enter from bubbling to buttons
+        if not self.in_insert_mode and event.key == "enter":
+            event.prevent_default()
+            event.stop()
+            # Handle the button activation
+            if self.cursor_position >= 1:
+                buttons = self._get_navigable_buttons()
+                if 1 <= self.cursor_position <= len(buttons):
+                    button = buttons[self.cursor_position - 1]
+                    self.on_button_pressed(Button.Pressed(button))
+
+    def key_enter(self) -> None:
+        """Activate the current button."""
+        # This is now handled in on_key to prevent double-triggering
+        pass
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         btn_id = getattr(event.button, "id", None)
