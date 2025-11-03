@@ -945,8 +945,7 @@ class NewPostDialog(ModalScreen):
 
             # Media attachment buttons
             with Container(id="media-buttons"):
-                yield Button("📁 Files", id="attach-files")
-                yield Button("🖼️ Photo", id="attach-photo")
+                yield Button("🖼️ Add Photo", id="attach-photo")
 
             # Action buttons
             with Container(id="action-buttons"):
@@ -978,8 +977,7 @@ class NewPostDialog(ModalScreen):
         """Get list of all navigable buttons in order."""
         buttons = []
         try:
-            # Media buttons
-            buttons.append(self.query_one("#attach-files", Button))
+            # Media button
             buttons.append(self.query_one("#attach-photo", Button))
             # Action buttons
             buttons.append(self.query_one("#post-button", Button))
@@ -1038,45 +1036,29 @@ class NewPostDialog(ModalScreen):
             if not buttons:
                 return
 
-            # Current position: 1-2 (media buttons) -> 3-5 (action buttons)
-            if self.cursor_position in [1, 2]:  # Media buttons row
-                # Move to corresponding action button (Files->Post, Photo->Save)
-                if self.cursor_position == 1:
-                    self.cursor_position = 3  # Files -> Post
-                else:  # position == 2
-                    self.cursor_position = 4  # Photo -> Save
-            elif self.cursor_position in [3, 4, 5]:  # Already in action buttons row
-                # Stay in same row, or wrap if desired
-                pass
+            # Current position: 1 (photo button) -> 2-4 (action buttons)
+            if self.cursor_position == 1:  # Photo button row
+                self.cursor_position = 2  # Move to Post button
+            # Action buttons stay in their row
 
     def key_k(self) -> None:
         """Move cursor up (to previous row)."""
         if self.app.command_mode:
             return
         if not self.in_insert_mode:
-            # Current position: 3-5 (action buttons) -> 1-2 (media buttons)
-            if self.cursor_position in [3, 4, 5]:  # Action buttons row
-                # Move to corresponding media button (Post->Files, Save->Photo, Cancel->Photo)
-                if self.cursor_position == 3:
-                    self.cursor_position = 1  # Post -> Files
-                elif self.cursor_position == 4:
-                    self.cursor_position = 2  # Save -> Photo
-                else:  # position == 5 (Cancel)
-                    self.cursor_position = 2  # Cancel -> Photo
-            elif self.cursor_position in [1, 2]:  # Already in media buttons row
-                # Stay in same row, or wrap if desired
-                pass
+            # Current position: 2-4 (action buttons) -> 1 (photo button)
+            if self.cursor_position >= 2:  # Action buttons row
+                self.cursor_position = 1  # Move to photo button
+            # Photo button stays in its row
 
     def key_h(self) -> None:
         """Move cursor left (within same row)."""
         if self.app.command_mode:
             return
         if not self.in_insert_mode:
-            # Move left within the same row
-            if self.cursor_position in [1, 2]:  # Media buttons row
-                self.cursor_position = max(self.cursor_position - 1, 1)
-            elif self.cursor_position in [3, 4, 5]:  # Action buttons row
-                self.cursor_position = max(self.cursor_position - 1, 3)
+            if self.cursor_position >= 2:  # Action buttons row
+                self.cursor_position = max(self.cursor_position - 1, 2)
+            # Photo button is alone in its row, no left movement needed
 
     def key_l(self) -> None:
         """Move cursor right (within same row)."""
@@ -1087,11 +1069,9 @@ class NewPostDialog(ModalScreen):
             if not buttons:
                 return
 
-            # Move right within the same row
-            if self.cursor_position in [1, 2]:  # Media buttons row
-                self.cursor_position = min(self.cursor_position + 1, 2)
-            elif self.cursor_position in [3, 4, 5]:  # Action buttons row
-                self.cursor_position = min(self.cursor_position + 1, 5)
+            if self.cursor_position >= 2:  # Action buttons row
+                self.cursor_position = min(self.cursor_position + 1, 4)
+            # Photo button is alone in its row, no right movement needed
 
     def on_key(self, event) -> None:
         """Handle key events to prevent double-triggering."""
@@ -1116,30 +1096,7 @@ class NewPostDialog(ModalScreen):
     def on_button_pressed(self, event: Button.Pressed) -> None:
         btn_id = getattr(event.button, "id", None)
 
-        if btn_id == "attach-files":
-            self._show_status("📁 Opening file browser...")
-            # Implement camera capture here
-            # For now, we'll just open a file dialog as placeholder
-            try:
-                root = tk.Tk()
-                root.withdraw()
-                file_path = filedialog.askopenfilename(
-                    title="Select a file",
-                    filetypes=[
-                        ("All files", "*.*"),
-                        ("Images", "*.png *.jpg *.jpeg *.gif *.bmp"),
-                        ("Documents", "*.pdf *.doc *.docx *.txt"),
-                    ],
-                )
-                root.destroy()
-                if file_path:
-                    self._attachments.append(("file", file_path))
-                    self._update_attachments_display()
-                    self._show_status("✓ File added!")
-            except Exception as e:
-                self._show_status(f"⚠ Error: {str(e)}", error=True)
-
-        elif btn_id == "attach-photo":
+        if btn_id == "attach-photo":
             self._show_status("🖼️ Opening photo selector...")
             try:
                 root = tk.Tk()
@@ -1250,6 +1207,7 @@ class NewPostDialog(ModalScreen):
             for i, (t, p) in enumerate(self._attachments, start=1):
                 short = Path(p).name
                 icon = {"file": "📁", "photo": "🖼️"}.get(t, "📎")
+                icon = "🖼️"  # Only photos now
                 lines.append(f"  {i}. {icon} {short}")
             widget.update("\n".join(lines))
         except Exception:
