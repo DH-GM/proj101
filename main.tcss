@@ -684,6 +684,7 @@ TimelineFeed:focus, DiscoverFeed:focus, NotificationsFeed:focus, ChatView:focus,
     background: $bg-dark;
     padding: 1 2;
     height: 100%;
+    border: round $primary;
     border-title-align: center;
     border-title-color: $primary;
     border-title-style: bold;

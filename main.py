@@ -938,6 +938,7 @@ class NotificationsScreen(Container):
 
 class ConversationsList(VerticalScroll):
     cursor_position = reactive(0)
+    can_focus = True
 
     def compose(self) -> ComposeResult:
         conversations = api.get_conversations()
@@ -1115,8 +1116,7 @@ class MessagesScreen(Container):
     def on_mount(self) -> None:
         """Add border to conversations list and update chat if DM"""
         conversations = self.query_one("#conversations", ConversationsList)
-        conversations.border_title = "Messages [6]"
-        conversations.border = "round #4a9eff"
+        conversations.border_title = "[6] Messages"
 
         # If opening a DM, update the chat header
         if self.dm_username:
@@ -1832,7 +1832,7 @@ class Proj101App(App):
         try:
             if self.current_screen_name == "messages":
                 conversations = self.query_one("#conversations", ConversationsList)
-                conversations.border_title = "Messages [6]"
+                conversations.border_title = "[6] Messages"
                 conversations.add_class("vim-mode-active")
                 conversations.focus()
                 # Reset cursor position to ensure it's visible
