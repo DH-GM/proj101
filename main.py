@@ -1674,6 +1674,21 @@ class Proj101App(App):
         yield Static("[0] Main [1-5] Screens [p] Profile [d] Drafts [j/k] Navigate [:n] New Post [:q] Quit", id="app-footer", markup=False)
         yield Static("", id="command-bar")
 
+    def on_mount(self) -> None:
+        """Focus the main timeline feed on app startup"""
+        self.call_after_refresh(self._focus_initial_content)
+
+    def _focus_initial_content(self) -> None:
+        """Helper to focus the timeline feed after initial render"""
+        try:
+            timeline_feed = self.query_one("#timeline-feed", TimelineFeed)
+            timeline_feed.add_class("vim-mode-active")
+            timeline_feed.focus()
+            # Ensure the first post has the cursor
+            timeline_feed.cursor_position = 0
+        except Exception:
+            pass
+
     def switch_screen(self, screen_name: str, **kwargs):
         # Prevent concurrent screen switches
         if self._switching:
