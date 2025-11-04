@@ -6,18 +6,29 @@ from textual.reactive import reactive
 from textual.screen import ModalScreen, Screen
 from textual.message import Message
 from datetime import datetime
-from .api_interface import api
+from api_interface import api
 import sys
 import subprocess
 from pathlib import Path
 import tkinter as tk
 from tkinter import filedialog
 from PIL import Image
-from .ascii_video_widget import ASCIIVideoPlayer
+from ascii_video_widget import ASCIIVideoPlayer
 import json
 from typing import List, Dict
 from rich.text import Text
 import logging
+import webbrowser
+import keyring
+import os
+import dotenv
+
+dotenv.load_dotenv()
+
+serviceKeyring = "tuiitter"
+
+# ───────── OAuth Constants ─────────
+COGNITO_AUTH_URL = "https://us-east-2xzzmuowl9.auth.us-east-2.amazoncognito.com/login/continue?client_id=7109b3p9beveapsmr806freqnn&redirect_uri=http%3A%2F%2Flocalhost%3A5173%2Fcallback&response_type=code&scope=email+openid+phone"
 
 # Custom message for draft updates
 class DraftsUpdated(Message):
@@ -97,6 +108,66 @@ def format_time_ago(dt: datetime) -> str:
     if diff.seconds < 3600:
         return f"{diff.seconds // 60}m ago"
     return f"{diff.seconds // 3600}h ago"
+
+
+# ───────── Auth Screen ─────────
+class AuthScreen(Container):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self._file_timer = None
+
+    def compose(self) -> ComposeResult:
+        # Minimal auth screen: centered sign-in button
+        with Container(id="auth-wrapper"):
+            with Container(id="auth-center"):
+                yield Static("Continue in your browser", id="auth-title", classes="signin")
+                with Container(id="oauth-signin-container"):
+                    yield Button("Sign In", id="oauth-signin", classes="signin")
+        
+        yield Static("press q to quit", id="quit-label", classes="signin")
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "oauth-signin":
+            # Update status immediately
+            try:
+                self.query_one("#oauth-status", Static).update("Status: Opening browser...")
+            except Exception:
+                pass
+            
+            # Schedule the OAuth flow
+            self.call_after_refresh(self._start_oauth_flow)
+
+    def _start_oauth_flow(self) -> None:
+        """Open Cognito Hosted UI and poll for tokens."""
+        print("Starting OAuth flow...")
+        
+        # Open browser to Cognito hosted UI
+        print("Opening browser...")
+        webbrowser.open(COGNITO_AUTH_URL)
+        
+        # Update status
+        try:
+            self.query_one("#oauth-status", Static).update("Status: Waiting for sign-in... (check your browser)")
+        except Exception:
+            pass
+        
+        # Poll for tokens file
+        self._file_timer = self.set_interval(1.0, self._check_tokens_file)
+
+    def _check_tokens_file(self) -> None:
+        try:
+            p = keyring.get_password(serviceKeyring, "oauth_tokens.json")
+            print(f"p: {p}")
+            if p:
+                data = json.loads(p or "{}")
+                # Check for valid tokens
+                if isinstance(data, dict) and ("access_token" in data or "id_token" in data):
+                    if self._file_timer:
+                        self._file_timer.pause()
+                    self.query_one("#oauth-status", Static).update("Status: Signed in (tokens detected)")
+                    self.app.show_main_app()
+        except Exception:
+            pass
 
 
 # ───────── Comment Screen ─────────
@@ -440,7 +511,10 @@ class ProfileDisplay(Static):
 
     def compose(self) -> ComposeResult:
         user = api.get_current_user()
-        yield Static(f"@{user.username} • {user.display_name}", classes="profile-username")
+        username = keyring.get_password(serviceKeyring, "username")
+        if username == None:
+            username = user.username
+        yield Static(f"@{username}", classes="profile-username")
 
 class ConversationItem(Static):
     def __init__(self, conversation, **kwargs):
@@ -567,8 +641,11 @@ class UserProfileCard(Static):
             info_container = Container(classes="user-card-info")
             with info_container:
                 yield Static(self.display_name, classes="user-card-name")
+                username = keyring.get_password(serviceKeyring, "username")
+                if username == None:
+                    username = self.username
                 # Make username clickable as a button-like widget
-                yield Button(f"@{self.username}", id=f"username-{self.username}", classes="user-card-username-btn")
+                yield Button(f"@{username}", id=f"username-{username}", classes="user-card-username-btn")
 
                 yield Static(self.bio, classes="user-card-bio")
 
@@ -580,9 +657,12 @@ class UserProfileCard(Static):
 
                 buttons_container = Container(classes="user-card-buttons")
                 with buttons_container:
-                    yield Button("Follow", id=f"follow-{self.username}", classes="user-card-button")
-                    yield Button("Message", id=f"message-{self.username}", classes="user-card-button")
-                    yield Button("View Profile", id=f"view-{self.username}", classes="user-card-button")
+                    username = keyring.get_password(serviceKeyring, "username")
+                    if username == None:
+                        username = self.username
+                    yield Button("Follow", id=f"follow-{username}", classes="user-card-button")
+                    yield Button("Message", id=f"message-{username}", classes="user-card-button")
+                    yield Button("View Profile", id=f"view-{username}", classes="user-card-button")
                 yield buttons_container
             yield info_container
 
@@ -2005,8 +2085,10 @@ class SettingsPanel(VerticalScroll):
         yield Static(f"{settings.ascii_pic}", id="profile-picture-display", classes="ascii-avatar")
 
         yield Static("\n→ Account Information", classes="settings-section-header")
-        yield Static(f"  Username:\n  @{settings.username}", classes="settings-field")
-        yield Static(f"\n  Display Name:\n  {settings.display_name}", classes="settings-field")
+        username = keyring.get_password(serviceKeyring, "username")
+        if username == None:
+            username = settings.username
+        yield Static(f"  Username:\n  @{username}", classes="settings-field")
         yield Static(f"\n  Bio:\n  {settings.bio}", classes="settings-field")
         yield Static("\n→ OAuth Connections", classes="settings-section-header")
         github_status = "Connected" if settings.github_connected else "[:c] Connect"
@@ -2026,6 +2108,10 @@ class SettingsPanel(VerticalScroll):
         yield Static(f"  {private_check} Private account", classes="checkbox-item")
         yield Static("\n  [:w] Save Changes     [:q] Cancel", classes="settings-actions")
         yield Static("\n:w - save  [:e] Edit field  [Tab] Next field  [Esc] Cancel", classes="help-text", markup=False)
+        
+        # Sign Out button
+        yield Static("\n→ Session", classes="settings-section-header")
+        yield Button("Sign Out", id="settings-signout", classes="danger")
 
     def watch_cursor_position(self, old_position: int, new_position: int) -> None:
         """Update the cursor when position changes"""
@@ -2144,6 +2230,17 @@ class SettingsPanel(VerticalScroll):
                     self.app.notify("Output file not generated", severity="error")
             except Exception:
                 pass
+        elif event.button.id == "settings-signout":
+            # Delete tokens and exit
+            try:
+                keyring.delete_password(serviceKeyring, "oauth_tokens.json")
+                keyring.delete_password(serviceKeyring, "username")
+            except Exception:
+                pass
+            try:
+                self.app.exit()
+            except Exception:
+                pass
 
 class SettingsScreen(Container):
     def compose(self) -> ComposeResult:
@@ -2164,8 +2261,10 @@ class ProfilePanel(VerticalScroll):
 
         with profile_container:
             yield Static(settings.ascii_pic, classes="profile-avatar-large")
-            yield Static(f"{settings.display_name}", classes="profile-name-large")
-            yield Static(f"@{settings.username}", classes="profile-username-display")
+            username = keyring.get_password(serviceKeyring, "username")
+            if username == None:
+                username = settings.username
+            yield Static(f"@{username}", classes="profile-username-display")
 
             stats_row = Container(classes="profile-stats-row")
             with stats_row:
@@ -2262,7 +2361,6 @@ class UserProfileViewPanel(VerticalScroll):
 
         with profile_container:
             yield Static(user_data['ascii_pic'], classes="profile-avatar-large")
-            yield Static(f"{user_data['display_name']}", classes="profile-name-large")
             yield Static(f"@{self.username}", classes="profile-username-display")
 
             stats_row = Container(classes="profile-stats-row")
@@ -2687,11 +2785,51 @@ class Proj101App(App):
             pass
 
     def compose(self) -> ComposeResult:
-        yield Static("tuitter [timeline] @yourname", id="app-header", markup=False)
-        yield TopNav(id="top-navbar", current="timeline")
-        yield TimelineScreen(id="screen-container")
-        yield Static("[1-5] Screens [p] Profile [d] Drafts [j/k] Navigate [:n] New Post [:q] Quit", id="app-footer", markup=False)
-        yield Static("", id="command-bar")
+        # Check if tokens exist - if not, show auth screen
+        token_data = keyring.get_password(serviceKeyring, "oauth_tokens.json")
+        if not token_data or token_data == "":
+            yield AuthScreen()
+        else:
+            # Load token and set it in API
+            try:
+                tokens = json.loads(token_data)
+                if "access_token" in tokens:
+                    api.set_token(tokens["access_token"])
+            except Exception:
+                pass
+            
+            username = keyring.get_password(serviceKeyring, "username") or "yourname"
+            yield Static(f"tuitter [timeline] @{username}", id="app-header", markup=False)
+            yield TopNav(id="top-navbar", current="timeline")
+            yield TimelineScreen(id="screen-container")
+            yield Static("[1-5] Screens [p] Profile [d] Drafts [j/k] Navigate [:n] New Post [:q] Quit", id="app-footer", markup=False)
+            yield Static("", id="command-bar")
+
+    def show_main_app(self) -> None:
+        """Transition from auth screen to main app after authentication."""
+        try:
+            for w in list(self.children):
+                w.remove()
+        except Exception:
+            pass
+        
+        # Load token and set it in API
+        try:
+            token_data = keyring.get_password(serviceKeyring, "oauth_tokens.json")
+            if token_data:
+                tokens = json.loads(token_data)
+                if "access_token" in tokens:
+                    api.set_token(tokens["access_token"])
+        except Exception:
+            pass
+        
+        username = keyring.get_password(serviceKeyring, "username") or "yourname"
+        self.mount(Static(f"tuitter [timeline] @{username}", id="app-header", markup=False))
+        self.mount(TopNav(id="top-navbar", current="timeline"))
+        self.mount(TimelineScreen(id="screen-container"))
+        self.mount(Static("[1-5] Screens [p] Profile [d] Drafts [j/k] Navigate [:n] New Post [:q] Quit", id="app-footer", markup=False))
+        self.mount(Static("", id="command-bar"))
+        self.current_screen_name = "timeline"
 
     def on_mount(self) -> None:
         """Focus the main timeline feed on app startup"""
@@ -3208,13 +3346,14 @@ class Proj101App(App):
             # All other keys are already stopped at the top of command_mode block
             return
 
-def main():
-    logging.debug('inside __main__ guard, about to run app')
-    try:
-        Proj101App().run()
-    except Exception as e:
-        import traceback
-        logging.exception('Exception occurred while running Proj101App:')
-
 if __name__ == "__main__":
-    main()
+    pid_file = Path(".main_app_pid")
+    pid_file.write_text(str(os.getpid()))
+    try:
+        app = Proj101App()
+        app.run()
+    finally:
+        try:
+            pid_file.unlink()
+        except Exception:
+            pass

@@ -92,24 +92,40 @@ $scrollbar-sidebar-active: $dracula-cyan;
    STYLES
    ====================================================================== */
 
-/* Auth screen layout */
-#auth-center {
-    width: 1fr;
-    height: 1fr;
+/* ======================================================================
+   AUTH SCREEN STYLES
+   ====================================================================== */
+
+#auth-wrapper {
     align: center middle;
-    padding: 0 10;
-    margin: 0 10;
+}
+
+#auth-center {
+    border: ascii white;
+    height: 9;
+    width: 40;
 }
 
 #auth-title {
-    padding: 1 4;
-    margin: 1 10;
+    margin-top: 1;
+    text-align: center;
+    content-align-horizontal: center;
 }
 
-Button#oauth-signin {
-    padding: 2 6;
-    margin: 2 10;
-    border: solid $primary;
+#oauth-signin-container {
+    content-align-horizontal: center;
+    align: center middle;
+    margin-top: 1;
+}
+
+#oauth-signin {
+    background: white;
+    color: black;
+}
+
+#quit-label {
+    align: left bottom;
+    margin: 1 2;
 }
 
 Button.danger {
