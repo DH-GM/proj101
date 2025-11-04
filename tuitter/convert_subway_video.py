@@ -3,6 +3,8 @@
 Convert the subway.mp4 video to ASCII frames
 Run this script to generate ASCII frames for the video
 """
+
+# PyPi import, not a local file
 from video_to_ascii import video_to_ascii_frames
 
 # Convert subway video
@@ -18,12 +20,11 @@ frame_count = video_to_ascii_frames(
     output_dir=output_dir,
     fps=4,  # 2 frames per second (half bitrate)
     max_width=80,
-    max_seconds=10  # Only process first 10 seconds
+    max_seconds=10,  # Only process first 10 seconds
 )
 
 print(f"\n✨ Success! Generated {frame_count} ASCII frames")
 print(f"📁 Saved to: {output_dir}/")
 print(f"\nTo use in the TUI, import ASCIIVideoPlayer:")
-print(f'  from ascii_video_widget import ASCIIVideoPlayer')
+print(f"  from ascii_video_widget import ASCIIVideoPlayer")
 print(f'  yield ASCIIVideoPlayer("{output_dir}", fps=2)')
-

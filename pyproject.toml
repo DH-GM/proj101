@@ -3,14 +3,14 @@ requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "tuiitter"
+name = "tuitter"
 version = "0.1.0"
 description = "A beautiful TUI-based social media client for the modern terminal"
 readme = "README.md"
 requires-python = ">=3.8"
 license = {text = "MIT"}
 authors = [
-    {name = "Tuiitter Team", email = "team@tuiitter.com"}
+    {name = "tuitter Team", email = "team@tuitter.com"}
 ]
 keywords = ["tui", "social-media", "terminal", "ascii-art"]
 classifiers = [
@@ -36,16 +36,16 @@ dependencies = [
 ]
 
 [project.scripts]
-tuiitter = "tuiitter.__main__:main"
+tuitter = "tuitter.main:main"
 
 [project.urls]
-Homepage = "https://github.com/kazakhpunk/tuiitter"
-Repository = "https://github.com/kazakhpunk/tuiitter"
-"Bug Tracker" = "https://github.com/kazakhpunk/tuiitter/issues"
+Homepage = "https://github.com/kazakhpunk/tuitter"
+Repository = "https://github.com/kazakhpunk/tuitter"
+"Bug Tracker" = "https://github.com/kazakhpunk/tuitter/issues"
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["tuiitter*"]
+include = ["tuitter*"]
 
 [tool.setuptools.package-data]
-tuiitter = ["*.tcss", "*.txt", "*.json"]
+tuitter = ["*.tcss", "*.txt", "*.json"]

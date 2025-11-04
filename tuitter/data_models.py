@@ -60,6 +60,7 @@ class Notification:
     id: str
     type: str  # 'mention', 'like', 'repost', 'follow', 'comment'
     actor: str
+    username: str  # Added to match backend
     content: str
     timestamp: datetime
     read: bool = False

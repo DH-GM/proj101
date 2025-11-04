@@ -1,5 +1,13 @@
-from db_models import get_session, User
-from db_repo import create_user, update_user_bio, delete_user, create_post, update_post_content, delete_post, list_feed
+from .db_models import get_session, User
+from .db_repo import (
+    create_user,
+    update_user_bio,
+    delete_user,
+    create_post,
+    update_post_content,
+    delete_post,
+    list_feed,
+)
 
 # create user
 u = create_user("mohamed", "Mohamed")
@@ -20,7 +28,7 @@ print("Updated post:", ok)
 # read feed
 feed = list_feed(5)
 print("Feed count:", len(feed))
-    
+
 # delete post
 print("Deleted post:", delete_post(p.id))
 
