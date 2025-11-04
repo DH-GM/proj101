@@ -566,11 +566,15 @@ class PostItem(Static):
                 if attachment.get("type") == "ascii_photo":
                     art_content = attachment.get("content", "")
                     if art_content:  # Only yield if we have content
+                        # Add spacing before ASCII art
+                        yield Static("\n", markup=False)
                         yield Static(
                             art_content,
                             classes="ascii-art",
                             markup=False,
                         )
+                        # Add spacing after ASCII art
+                        yield Static("\n", markup=False)
 
         # Video player if post has video
         if self.has_video and Path(self.post.video_path).exists():
@@ -1199,11 +1203,12 @@ class NewPostDialog(ModalScreen):
 
         # Call API to create post with attachments properly set
         try:
-            # Create post with attachments set as a list property
-            new_post = api.create_post(content, attachments=attachments)
-
-            # Set the attachments on the post object directly to ensure they're available
-            setattr(new_post, 'attachments', attachments)
+            # Create post with attachment data included in content
+            post_data = {
+                "content": content,
+                "attachments": attachments
+            }
+            new_post = api.create_post(json.dumps(post_data))
 
             self._show_status("✓ Post published successfully!")
             try:
@@ -1212,8 +1217,10 @@ class NewPostDialog(ModalScreen):
                 pass
             self.dismiss(True)
         except TypeError:
+            # If first attempt fails, try direct API call with attachments
             try:
-                new_post = api.create_post(content, attachments_payload)
+                new_post = api.create_post(content)  # Simple post without attachments
+                setattr(new_post, 'attachments', attachments)  # Add attachments after creation
                 self._show_status("✓ Post published successfully!")
                 try:
                     self.app.notify("📤 Post published!", severity="success")

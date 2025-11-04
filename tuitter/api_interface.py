@@ -45,6 +45,7 @@ class Post:
     comments: int
     liked_by_user: bool = False
     reposted_by_user: bool = False
+    attachments: List[Dict[str, Any]] = None
 
 
 @dataclass
@@ -677,7 +678,13 @@ class RealAPI(APIInterface):
         return True
 
     def create_post(self, content: str) -> Post:
-        data = self._post("/posts", json_payload={"content": content})
+        # Check if content is JSON string containing attachments
+        try:
+            post_data = json.loads(content)
+            data = self._post("/posts", json_payload=post_data)
+        except json.JSONDecodeError:
+            # If not JSON, treat as simple text post
+            data = self._post("/posts", json_payload={"content": content})
         return Post(**self._convert_post(data))
 
     def like_post(self, post_id: str) -> bool:
@@ -715,6 +722,7 @@ class RealAPI(APIInterface):
             reposted_by_user=bool(
                 p.get("reposted_by_user") or p.get("reposted") or False
             ),
+            attachments=p.get("attachments", [])  # Add attachments to the post object
         )
         return out
 
