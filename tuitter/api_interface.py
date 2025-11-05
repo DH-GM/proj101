@@ -11,6 +11,8 @@ import keyring
 import requests
 from dotenv import load_dotenv
 from requests import Session
+from .auth_storage import load_tokens, save_tokens_full
+from .auth import refresh_tokens
 
 # === lightweight data objects used by the UI ===
 from .data_models import Notification
@@ -130,22 +132,91 @@ class RealAPI(APIInterface):
         self.session.headers.update({"Authorization": f"Bearer {self.token}"})
 
     def _get(self, path: str, params: Dict[str, Any] | None = None) -> Any:
-        if params is None:
-            params = {}
-        params.setdefault("handle", self.handle)
-        url = f"{self.base_url}/{path.lstrip('/')}"
-        resp = self.session.get(url, params=params, timeout=self.timeout)
-        resp.raise_for_status()
-        return resp.json()
+        return self._request("GET", path, params=params)
 
     def _post(self, path: str, json_payload: Dict[str, Any] | None = None, params: Dict[str, Any] | None = None) -> Any:
+        return self._request("POST", path, params=params, json_payload=json_payload)
+
+    def _request(self, method: str, path: str, params: Dict[str, Any] | None = None, json_payload: Dict[str, Any] | None = None, retry: bool = True) -> Any:
+        """Internal request helper that will attempt a single refresh+retry on 401.
+
+        - method: "GET" or "POST"
+        - retry: if True the helper will attempt refresh and one retry on 401
+        """
+        logger = logging.getLogger("tuitter.api")
         if params is None:
             params = {}
         params.setdefault("handle", self.handle)
         url = f"{self.base_url}/{path.lstrip('/')}"
-        resp = self.session.post(url, params=params, json=json_payload, timeout=self.timeout)
-        resp.raise_for_status()
-        return resp.json()
+
+        try:
+            if method.upper() == "GET":
+                resp = self.session.get(url, params=params, timeout=self.timeout)
+            else:
+                resp = self.session.post(url, params=params, json=json_payload, timeout=self.timeout)
+
+            # If unauthorized, try refresh once
+            if resp.status_code == 401 and retry:
+                logger.info("API 401 received for %s %s - attempting refresh", method, path)
+                try:
+                    stored = load_tokens()
+                    refresh = stored.get('refresh_token') if stored else None
+                    if refresh:
+                        new_tokens = refresh_tokens(refresh)
+                        if new_tokens and isinstance(new_tokens, dict) and new_tokens.get('access_token'):
+                            # Update in-memory token and persist refreshed tokens
+                            try:
+                                self.set_token(new_tokens['access_token'])
+                            except Exception:
+                                pass
+                            try:
+                                save_tokens_full(new_tokens)
+                            except Exception:
+                                logger.debug("Failed to persist refreshed tokens (non-fatal)")
+
+                            # Retry the request once
+                            if method.upper() == "GET":
+                                resp = self.session.get(url, params=params, timeout=self.timeout)
+                            else:
+                                resp = self.session.post(url, params=params, json=json_payload, timeout=self.timeout)
+                except Exception:
+                    logger.debug("Refresh attempt failed (non-fatal) while handling initial 401")
+
+            resp.raise_for_status()
+            return resp.json()
+
+        except requests.HTTPError as e:
+            status = None
+            try:
+                status = e.response.status_code if e.response is not None else None
+            except Exception:
+                pass
+
+            # If we got a 401 and haven't retried yet, try to refresh
+            if status == 401 and retry:
+                logger.info("HTTPError 401; attempting refresh and retry after exception path for %s %s", method, path)
+                try:
+                    stored = load_tokens()
+                    refresh = stored.get('refresh_token') if stored else None
+                    if refresh:
+                        new_tokens = refresh_tokens(refresh)
+                        if new_tokens and isinstance(new_tokens, dict) and new_tokens.get('access_token'):
+                            try:
+                                self.set_token(new_tokens['access_token'])
+                            except Exception:
+                                pass
+                            try:
+                                save_tokens_full(new_tokens)
+                            except Exception:
+                                logger.debug("Failed to persist refreshed tokens (non-fatal)")
+
+                            # Retry the original call once
+                            return self._request(method, path, params=params, json_payload=json_payload, retry=False)
+                except Exception:
+                    logger.debug("Refresh attempt failed (non-fatal) while handling 401")
+
+            # Re-raise original HTTP error if refresh didn't succeed or cannot be performed
+            raise
 
     # --- implementations (minimal, may need expansion) ---
     def get_current_user(self) -> User:

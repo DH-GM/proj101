@@ -8,6 +8,7 @@ import webbrowser
 import threading
 import requests
 import keyring
+from .auth_storage import save_tokens_full, save_refresh_token, load_tokens, clear_tokens
 import json
 import sys
 import logging
@@ -212,66 +213,21 @@ def authenticate() -> Dict[str, str]:
 
         refresh_token = tokens.get('refresh_token')
 
-        # Windows-specific: Always use DPAPI-encrypted file for refresh tokens to avoid keyring size limits
-        if platform.system() == "Windows":
-            logger.info("Windows detected: storing refresh token in DPAPI-encrypted file")
-            try:
-                import base64
-                import win32crypt
+        # Delegate secure storage to centralized auth_storage which will
+        # choose the appropriate backend (DPAPI on Windows, keyring on
+        # other platforms). This keeps storage policy in one place.
+        try:
+            save_refresh_token(refresh_token, username)
+        except Exception:
+            logger.exception("Failed to save refresh token via auth_storage (non-fatal)")
 
-                payload = json.dumps({
-                    'refresh_token': refresh_token,
-                    'username': username
-                }).encode('utf-8')
-
-                protected = win32crypt.CryptProtectData(payload, None, None, None, None, 0)
-                b64 = base64.b64encode(protected).decode('ascii')
-                FALLBACK_TOKEN_FILE.write_text(
-                    json.dumps({'encrypted': True, 'data': b64}),
-                    encoding='utf-8'
-                )
-                logger.info("Refresh token encrypted with DPAPI and stored in: %s", FALLBACK_TOKEN_FILE)
-
-                # Store username in keyring (small data, shouldn't cause issues)
-                try:
-                    keyring.set_password(SERVICE_NAME, 'username', username)
-                    logger.info("Username stored in keyring")
-                except Exception as e:
-                    logger.warning("Failed to store username in keyring: %s", e)
-
-            except ImportError:
-                logger.error("win32crypt not available - falling back to plaintext file")
-                FALLBACK_TOKEN_FILE.write_text(
-                    json.dumps({'refresh_token': refresh_token, 'username': username}),
-                    encoding='utf-8'
-                )
-            except Exception as e:
-                logger.exception("Failed to encrypt tokens with DPAPI, using plaintext: %s", e)
-                FALLBACK_TOKEN_FILE.write_text(
-                    json.dumps({'refresh_token': refresh_token, 'username': username}),
-                    encoding='utf-8'
-                )
-
-        # Non-Windows: Use keyring for refresh token
-        else:
-            if refresh_token:
-                try:
-                    keyring.set_password(SERVICE_NAME, 'refresh_token', refresh_token)
-                    logger.info("Refresh token stored in system keyring")
-                except Exception:
-                    logger.exception("Failed to write refresh token to keyring; using fallback file %s", FALLBACK_TOKEN_FILE)
-                    FALLBACK_TOKEN_FILE.write_text(
-                        json.dumps({'refresh_token': refresh_token, 'username': username}),
-                        encoding='utf-8'
-                    )
-
-            # Store username in keyring
-            try:
-                keyring.set_password(SERVICE_NAME, 'username', username)
-            except Exception:
-                logger.warning("Failed to store username in keyring")
+        try:
+            save_tokens_full(tokens, username)
+        except Exception:
+            logger.exception("Failed to save full tokens via auth_storage (non-fatal)")
 
         return {'username': username, 'tokens': tokens}
+
 
     finally:
         # Don't call server.shutdown() here (it blocks). The server thread is
@@ -288,80 +244,42 @@ def get_stored_credentials() -> Optional[Dict[str, str]]:
     """Retrieve stored credentials from system keyring or DPAPI-encrypted file.
     Returns dict with username and tokens if found, None otherwise.
     """
-    refresh_token = None
-    username = None
-
+    # Prefer using centralized auth_storage loader so there's a single
+    # canonical path for reading stored credentials.
     try:
-        # Windows: Always read from DPAPI-encrypted file
-        if platform.system() == "Windows":
-            if FALLBACK_TOKEN_FILE.exists():
-                try:
-                    raw = FALLBACK_TOKEN_FILE.read_text(encoding='utf-8') or '{}'
-                    data = json.loads(raw)
+        from .auth_storage import load_tokens as _load
+        found = _load()
+        logger = logging.getLogger("tuitter.auth")
+        logger.debug("get_stored_credentials: auth_storage.load_tokens() -> %s", type(found))
 
-                    # Try to decrypt DPAPI-protected data
-                    if isinstance(data, dict) and data.get('encrypted'):
-                        try:
-                            import base64
-                            import win32crypt
+        if not found:
+            return None
 
-                            protected = base64.b64decode(data.get('data'))
-                            unprotected, _ = win32crypt.CryptUnprotectData(protected, None, None, None, 0)
-                            inner = json.loads(unprotected.decode('utf-8'))
-                            refresh_token = inner.get('refresh_token')
-                            username = inner.get('username')
-                        except Exception:
-                            # Decryption failed, try plaintext fallback
-                            pass
+        # If we found a full token blob, return it directly
+        if 'tokens' in found and isinstance(found['tokens'], dict):
+            return {'username': found.get('username') or '', 'tokens': found['tokens']}
 
-                    # Fallback to plaintext if not encrypted
-                    if not refresh_token and isinstance(data, dict):
-                        refresh_token = data.get('refresh_token')
-                        username = data.get('username')
-
-                except Exception:
-                    pass
-
-            # Try to get username from keyring as backup
-            if not username:
-                try:
-                    username = keyring.get_password(SERVICE_NAME, 'username')
-                except Exception:
-                    pass
-
-        # Non-Windows: Use keyring
-        else:
+        # If we have only a refresh token, attempt to refresh
+        if 'refresh_token' in found and found.get('refresh_token'):
             try:
-                refresh_token = keyring.get_password(SERVICE_NAME, 'refresh_token')
-                username = keyring.get_password(SERVICE_NAME, 'username')
-            except Exception:
-                pass
-
-            # Fallback to file if keyring fails
-            if not refresh_token and FALLBACK_TOKEN_FILE.exists():
+                tokens = refresh_tokens(found['refresh_token'])
+                # Persist refreshed tokens if we successfully obtained them so
+                # subsequent restarts can use the fresh access/id tokens.
                 try:
-                    raw = FALLBACK_TOKEN_FILE.read_text(encoding='utf-8') or '{}'
-                    data = json.loads(raw)
-                    if isinstance(data, dict):
-                        refresh_token = data.get('refresh_token')
-                        username = username or data.get('username')
+                    save_tokens_full(tokens, found.get('username') or None)
                 except Exception:
-                    pass
-
-        # If we have a refresh token, use it to get fresh access tokens
-        if refresh_token:
-            try:
-                tokens = refresh_tokens(refresh_token)
+                    logger = logging.getLogger("tuitter.auth")
+                    logger.debug("get_stored_credentials: failed to persist refreshed tokens (non-fatal)")
                 if tokens:
-                    return {'username': username or '', 'tokens': tokens}
+                    return {'username': found.get('username') or '', 'tokens': tokens}
             except Exception:
-                # If refresh failed, credentials are invalid
-                pass
+                # refresh failed; fall through to return None
+                logger.debug("get_stored_credentials: refresh_tokens failed")
 
+        return None
     except Exception:
-        pass
-
-    return None
+        # If anything goes wrong, don't crash - return None so caller shows auth
+        return None
 
 
 def refresh_tokens(refresh_token: str) -> Dict[str, str]:

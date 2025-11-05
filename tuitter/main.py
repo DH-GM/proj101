@@ -229,6 +229,35 @@ class AuthScreen(Screen):
         except Exception:
             pass
 
+        # Attempt a silent restore here so if tokens are present (written by
+        # another session) we immediately switch to the main UI without
+        # requiring the user to quit/reopen. This mirrors App.on_mount but
+        # runs when the AuthScreen becomes active.
+        try:
+            from .auth import get_stored_credentials
+            creds = get_stored_credentials()
+            try:
+                self.app.log_auth_event(f"AuthScreen.on_mount: silent-restore creds={bool(creds)}")
+            except Exception:
+                pass
+
+            if creds and isinstance(creds, dict):
+                # Use the same transition as authenticate() worker: hand off
+                # credentials to the App to mount the main UI.
+                try:
+                    self.app.show_main_app(credentials=creds)
+                    return
+                except Exception:
+                    # If show_main_app fails for any reason, fall back to
+                    # leaving the auth screen visible so user can sign in.
+                    try:
+                        self.app.log_auth_event("AuthScreen.on_mount: silent restore failed, falling back to auth screen")
+                    except Exception:
+                        pass
+        except Exception:
+            # Don't let silent-restore errors prevent the auth screen from working
+            pass
+
     def on_button_pressed(self, event: Button.Pressed) -> None:
         """Handle sign-in button press."""
         import sys
