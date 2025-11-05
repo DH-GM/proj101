@@ -4076,19 +4076,18 @@ class Proj101App(App):
                 self.mount, ScreenClass(id="screen-container", **kwargs)
             )
 
-            # Update header based on screen
-            if screen_name == "user_profile" and "username" in kwargs:
-                self.query_one("#app-header", Static).update(
-                    f"tuitter [@{kwargs['username']}] @yourname"
-                )
-            elif screen_name == "messages" and "username" in kwargs:
-                self.query_one("#app-header", Static).update(
-                    f"tuitter [dm:@{kwargs['username']}] @yourname"
-                )
-            else:
-                self.query_one("#app-header", Static).update(
-                    f"tuitter [{screen_name}] @yourname"
-                )
+            # Update header based on screen (guarded: header may not be mounted yet)
+            try:
+                header = self.query_one("#app-header", Static)
+                if screen_name == "user_profile" and "username" in kwargs:
+                    header.update(f"tuitter [@{kwargs['username']}] @yourname")
+                elif screen_name == "messages" and "username" in kwargs:
+                    header.update(f"tuitter [dm:@{kwargs['username']}] @yourname")
+                else:
+                    header.update(f"tuitter [{screen_name}] @yourname")
+            except Exception:
+                # Header widget isn't present (e.g. main UI not mounted yet) — skip update
+                pass
 
             self.query_one("#app-footer", Static).update(footer_text)
             self.current_screen_name = screen_name
