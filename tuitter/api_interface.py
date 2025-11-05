@@ -1,10 +1,11 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import json
 import os
 import random
 from pathlib import Path
 from typing import List, Optional, Dict, Any, Iterable
 from dataclasses import dataclass
+import logging
 
 import keyring
 import requests
@@ -224,15 +225,53 @@ class RealAPI(APIInterface):
     # --- conversion helpers ---
     def _convert_post(self, p: Dict[str, Any]) -> Dict[str, Any]:
         # Ensure fields match Post dataclass naming
+        # Normalize timestamp into a datetime object (local naive)
+        ts_raw = p.get("timestamp")
+        timestamp = None
+        try:
+            if isinstance(ts_raw, datetime):
+                timestamp = ts_raw
+            elif isinstance(ts_raw, str):
+                # If the string contains an explicit timezone (Z or ±HH:MM), parse
+                # it as an aware datetime. If it lacks timezone info, assume the
+                # server returned UTC (common for ISO timestamps without a suffix)
+                # and convert to local time.
+                try:
+                    s = ts_raw
+                    has_tz = s.endswith("Z") or ("+" in s[10:] or "-" in s[10:])
+                    if has_tz:
+                        # Normalize trailing Z to +00:00 then parse as aware
+                        dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
+                    else:
+                        # No timezone info: treat as UTC
+                        dt = datetime.fromisoformat(s)
+                        dt = dt.replace(tzinfo=timezone.utc)
+
+                    # Convert to local timezone and return naive local datetime
+                    timestamp = dt.astimezone().replace(tzinfo=None)
+                except Exception:
+                    # Last-resort parse: use now
+                    timestamp = datetime.now()
+            else:
+                timestamp = datetime.now()
+        except Exception:
+            timestamp = datetime.now()
+
+        try:
+            logging.getLogger("tuitter.api").debug(
+                "_convert_post: raw timestamp=%r parsed=%r for post id=%s",
+                ts_raw,
+                timestamp,
+                p.get("id"),
+            )
+        except Exception:
+            pass
+
         out = dict(
             id=str(p.get("id")),
             author=p.get("author") or p.get("username") or p.get("user"),
             content=p.get("content") or p.get("text") or "",
-            timestamp=p.get("timestamp")
-            if isinstance(p.get("timestamp"), datetime)
-            else datetime.fromisoformat(p.get("timestamp"))
-            if p.get("timestamp")
-            else datetime.now(),
+            timestamp=timestamp,
             likes=int(p.get("likes") or 0),
             reposts=int(p.get("reposts") or 0),
             comments=int(p.get("comments") or 0),
