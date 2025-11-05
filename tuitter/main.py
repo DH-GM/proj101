@@ -1546,7 +1546,8 @@ class NewPostDialog(ModalScreen):
 
                     # Convert pixels to ASCII
                     pixels = img.load()
-                    ascii_chars = ['@', '#', 'S', '%', '?', '*', '+', ';', ':', ',', '.']
+                    # Use reversed density ramp so dark areas map to sparse chars
+                    ascii_chars = ['.', ',', ':', ';', '+', '*', '?', '%', 'S', '#', '@']
                     ascii_lines = []
                     for y in range(height):
                         line = ""
