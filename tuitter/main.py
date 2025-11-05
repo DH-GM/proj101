@@ -25,13 +25,38 @@ from typing import List, Dict
 from rich.text import Text
 import logging
 import time
+import webbrowser
+import keyring
+import os
+import dotenv
 
+dotenv.load_dotenv()
+
+serviceKeyring = "tuiitter"
+
+# Service name for keyring storage
 
 # Custom message for draft updates
 class DraftsUpdated(Message):
     """Posted when drafts are updated."""
 
     pass
+
+
+class AuthenticationCompleted(Message):
+    """Posted when authentication completes successfully."""
+
+    def __init__(self, username: str) -> None:
+        super().__init__()
+        self.username = username
+
+
+class AuthenticationFailed(Message):
+    """Posted when authentication fails."""
+
+    def __init__(self, error: str) -> None:
+        super().__init__()
+        self.error = error
 
 
 # Drafts file path
@@ -112,6 +137,392 @@ def format_time_ago(dt: datetime) -> str:
     if diff.seconds < 3600:
         return f"{diff.seconds // 60}m ago"
     return f"{diff.seconds // 3600}h ago"
+
+
+# ───────── Main UI Screen (not auth) ─────────
+class MainUIScreen(Screen):
+    """The main authenticated app screen with timeline/discover/etc."""
+
+    def __init__(self, starting_view: str = "timeline"):
+        super().__init__()
+        self.starting_view = starting_view
+
+    def compose(self) -> ComposeResult:
+        username = keyring.get_password(serviceKeyring, "username") or "yourname"
+        yield Static(f"tuitter [{self.starting_view}] @{username}", id="app-header", markup=False)
+        yield TopNav(id="top-navbar", current=self.starting_view)
+
+        # Show the appropriate content based on starting_view
+        if self.starting_view == "timeline":
+            yield TimelineScreen(id="screen-container")
+        elif self.starting_view == "discover":
+            yield DiscoverScreen(id="screen-container")
+        elif self.starting_view == "notifications":
+            yield NotificationsScreen(id="screen-container")
+        elif self.starting_view == "messages":
+            yield MessagesScreen(id="screen-container")
+        elif self.starting_view == "settings":
+            yield SettingsScreen(id="screen-container")
+        else:
+            yield TimelineScreen(id="screen-container")
+
+        yield Static("[1-5] Screens [p] Profile [d] Drafts [j/k] Navigate [:n] New Post [:q] Quit", id="app-footer", markup=False)
+        yield Static("", id="command-bar")
+
+        # Auth Debug Log - only show if TUITTER_DEBUG environment variable is set
+        if os.getenv("TUITTER_DEBUG"):
+            auth_log = RichLog(id="auth-log", highlight=True, markup=True)
+            auth_log.styles.height = "10"
+            auth_log.styles.border = ("solid", "yellow")
+            auth_log.border_title = "Auth Debug Log"
+            yield auth_log
+
+
+# ───────── Auth Screen ─────────
+class AuthScreen(Screen):
+    """Authentication screen using Textual Screen for auth flow.
+
+    Making this a Screen lets the App push/pop it using native Textual
+    navigation which avoids layout races when switching between auth and
+    main UI.
+    """
+
+    def compose(self) -> ComposeResult:
+        # Minimal auth screen: centered sign-in button
+        with Container(id="auth-wrapper"):
+            with Container(id="auth-center"):
+                yield Static("Continue in your browser", id="auth-title", classes="signin")
+                with Container(id="oauth-signin-container"):
+                    # Make this the app's primary button so global Button.-primary styles apply
+                    yield Button("Sign In", id="oauth-signin", variant="primary", classes="signin")
+
+        # Status text should appear outside and below the cyan card so it's visually
+        # separated from the dialog. Center it horizontally.
+        yield Static("", id="auth-status", classes="signin")
+        # Small hint so users know Enter will activate the sign-in
+        yield Static("press Enter to sign in", id="auth-hint", classes="signin")
+
+        yield Static("press q to quit", id="quit-label", classes="signin")
+
+    def on_mount(self) -> None:
+        """Called when the AuthScreen is mounted."""
+        import sys
+        try:
+            # Use App-level logging so it respects TUITTER_DEBUG and in-TUI RichLog
+            self.app.log_auth_event("AuthScreen.on_mount CALLED")
+        except Exception:
+            pass
+        try:
+            button = self.query_one("#oauth-signin", Button)
+            try:
+                self.app.log_auth_event(f"Found button: {button.id}")
+            except Exception:
+                pass
+        except Exception as e:
+            try:
+                self.app.log_auth_event(f"Failed to find button: {e}")
+            except Exception:
+                pass
+
+        try:
+            self.app.log_auth_event("AuthScreen.on_mount: Screen mounted")
+        except Exception:
+            pass
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        """Handle sign-in button press."""
+        import sys
+        try:
+            self.app.log_auth_event(f"BUTTON PRESSED: {event.button.id}")
+        except Exception:
+            pass
+
+        if event.button.id == "oauth-signin":
+            try:
+                self.app.log_auth_event("Sign-in button confirmed")
+            except Exception:
+                pass
+            # Update status immediately
+            try:
+                self.query_one("#auth-status", Static).update("Opening browser...")
+                try:
+                    self.app.log_auth_event("Updated status text")
+                except Exception:
+                    pass
+            except Exception as e:
+                try:
+                    self.app.log_auth_event(f"Failed to update status: {e}")
+                except Exception:
+                    pass
+
+            # Schedule the OAuth flow
+            try:
+                self.app.log_auth_event("About to call call_after_refresh")
+            except Exception:
+                pass
+            self.call_after_refresh(self._start_auth_flow)
+            try:
+                self.app.log_auth_event("call_after_refresh returned")
+            except Exception:
+                pass
+
+    def key_enter(self) -> None:
+        """Allow Enter to trigger the auth flow even when the button isn't focused.
+
+        If the Button has keyboard focus it will handle Enter itself, so skip in
+        that case to avoid double-triggering.
+        """
+        try:
+            btn = self.query_one("#oauth-signin", Button)
+            if getattr(btn, "has_focus", False):
+                return
+        except Exception:
+            # No button found - still allow flow to start
+            pass
+
+        try:
+            # Mirror the same behaviour as clicking the button
+            self.query_one("#auth-status", Static).update("Opening browser...")
+        except Exception:
+            pass
+        # Schedule the OAuth flow on the UI thread
+        self.call_after_refresh(self._start_auth_flow)
+
+    def _start_auth_flow(self) -> None:
+        """Start the OAuth flow using simplified auth module."""
+        # Run authenticate() in a background thread so the Textual event loop
+        # stays responsive. Marshal UI updates back to the main thread using
+        # call_from_thread / app.call_from_thread.
+        from .auth import authenticate, AuthError
+        import threading
+        import sys
+
+        # Log immediately that this method was called
+        if os.getenv("TUITTER_DEBUG"):
+            # Keep a very early guard to avoid spamming when debug not set
+            try:
+                self.app.log_auth_event("_start_auth_flow CALLED")
+            except Exception:
+                pass
+        try:
+            self.app.log_auth_event("_start_auth_flow: Method called, about to start worker thread")
+        except Exception:
+            try:
+                self.app.log_auth_event("Failed to log start_auth_flow")
+            except Exception:
+                pass
+
+        def _ui_call(fn):
+            # Try to schedule a callable on the UI thread. Prefer Screen.call_from_thread
+            # then App.call_from_thread, falling back to posting a no-op if unavailable.
+            try:
+                self.call_from_thread(fn)
+            except Exception:
+                try:
+                    # Schedule the callable on the App thread
+                    self.app.call_from_thread(fn)
+                except Exception:
+                    # Last-resort: post a message to trigger the UI loop
+                    try:
+                        self.app.call_from_thread(lambda: self.post_message(DraftsUpdated()))
+                    except Exception:
+                        pass
+
+        def worker():
+            try:
+                # Wrap authenticate() call to catch ANY exception including Windows keyring errors
+                result = None
+                try:
+                    result = authenticate()
+                except Exception as auth_exc:
+                    # Authentication failed - could be keyring error, network error, etc.
+                    # Try to read any tokens that might have been saved to fallback file
+                    # despite the exception (keyring errors often still save to fallback)
+                    try:
+                        from .auth import get_stored_credentials
+                        creds = get_stored_credentials()
+                        if creds and isinstance(creds, dict):
+                            result = creds
+                        else:
+                            # No fallback credentials available - re-raise the auth error
+                            raise
+                    except Exception:
+                        # Could not recover - re-raise original exception
+                        raise auth_exc from None
+
+                if not result:
+                    raise AuthError("Authentication returned no result")
+
+                # CRITICAL FIX: Set credentials IMMEDIATELY in the worker thread
+                # Don't wait for UI thread to process them - this is thread-safe
+                username = ""
+                try:
+                    tokens = result.get('tokens') if isinstance(result, dict) else None
+                    username = result.get('username', '') if isinstance(result, dict) else ''
+
+                    if tokens and isinstance(tokens, dict) and 'access_token' in tokens:
+                        # Set token immediately - this is thread-safe
+                        api.set_token(tokens['access_token'])
+
+                    if username:
+                        # Set API handle immediately
+                        api.handle = username
+
+                        # Ensure user exists in DB (do this in worker thread)
+                        try:
+                            user_profile = api.get_current_user()
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
+
+                # Post a message and try to directly trigger the UI transition on the
+                # application's main thread. We do multiple attempts to be robust
+                # across Textual versions / environments where call_from_thread or
+                # message routing may behave differently.
+                def on_success():
+                    try:
+                        # Update status text if widget present
+                        try:
+                            self.query_one("#auth-status", Static).update("✓ Successfully signed in!")
+                        except Exception:
+                            pass
+                        # Ensure tokens are picked up and main UI mounted - pass credentials
+                        try:
+                            self.app.show_main_app(credentials=result)
+                        except Exception:
+                            pass
+
+                    except Exception:
+                        pass
+
+                try:
+                    # 1) Post AuthenticationCompleted message
+                    try:
+                        self.app.call_from_thread(lambda: self.post_message(AuthenticationCompleted(username=username)))
+                    except Exception:
+                        try:
+                            # Some Textual versions route messages differently; try posting on screen
+                            self.post_message(AuthenticationCompleted(username=username))
+                        except Exception:
+                            pass
+
+                    # 2) Set reactive flag on App
+                    try:
+                        self.app.call_from_thread(lambda: setattr(self.app, "authenticated", True))
+                    except Exception:
+                        try:
+                            setattr(self.app, "authenticated", True)
+                        except Exception:
+                            pass
+
+                    # 3) Directly ask the App to show main UI (best-effort)
+                    # Pass credentials directly to avoid file I/O race conditions
+
+                    def transition_to_main():
+                        try:
+                            # Schedule show_main_app on the next event loop iteration
+                            # This ensures all current event processing is complete first
+                            self.app.call_later(lambda: self.app.show_main_app(credentials=result))
+                        except Exception:
+                            pass
+
+                    try:
+                        # Use call_from_thread to schedule the transition on the main thread
+                        self.app.call_from_thread(transition_to_main)
+                    except Exception:
+                        # Fallback: try direct call (might work if already on main thread)
+                        try:
+                            self.app.show_main_app(credentials=result)
+                        except Exception:
+                            pass
+
+                except Exception:
+                    # Last-resort: schedule on-success closure via _ui_call
+                    _ui_call(on_success)
+
+            except AuthError as e:
+                # Post a message on the UI thread with failure
+                try:
+                    self.app.call_from_thread(lambda: self.post_message(AuthenticationFailed(error=str(e))))
+                except Exception:
+                    def on_auth_fail():
+                        try:
+                            self.query_one("#auth-status", Static).update(f"⚠️ Auth failed: {str(e)}")
+                        except Exception:
+                            pass
+                        try:
+                            self.app.notify("Authentication failed", severity="error")
+                        except Exception:
+                            pass
+
+                    _ui_call(on_auth_fail)
+
+            except Exception as e:
+                try:
+                    self.app.call_from_thread(lambda: self.post_message(AuthenticationFailed(error=str(e))))
+                except Exception:
+                    def on_exc():
+                        try:
+                            self.query_one("#auth-status", Static).update("⚠️ An error occurred")
+                        except Exception:
+                            pass
+                        try:
+                            self.app.notify(str(e), severity="error")
+                        except Exception:
+                            pass
+
+                    _ui_call(on_exc)
+
+        try:
+            self.app.log_auth_event("Creating worker thread")
+        except Exception:
+            pass
+        t = threading.Thread(target=worker, daemon=True)
+        try:
+            self.app.log_auth_event("Starting worker thread")
+        except Exception:
+            pass
+        t.start()
+        try:
+            self.app.log_auth_event("Worker thread started")
+        except Exception:
+            pass
+        try:
+            self.app.log_auth_event("_start_auth_flow: Worker thread created and started")
+        except Exception:
+            try:
+                self.app.log_auth_event("Failed to log thread start")
+            except Exception:
+                pass
+
+    # Message handlers for authentication results
+    def on_authentication_completed(self, message: AuthenticationCompleted) -> None:
+        """Handle successful authentication message."""
+        try:
+            # Update status - the worker thread already called show_main_app with credentials
+            try:
+                self.query_one("#auth-status", Static).update("✓ Successfully signed in!")
+            except Exception:
+                pass
+            # NOTE: Don't call show_main_app() here - it's already being called from the worker
+            # thread with the correct credentials. Calling it again would overwrite with defaults.
+        except Exception:
+            pass
+
+    def on_authentication_failed(self, message: AuthenticationFailed) -> None:
+        """Handle failed authentication message."""
+        try:
+            try:
+                self.query_one("#auth-status", Static).update(f"⚠️ Auth failed: {message.error}")
+            except Exception:
+                pass
+            try:
+                self.app.notify("Authentication failed", severity="error")
+            except Exception:
+                pass
+        except Exception:
+            pass
 
 
 # ───────── Comment Screen ─────────
@@ -494,10 +905,10 @@ class ProfileDisplay(Static):
 
     def compose(self) -> ComposeResult:
         user = api.get_current_user()
-        yield Static(
-            f"@{user.username} • {user.display_name}", classes="profile-username"
-        )
-
+        username = keyring.get_password(serviceKeyring, "username")
+        if username == None:
+            username = user.username
+        yield Static(f"@{username} • {user.display_name}", classes="profile-username")
 
 class ConversationItem(Static):
     def __init__(self, conversation, **kwargs):
@@ -671,12 +1082,10 @@ class UserProfileCard(Static):
             info_container = Container(classes="user-card-info")
             with info_container:
                 yield Static(self.display_name, classes="user-card-name")
+                # Resolve current local username once (fall back to the profile's username)
+                current_user = keyring.get_password(serviceKeyring, "username") or self.username
                 # Make username clickable as a button-like widget
-                yield Button(
-                    f"@{self.username}",
-                    id=f"username-{self.username}",
-                    classes="user-card-username-btn",
-                )
+                yield Button(f"@{current_user}", id=f"username-{current_user}", classes="user-card-username-btn")
 
                 yield Static(self.bio, classes="user-card-bio")
 
@@ -692,21 +1101,11 @@ class UserProfileCard(Static):
 
                 buttons_container = Container(classes="user-card-buttons")
                 with buttons_container:
-                    yield Button(
-                        "Follow",
-                        id=f"follow-{self.username}",
-                        classes="user-card-button",
-                    )
-                    yield Button(
-                        "Message",
-                        id=f"message-{self.username}",
-                        classes="user-card-button",
-                    )
-                    yield Button(
-                        "View Profile",
-                        id=f"view-{self.username}",
-                        classes="user-card-button",
-                    )
+                    # Reuse the resolved current_user to avoid repeated keyring calls
+                    buttons_user = current_user
+                    yield Button("Follow", id=f"follow-{buttons_user}", classes="user-card-button")
+                    yield Button("Message", id=f"message-{buttons_user}", classes="user-card-button")
+                    yield Button("View Profile", id=f"view-{buttons_user}", classes="user-card-button")
                 yield buttons_container
             yield info_container
 
@@ -2329,64 +2728,137 @@ class MessagesScreen(Container):
 
 class SettingsPanel(VerticalScroll):
     cursor_position = reactive(0)
+    settings_loaded = reactive(False)
 
     def compose(self) -> ComposeResult:
         self.border_title = "Settings"
-        settings = api.get_user_settings()
-        yield Static("settings.profile | line 1", classes="panel-header")
-        yield Static("\n→ Profile Picture (ASCII)", classes="settings-section-header")
-        yield Static("Make ASCII Profile Picture from image file")
-        yield Button(
-            "Upload file", id="upload-profile-picture", classes="upload-profile-picture"
-        )
-        yield Static(
-            f"{settings.ascii_pic}",
-            id="profile-picture-display",
-            classes="ascii-avatar",
-        )
+        # Show loading state initially - we'll fetch settings in on_mount()
+        yield Static("⏳ Loading settings...", id="settings-loading", classes="panel-header")
 
-        yield Static("\n→ Account Information", classes="settings-section-header")
-        yield Static(f"  Username:\n  @{settings.username}", classes="settings-field")
-        yield Static(
-            f"\n  Display Name:\n  {settings.display_name}", classes="settings-field"
-        )
-        yield Static(f"\n  Bio:\n  {settings.bio}", classes="settings-field")
-        yield Static("\n→ OAuth Connections", classes="settings-section-header")
-        github_status = "Connected" if settings.github_connected else "[:c] Connect"
-        gitlab_status = "Connected" if settings.gitlab_connected else "[:c] Connect"
-        google_status = "Connected" if settings.google_connected else "[:c] Connect"
-        discord_status = "Connected" if settings.discord_connected else "[:c] Connect"
-        yield Static(
-            f"  [🟢] GitHub                                              {github_status}",
-            classes="oauth-item",
-        )
-        yield Static(
-            f"  [⚪] GitLab                                              {gitlab_status}",
-            classes="oauth-item",
-        )
-        yield Static(
-            f"  [⚪] Google                                              {google_status}",
-            classes="oauth-item",
-        )
-        yield Static(
-            f"  [⚪] Discord                                             {discord_status}",
-            classes="oauth-item",
-        )
-        yield Static("\n→ Preferences", classes="settings-section-header")
-        email_check = "✅" if settings.email_notifications else "⬜"
-        online_check = "✅" if settings.show_online_status else "⬜"
-        private_check = "✅" if settings.private_account else "⬜"
-        yield Static(f"  {email_check} Email notifications", classes="checkbox-item")
-        yield Static(f"  {online_check} Show online status", classes="checkbox-item")
-        yield Static(f"  {private_check} Private account", classes="checkbox-item")
-        yield Static(
-            "\n  [:w] Save Changes     [:q] Cancel", classes="settings-actions"
-        )
-        yield Static(
-            "\n:w - save  [:e] Edit field  [Tab] Next field  [Esc] Cancel",
-            classes="help-text",
-            markup=False,
-        )
+        # Placeholder containers that will be populated once settings load
+        yield Container(id="settings-content")
+
+    def on_mount(self) -> None:
+        """Fetch settings after mount to ensure API handle is set."""
+        try:
+            # Log the current API handle for debugging
+            try:
+                self.app.log_auth_event(f"SettingsPanel: Fetching settings for handle '{api.handle}'")
+            except Exception:
+                pass
+
+            # Fetch settings from API
+            settings = api.get_user_settings()
+
+            # Remove loading message
+            try:
+                self.query_one("#settings-loading").remove()
+            except Exception:
+                pass
+
+            # Populate settings content
+            container = self.query_one("#settings-content", Container)
+            container.mount(Static("settings.profile | line 1", classes="panel-header"))
+            container.mount(Static("\n→ Profile Picture (ASCII)", classes="settings-section-header"))
+            container.mount(Static("Make ASCII Profile Picture from image file"))
+            container.mount(Button(
+                "Upload file", id="upload-profile-picture", classes="upload-profile-picture"
+            ))
+            container.mount(Static(
+                f"{settings.ascii_pic}",
+                id="profile-picture-display",
+                classes="ascii-avatar",
+            ))
+
+            container.mount(Static("\n→ Account Information", classes="settings-section-header"))
+            username = keyring.get_password(serviceKeyring, "username")
+            if username == None:
+                username = settings.username
+            container.mount(Static(f"  Username:\n  @{username}", classes="settings-field"))
+            container.mount(Static(
+                f"\n  Display Name:\n  {settings.display_name}", classes="settings-field"
+            ))
+            container.mount(Static(f"\n  Bio:\n  {settings.bio}", classes="settings-field"))
+
+            container.mount(Static("\n→ OAuth Connections", classes="settings-section-header"))
+            github_status = "Connected" if settings.github_connected else "[:c] Connect"
+            gitlab_status = "Connected" if settings.gitlab_connected else "[:c] Connect"
+            google_status = "Connected" if settings.google_connected else "[:c] Connect"
+            discord_status = "Connected" if settings.discord_connected else "[:c] Connect"
+            container.mount(Static(
+                f"  [🟢] GitHub                                              {github_status}",
+                classes="oauth-item",
+            ))
+            container.mount(Static(
+                f"  [⚪] GitLab                                              {gitlab_status}",
+                classes="oauth-item",
+            ))
+            container.mount(Static(
+                f"  [⚪] Google                                              {google_status}",
+                classes="oauth-item",
+            ))
+            container.mount(Static(
+                f"  [⚪] Discord                                             {discord_status}",
+                classes="oauth-item",
+            ))
+            container.mount(Static("\n→ Preferences", classes="settings-section-header"))
+
+            # Preferences
+            email_check = "✅" if settings.email_notifications else "⬜"
+            online_check = "✅" if settings.show_online_status else "⬜"
+            private_check = "✅" if settings.private_account else "⬜"
+            container.mount(Static(f"  {email_check} Email notifications", classes="checkbox-item"))
+            container.mount(Static(f"  {online_check} Show online status", classes="checkbox-item"))
+            container.mount(Static(f"  {private_check} Private account", classes="checkbox-item"))
+            container.mount(Static(
+                "\n  [:w] Save Changes     [:q] Cancel", classes="settings-actions"
+            ))
+            container.mount(Static(
+                "\n:w - save  [:e] Edit field  [Tab] Next field  [Esc] Cancel",
+                classes="help-text",
+                markup=False,
+            ))
+
+            # Sign Out button
+            container.mount(Static("\n→ Session", classes="settings-section-header"))
+            container.mount(Button("Sign Out", id="settings-signout", classes="danger"))
+
+            self.settings_loaded = True
+
+            try:
+                self.app.log_auth_event(f"SettingsPanel: Settings loaded successfully for '{api.handle}'")
+            except Exception:
+                pass
+
+        except Exception as e:
+            # Handle API error gracefully
+            try:
+                self.query_one("#settings-loading").remove()
+            except Exception:
+                pass
+
+            container = self.query_one("#settings-content", Container)
+            container.mount(Static(
+                f"⚠️ Failed to load settings\n\nError: {str(e)}\n\nAPI Handle: {api.handle}",
+                classes="panel-header"
+            ))
+            container.mount(Static(
+                "\nThis is likely a server-side issue. The username was sent correctly.",
+                classes="settings-field"
+            ))
+            container.mount(Static("\n→ Session", classes="settings-section-header"))
+            container.mount(Button("Sign Out", id="settings-signout", classes="danger"))
+
+            try:
+                self.app.log_auth_event(f"SettingsPanel: ERROR loading settings - {str(e)}")
+            except Exception:
+                pass
+
+            # Show notification
+            try:
+                self.app.notify(f"Failed to load settings: {str(e)}", severity="error", timeout=5)
+            except Exception:
+                pass
 
     def watch_cursor_position(self, old_position: int, new_position: int) -> None:
         """Update the cursor when position changes"""
@@ -2521,6 +2993,63 @@ class SettingsPanel(VerticalScroll):
                     self.app.notify("Output file not generated", severity="error")
             except Exception:
                 pass
+        elif event.button.id == "settings-signout":
+            # Sign out (dev behavior): clear stored credentials and exit the app.
+            try:
+                from .auth import clear_credentials
+
+                try:
+                    clear_credentials()
+                except Exception:
+                    # best-effort fallback to remove legacy keys
+                    try:
+                        keyring.delete_password(serviceKeyring, "refresh_token")
+                        keyring.delete_password(serviceKeyring, "username")
+                        keyring.delete_password(serviceKeyring, "oauth_tokens.json")
+                    except Exception:
+                        pass
+
+                # Clear API auth header and reset handle
+                try:
+                    from .api_interface import api
+                    try:
+                        api.session.headers.pop('Authorization', None)
+                    except Exception:
+                        pass
+                    try:
+                        api.handle = "yourname"
+                    except Exception:
+                        pass
+                except Exception:
+                    pass
+
+                # Notify and exit so the surrounding launcher/restart logic
+                # boots the app back into the auth flow on restart (dev approach).
+                try:
+                    self.app.notify("Signing out and exiting application...", severity="info")
+                except Exception:
+                    pass
+
+                # small sleep to allow any UI notifications to flush
+                try:
+                    import time as _time
+
+                    _time.sleep(0.05)
+                except Exception:
+                    pass
+
+                try:
+                    # Use Textual's exit hook
+                    self.app.exit()
+                except Exception:
+                    try:
+                        import sys as _sys
+
+                        _sys.exit(0)
+                    except Exception:
+                        pass
+            except Exception:
+                pass
 
 
 class SettingsScreen(Container):
@@ -2543,8 +3072,10 @@ class ProfilePanel(VerticalScroll):
 
         with profile_container:
             yield Static(settings.ascii_pic, classes="profile-avatar-large")
-            yield Static(f"{settings.display_name}", classes="profile-name-large")
-            yield Static(f"@{settings.username}", classes="profile-username-display")
+            username = keyring.get_password(serviceKeyring, "username")
+            if username == None:
+                username = settings.username
+            yield Static(f"@{username}", classes="profile-username-display")
 
             stats_row = Container(classes="profile-stats-row")
             with stats_row:
@@ -2733,7 +3264,7 @@ class UserProfileViewPanel(VerticalScroll):
 
     def _get_user_posts(self) -> List:
         """Get fake posts from this user."""
-        from api_interface import Post
+        from .api_interface import Post
 
         # Generate 3 fake posts
         posts = []
@@ -3080,6 +3611,13 @@ class Proj101App(App):
     # Disable dark mode toggle - we use our own colors
     ENABLE_COMMAND_PALETTE = False
 
+    # Use MODES for seamless screen transitions
+    # Modes automatically handle initial screen display
+    MODES = {
+        "auth": AuthScreen,
+        "main": MainUIScreen
+    }
+
     BINDINGS = [
         # Basic app controls
         Binding("q", "quit", "Quit", show=False),
@@ -3126,20 +3664,192 @@ class Proj101App(App):
         except:
             pass
 
-    def compose(self) -> ComposeResult:
-        yield Static("tuitter [timeline] @yourname", id="app-header", markup=False)
-        yield TopNav(id="top-navbar", current="timeline")
-        yield TimelineScreen(id="screen-container")
-        yield Static(
-            "[1-5] Screens [p] Profile [d] Drafts [j/k] Navigate [:n] New Post [:q] Quit",
-            id="app-footer",
-            markup=False,
-        )
-        yield Static("", id="command-bar")
+    def show_main_app(self, credentials=None) -> None:
+        """Transition to authenticated main UI screen.
 
+        This method is safe to call from threads - it schedules the mode switch
+        on the main thread using call_later.
+
+        Args:
+            credentials: Optional dict with 'username' and 'tokens' from authenticate().
+                        If not provided, will read from disk (slower, may have timing issues).
+        """
+        try:
+            # Use provided credentials or load from disk
+            username = "yourname"
+            try:
+                if credentials and isinstance(credentials, dict):
+                    # Use credentials passed directly from authenticate() - faster and avoids file I/O
+                    # NOTE: Token and handle should already be set in the worker thread before this is called
+                    username = credentials.get('username') or "yourname"
+                    tokens = credentials.get('tokens')
+                    if tokens and isinstance(tokens, dict) and 'access_token' in tokens:
+                        # Double-check token is set (should already be set in worker thread)
+                        if not api.token:
+                            api.set_token(tokens['access_token'])
+                else:
+                    # Fallback: read from disk
+                    from .auth import get_stored_credentials
+                    creds = get_stored_credentials()
+                    if creds and isinstance(creds, dict):
+                        username = creds.get('username') or "yourname"
+                        tokens = creds.get('tokens')
+                        if tokens and isinstance(tokens, dict) and 'access_token' in tokens:
+                            api.set_token(tokens['access_token'])
+
+                # Ensure API handle is set (should already be set in worker thread for first login)
+                if not api.handle or api.handle == "yourname":
+                    api.handle = username
+
+                # Verify user exists in DB (should already be done in worker thread)
+                try:
+                    user_profile = api.get_current_user()
+                except Exception:
+                    pass
+            except Exception:
+                pass
+
+            # Directly switch mode - thread safety handled by call_from_thread wrapper
+            try:
+                self.switch_mode("main")
+
+                # Force the screen to update by triggering a layout refresh
+                try:
+                    current_screen = self.screen
+                    # Force a refresh
+                    current_screen.refresh(layout=True)
+                    self.refresh(layout=True)
+                except Exception:
+                    pass
+
+                # Final refresh to ensure the UI updates
+                try:
+                    self.refresh()
+                except Exception:
+                    pass
+
+            except Exception:
+                pass
+
+        except Exception:
+            pass
+
+    def show_auth_screen(self) -> None:
+        """Transition to unauthenticated auth screen."""
+        try:
+            self.log_auth_event("show_auth_screen: Switching to auth mode")
+
+            # Clear API state
+            api.session.headers.pop('Authorization', None)
+            api.handle = "yourname"
+
+            # Switch to the auth mode
+            self.switch_mode("auth")
+            self.log_auth_event("show_auth_screen: ✓ Switched to auth mode")
+        except Exception as e:
+            self.log_auth_event(f"show_auth_screen: ERROR - {e}")
+
+    def ensure_auth_overlay(self) -> None:
+        """Alias for show_auth_screen - used by sign-out."""
+        self.show_auth_screen()
+
+    def log_auth_event(self, msg: str) -> None:
+        """Write a short auth-lifecycle message to the in-TUI RichLog if present,
+        otherwise fall back to the standard logging facility.
+
+        This is intentionally lightweight and tolerant of any failures so it
+        doesn't interfere with the auth flow.
+        """
+        if os.getenv("TUITTER_DEBUG"):
+            try:
+                rl = self.query_one("#auth-log", RichLog)
+                rl.write(msg)
+                return
+            except Exception:
+                pass
+        # Fallback to module logging
+        try:
+            logging.getLogger("tuitter.auth").info(msg)
+        except Exception:
+            pass
+
+    def on_authentication_completed(self, message: AuthenticationCompleted) -> None:
+        """App-level handler for successful authentication to ensure UI transitions.
+
+        Some environments dispatch messages to the App rather than the Screen; having
+        this here ensures we always transition to the main app when auth succeeds.
+
+        NOTE: We don't call show_main_app() here anymore because the worker thread
+        handles it directly with the correct credentials to avoid race conditions.
+        """
+        try:
+            # Resolve username once (prefer the message payload, then keyring, then a default)
+            username = (message.username if getattr(message, 'username', None) else None) or keyring.get_password(serviceKeyring, "username") or "yourname"
+            # If header exists, update it
+            try:
+                hdr = self.query_one("#app-header", Static)
+                hdr.update(f"tuitter [timeline] @{username}")
+            except Exception:
+                pass
+            # NOTE: Don't call show_main_app() here - the worker thread already did it with credentials
+        except Exception:
+            pass
     def on_mount(self) -> None:
-        """Focus the main timeline feed on app startup"""
-        self.call_after_refresh(self._focus_initial_content)
+        """App startup - decide which mode to show based on stored credentials."""
+        import sys
+        try:
+            self.log_auth_event("App.on_mount CALLED")
+        except Exception:
+            pass
+        try:
+            from .auth import get_stored_credentials
+            creds = get_stored_credentials()
+
+            try:
+                self.log_auth_event(f"Got creds: {type(creds)}, has_tokens={bool(creds and creds.get('tokens')) if creds else False}")
+            except Exception:
+                pass
+
+            if creds and isinstance(creds, dict):
+                tokens = creds.get('tokens') or {}
+                if isinstance(tokens, dict) and 'access_token' in tokens:
+                    username = creds.get('username') or "yourname"
+
+                    # Set API state
+                    api.set_token(tokens['access_token'])
+                    api.handle = username
+
+                    # Ensure user exists in DB
+                    try:
+                        user_profile = api.get_current_user()
+                        self.log_auth_event(f"on_mount: User confirmed (id={user_profile.id})")
+                    except Exception as e:
+                        self.log_auth_event(f"on_mount: WARNING - {e}")
+
+                    # Show main UI
+                    try:
+                        self.log_auth_event("Switching to MAIN mode (has valid creds)")
+                    except Exception:
+                        pass
+                    self.switch_mode("main")
+                    self.log_auth_event("on_mount: Switched to main mode")
+                    return
+
+            # No valid credentials - show auth screen
+            try:
+                self.log_auth_event("Switching to AUTH mode (no valid creds)")
+            except Exception:
+                pass
+            self.switch_mode("auth")
+            self.log_auth_event("on_mount: Switched to auth mode")
+
+        except Exception as e:
+            # On error, show auth screen
+            try:
+                self.log_auth_event(f"on_mount: ERROR - {e}, showing auth")
+            except Exception:
+                pass
+            self.switch_mode("auth")
 
     def _focus_initial_content(self) -> None:
         """Helper to focus the timeline feed after initial render"""
@@ -3271,6 +3981,12 @@ class Proj101App(App):
             pass
 
     def action_quit(self) -> None:
+        # Clean up OAuth server if on auth screen
+        try:
+            auth_screen = self.query_one(AuthScreen)
+            auth_screen._cleanup_oauth_server()
+        except Exception:
+            pass
         self.exit()
 
     def action_insert_mode(self) -> None:
@@ -3710,16 +4426,21 @@ class Proj101App(App):
             # All other keys are already stopped at the top of command_mode block
             return
 
-
 def main():
     logging.debug("inside __main__ guard, about to run app")
     try:
         Proj101App().run()
     except Exception as e:
         import traceback
-
         logging.exception("Exception occurred while running Proj101App:")
-
-
 if __name__ == "__main__":
-    main()
+    pid_file = Path(".main_app_pid")
+    pid_file.write_text(str(os.getpid()))
+    try:
+        app = Proj101App()
+        app.run()
+    finally:
+        try:
+            pid_file.unlink()
+        except Exception:
+            pass

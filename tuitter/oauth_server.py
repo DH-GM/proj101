@@ -13,9 +13,32 @@ import sys
 import signal
 import subprocess
 import os
+import keyring
 
-COGNITO_TOKEN_URL = "https://us-east-2tgj9o2fop.auth.us-east-2.amazoncognito.com/oauth2/token"
-COGNITO_CLIENT_ID = "jtcdok2taaq48rj50lerhp51v"
+serviceKeyring = "tuiitter"
+
+def get_token(username: str) -> str:
+    return keyring.get_password(serviceKeyring, username)
+
+def set_token(username: str, token: str) -> None:
+    return keyring.set_password(serviceKeyring, username, token)
+
+def delete_token(username: str) -> None:
+    return keyring.delete_password(serviceKeyring, username)
+
+def get_user_name(username: str) -> str:
+    return keyring.get_password(serviceKeyring, username)
+
+def set_user_name(username: str, user_name: str) -> None:
+    return keyring.set_password(serviceKeyring, username, user_name)
+
+def delete_user_name(username: str) -> None:
+    return keyring.delete_password(serviceKeyring, username)
+
+COGNITO_TOKEN_URL = "https://us-east-2xzzmuowl9.auth.us-east-2.amazoncognito.com/oauth2/token"
+COGNITO_USERNAME_URL = "https://us-east-2xzzmuowl9.auth.us-east-2.amazoncognito.com/oauth2/userInfo"
+COGNITO_CLIENT_SECRET = "1t46ik23730a5fbboiimdbh8ffkicnm69c40ifbg9jou401pft02"
+COGNITO_CLIENT_ID = "7109b3p9beveapsmr806freqnn"
 REDIRECT_URI = "http://localhost:5173/callback"
 
 # Store main app PID to restart it
@@ -41,6 +64,7 @@ class OAuthCallbackHandler(BaseHTTPRequestHandler):
                     data = {
                         "grant_type": "authorization_code",
                         "client_id": COGNITO_CLIENT_ID,
+                        "client_secret": COGNITO_CLIENT_SECRET,
                         "code": code,
                         "redirect_uri": REDIRECT_URI,
                     }
@@ -49,7 +73,9 @@ class OAuthCallbackHandler(BaseHTTPRequestHandler):
                     
                     if resp.ok:
                         tokens = resp.json()
-                        Path("oauth_tokens.json").write_text(json.dumps(tokens, indent=2))
+                        # Path("oauth_tokens.json").write_text(json.dumps(tokens, indent=2) + "\n")
+
+                        set_token("oauth_tokens.json", json.dumps(tokens, indent=2) + "\n")
                         print("✅ Tokens saved", file=sys.stderr, flush=True)
                         
                         # Signal wrapper script to restart main.py
@@ -78,10 +104,26 @@ class OAuthCallbackHandler(BaseHTTPRequestHandler):
                         """)
                     else:
                         print(f"❌ Token exchange failed: {resp.status_code}", file=sys.stderr, flush=True)
+                        print(f"{resp.json()}", file=sys.stderr, flush=True)
                         self.send_response(500)
                         self.send_header("Content-Type", "text/plain")
                         self.end_headers()
                         self.wfile.write(f"Token exchange failed: {resp.status_code}".encode())
+
+                    try:
+                        resp = requests.get(COGNITO_USERNAME_URL, headers={"Authorization": f"Bearer {tokens['access_token']}"})
+                        print(f"{resp.json()}", file=sys.stderr, flush=True)
+                        user_name = resp.json()["username"]
+                        # Path("oauth_tokens.json").open("a").write(json.dumps({"user_name": user_name}, indent=2) + "\n")
+                        print(f"✅ User name: {user_name}", file=sys.stderr, flush=True)
+                        print(f"{json.dumps(resp.json(), indent=2)}", file=sys.stderr, flush=True)
+                        set_user_name("username", user_name)
+                        print(f"✅ Tokens verified: {resp}", file=sys.stderr, flush=True)
+                    except Exception as e:
+                        print(f"❌ Tokens verification failed: {e}", file=sys.stderr, flush=True)
+                        self.send_response(500)
+                        self.send_header("Content-Type", "text/plain")
+                        self.end_headers()
                 except Exception as e:
                     print(f"❌ Error: {e}", file=sys.stderr, flush=True)
                     self.send_response(500)

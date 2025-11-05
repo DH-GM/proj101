@@ -27,6 +27,7 @@ cleanup() {
     
     # Also kill any python oauth_server.py processes
     pkill -f "python3 oauth_server.py" 2>/dev/null || true
+    pkill -f "python3 main.py" 2>/dev/null || true
     
     # Clean up signal files
     rm -f .restart_signal .main_app_pid
