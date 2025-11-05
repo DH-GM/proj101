@@ -2731,102 +2731,118 @@ class SettingsPanel(VerticalScroll):
     settings_loaded = reactive(False)
 
     def compose(self) -> ComposeResult:
+        """Build settings content synchronously so items are real children
+        of the VerticalScroll (matching Timeline/Discover). This makes
+        scroll_to_widget and vim-style navigation work identically.
+        """
         self.border_title = "Settings"
-        # Show loading state initially - we'll fetch settings in on_mount()
-        yield Static("⏳ Loading settings...", id="settings-loading", classes="panel-header")
 
-        # Placeholder containers that will be populated once settings load
-        yield Container(id="settings-content")
+        try:
+            settings = api.get_user_settings()
+        except Exception:
+            # If the API call fails, provide a lightweight fallback so the
+            # screen still composes and shows an error message that can be
+            # replaced once on_mount runs.
+            settings = None
+
+        # Header
+        yield Static("settings.profile | line 1", classes="panel-header")
+
+        # Profile Picture section
+        yield Static("\n→ Profile Picture (ASCII)", classes="settings-section-header")
+        yield Static("Make ASCII Profile Picture from image file")
+        yield Button(
+            "Upload file",
+            id="upload-profile-picture",
+            classes="upload-profile-picture",
+        )
+
+        # Display current ascii avatar if available
+        avatar_text = getattr(settings, "ascii_pic", "") if settings else "(not available)"
+        yield Static(avatar_text, id="profile-picture-display", classes="ascii-avatar")
+
+        # Account information
+        yield Static("\n→ Account Information", classes="settings-section-header")
+        username = keyring.get_password(serviceKeyring, "username")
+        if username is None and settings:
+            username = getattr(settings, "username", "yourname")
+        yield Static(f"  Username:\n  @{username}", classes="settings-field")
+        if settings:
+            yield Static(f"\n  Display Name:\n  {settings.display_name}", classes="settings-field")
+            yield Static(f"\n  Bio:\n  {settings.bio}", classes="settings-field")
+        else:
+            yield Static("\n  Display Name:\n  (loading)", classes="settings-field")
+            yield Static("\n  Bio:\n  (loading)", classes="settings-field")
+
+        # OAuth connections - use Buttons so they are navigable
+        yield Static("\n→ OAuth Connections", classes="settings-section-header")
+        github_status = "Connected" if settings and getattr(settings, "github_connected", False) else "[:c] Connect"
+        gitlab_status = "Connected" if settings and getattr(settings, "gitlab_connected", False) else "[:c] Connect"
+        google_status = "Connected" if settings and getattr(settings, "google_connected", False) else "[:c] Connect"
+        discord_status = "Connected" if settings and getattr(settings, "discord_connected", False) else "[:c] Connect"
+        yield Button(f"  [🟢] GitHub                                              {github_status}", id="oauth-github", classes="oauth-item")
+        yield Button(f"  [⚪] GitLab                                              {gitlab_status}", id="oauth-gitlab", classes="oauth-item")
+        yield Button(f"  [⚪] Google                                              {google_status}", id="oauth-google", classes="oauth-item")
+        yield Button(f"  [⚪] Discord                                             {discord_status}", id="oauth-discord", classes="oauth-item")
+
+        # Preferences
+        yield Static("\n→ Preferences", classes="settings-section-header")
+        email_check = "✅" if settings and getattr(settings, "email_notifications", False) else "⬜"
+        online_check = "✅" if settings and getattr(settings, "show_online_status", False) else "⬜"
+        private_check = "✅" if settings and getattr(settings, "private_account", False) else "⬜"
+        yield Button(f"  {email_check} Email notifications", id="pref-email_notifications", classes="checkbox-item")
+        yield Button(f"  {online_check} Show online status", id="pref-show_online_status", classes="checkbox-item")
+        yield Button(f"  {private_check} Private account", id="pref-private_account", classes="checkbox-item")
+
+        # Session / Sign out
+        yield Static("\n→ Session", classes="settings-section-header")
+        yield Button("Sign Out", id="settings-signout", classes="danger")
 
     def on_mount(self) -> None:
         """Fetch settings after mount to ensure API handle is set."""
         try:
-            # Log the current API handle for debugging
+            # Ensure we have the latest settings; compose built a best-effort view
             try:
-                self.app.log_auth_event(f"SettingsPanel: Fetching settings for handle '{api.handle}'")
+                latest = api.get_user_settings()
+                # If compose used a placeholder, update widgets now
+                try:
+                    avatar = self.query_one("#profile-picture-display", Static)
+                    avatar.update(getattr(latest, "ascii_pic", ""))
+                except Exception:
+                    pass
             except Exception:
                 pass
 
-            # Fetch settings from API
-            settings = api.get_user_settings()
-
-            # Remove loading message
-            try:
-                self.query_one("#settings-loading").remove()
-            except Exception:
-                pass
-
-            # Populate settings content
-            container = self.query_one("#settings-content", Container)
-            container.mount(Static("settings.profile | line 1", classes="panel-header"))
-            container.mount(Static("\n→ Profile Picture (ASCII)", classes="settings-section-header"))
-            container.mount(Static("Make ASCII Profile Picture from image file"))
-            container.mount(Button(
-                "Upload file", id="upload-profile-picture", classes="upload-profile-picture"
-            ))
-            container.mount(Static(
-                f"{settings.ascii_pic}",
-                id="profile-picture-display",
-                classes="ascii-avatar",
-            ))
-
-            container.mount(Static("\n→ Account Information", classes="settings-section-header"))
-            username = keyring.get_password(serviceKeyring, "username")
-            if username == None:
-                username = settings.username
-            container.mount(Static(f"  Username:\n  @{username}", classes="settings-field"))
-            container.mount(Static(
-                f"\n  Display Name:\n  {settings.display_name}", classes="settings-field"
-            ))
-            container.mount(Static(f"\n  Bio:\n  {settings.bio}", classes="settings-field"))
-
-            container.mount(Static("\n→ OAuth Connections", classes="settings-section-header"))
-            github_status = "Connected" if settings.github_connected else "[:c] Connect"
-            gitlab_status = "Connected" if settings.gitlab_connected else "[:c] Connect"
-            google_status = "Connected" if settings.google_connected else "[:c] Connect"
-            discord_status = "Connected" if settings.discord_connected else "[:c] Connect"
-            container.mount(Static(
-                f"  [🟢] GitHub                                              {github_status}",
-                classes="oauth-item",
-            ))
-            container.mount(Static(
-                f"  [⚪] GitLab                                              {gitlab_status}",
-                classes="oauth-item",
-            ))
-            container.mount(Static(
-                f"  [⚪] Google                                              {google_status}",
-                classes="oauth-item",
-            ))
-            container.mount(Static(
-                f"  [⚪] Discord                                             {discord_status}",
-                classes="oauth-item",
-            ))
-            container.mount(Static("\n→ Preferences", classes="settings-section-header"))
-
-            # Preferences
-            email_check = "✅" if settings.email_notifications else "⬜"
-            online_check = "✅" if settings.show_online_status else "⬜"
-            private_check = "✅" if settings.private_account else "⬜"
-            container.mount(Static(f"  {email_check} Email notifications", classes="checkbox-item"))
-            container.mount(Static(f"  {online_check} Show online status", classes="checkbox-item"))
-            container.mount(Static(f"  {private_check} Private account", classes="checkbox-item"))
-            container.mount(Static(
-                "\n  [:w] Save Changes     [:q] Cancel", classes="settings-actions"
-            ))
-            container.mount(Static(
-                "\n:w - save  [:e] Edit field  [Tab] Next field  [Esc] Cancel",
-                classes="help-text",
-                markup=False,
-            ))
-
-            # Sign Out button
-            container.mount(Static("\n→ Session", classes="settings-section-header"))
-            container.mount(Button("Sign Out", id="settings-signout", classes="danger"))
-
+            # Mark loaded and initialize cursor/focus so navigation works
             self.settings_loaded = True
-
             try:
-                self.app.log_auth_event(f"SettingsPanel: Settings loaded successfully for '{api.handle}'")
+                self.cursor_position = 0
+            except Exception:
+                pass
+            try:
+                # Focus the panel so it receives vim key events
+                self.focus()
+            except Exception:
+                pass
+            # Ensure first selectable item shows the cursor visually
+            try:
+                selectable_classes = [
+                    ".upload-profile-picture",
+                    ".oauth-item",
+                    ".checkbox-item",
+                    ".danger",
+                ]
+                items = []
+                for cls in selectable_classes:
+                    items.extend(list(self.query(cls)))
+                if items:
+                    first = items[0]
+                    first.add_class("vim-cursor")
+                    try:
+                        if isinstance(first, Button):
+                            first.add_class("action-selected")
+                    except Exception:
+                        pass
             except Exception:
                 pass
 
@@ -2867,6 +2883,7 @@ class SettingsPanel(VerticalScroll):
             ".upload-profile-picture",
             ".oauth-item",
             ".checkbox-item",
+            ".danger",
         ]
 
         items = []
@@ -2878,12 +2895,33 @@ class SettingsPanel(VerticalScroll):
             old_item = items[old_position]
             if "vim-cursor" in old_item.classes:
                 old_item.remove_class("vim-cursor")
+                try:
+                    # If the old item was a Button, remove any button-specific
+                    # selection class so the visual state matches other panels.
+                    if isinstance(old_item, Button):
+                        old_item.remove_class("action-selected")
+                except Exception:
+                    pass
 
         # Add cursor to new position
         if new_position < len(items):
             new_item = items[new_position]
             new_item.add_class("vim-cursor")
+            try:
+                # If the selected item is a Button, add a visible selection
+                # class used elsewhere (e.g. Drafts) so the sign-out button
+                # and other Buttons show the expected focus state.
+                if isinstance(new_item, Button):
+                    new_item.add_class("action-selected")
+            except Exception:
+                pass
+            # Scroll so the selected item is visible and keep focus on the panel
             self.scroll_to_widget(new_item)
+            try:
+                # Keep focus on the panel so vim navigation (j/k) is handled here
+                self.focus()
+            except Exception:
+                pass
 
     def key_j(self) -> None:
         """Vim-style down navigation"""
@@ -2893,6 +2931,7 @@ class SettingsPanel(VerticalScroll):
             ".upload-profile-picture",
             ".oauth-item",
             ".checkbox-item",
+            ".danger",
         ]
         items = []
         for cls in selectable_classes:
@@ -2922,14 +2961,64 @@ class SettingsPanel(VerticalScroll):
             ".upload-profile-picture",
             ".oauth-item",
             ".checkbox-item",
+            ".danger",
         ]
         items = []
         for cls in selectable_classes:
             items.extend(list(self.query(cls)))
         self.cursor_position = max(0, len(items) - 1)
 
+    def on_focus(self) -> None:
+        """When the panel gets focus, ensure cursor is initialized and visible."""
+        try:
+            # If settings not yet loaded, _on_mount will initialize
+            if self.settings_loaded:
+                self.cursor_position = max(0, self.cursor_position)
+                try:
+                    self.focus()
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+    def key_enter(self) -> None:
+        """Activate the currently-selected settings item when Enter is pressed.
+
+        We keep focus on the panel so vim keys are handled here; Enter will
+        trigger the underlying Button if present.
+        """
+        if self.app.command_mode:
+            return
+        selectable_classes = [
+            ".upload-profile-picture",
+            ".oauth-item",
+            ".checkbox-item",
+            ".danger",
+        ]
+        items = []
+        for cls in selectable_classes:
+            items.extend(list(self.query(cls)))
+
+        if 0 <= self.cursor_position < len(items):
+            item = items[self.cursor_position]
+            try:
+                # If the item is a Button, call its press method to trigger handlers
+                if hasattr(item, "press"):
+                    item.press()
+                else:
+                    # Fallback: try to call on_click or simulate a button press event
+                    try:
+                        item.on_click()
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+
     def on_button_pressed(self, event: Button.Pressed) -> None:
-        if event.button.id == "upload-profile-picture":
+        btn_id = getattr(event.button, "id", "")
+
+        # Upload profile picture
+        if btn_id == "upload-profile-picture":
             try:
                 root = tk.Tk()
                 root.withdraw()
@@ -2943,7 +3032,6 @@ class SettingsPanel(VerticalScroll):
                     return
 
                 script_path = Path("asciifer/asciifer.py")
-
                 if not script_path.exists():
                     return
 
@@ -2966,7 +3054,6 @@ class SettingsPanel(VerticalScroll):
                 ]
 
                 result = subprocess.run(cmd, capture_output=True, text=True)
-
                 if result.returncode != 0:
                     return
 
@@ -2988,13 +3075,20 @@ class SettingsPanel(VerticalScroll):
                         avatar.update(ascii_art)
                         self.app.notify("Profile picture updated!", severity="success")
                     except Exception as e:
-                        self.app.notify(f"Widget not found: {e}", severity="error")
+                        try:
+                            self.app.notify(f"Widget not found: {e}", severity="error")
+                        except Exception:
+                            pass
                 else:
-                    self.app.notify("Output file not generated", severity="error")
+                    try:
+                        self.app.notify("Output file not generated", severity="error")
+                    except Exception:
+                        pass
             except Exception:
                 pass
-        elif event.button.id == "settings-signout":
-            # Sign out (dev behavior): clear stored credentials and exit the app.
+
+        # Sign out
+        elif btn_id == "settings-signout":
             try:
                 from .auth import clear_credentials
 
@@ -3023,8 +3117,6 @@ class SettingsPanel(VerticalScroll):
                 except Exception:
                     pass
 
-                # Notify and exit so the surrounding launcher/restart logic
-                # boots the app back into the auth flow on restart (dev approach).
                 try:
                     self.app.notify("Signing out and exiting application...", severity="info")
                 except Exception:
@@ -3033,29 +3125,93 @@ class SettingsPanel(VerticalScroll):
                 # small sleep to allow any UI notifications to flush
                 try:
                     import time as _time
-
                     _time.sleep(0.05)
                 except Exception:
                     pass
 
                 try:
-                    # Use Textual's exit hook
                     self.app.exit()
                 except Exception:
                     try:
                         import sys as _sys
-
                         _sys.exit(0)
                     except Exception:
                         pass
             except Exception:
                 pass
 
+        # OAuth connection buttons (focusable)
+        elif btn_id and btn_id.startswith("oauth-"):
+            provider = btn_id.split("-", 1)[1]
+            try:
+                self.app.notify(f"OAuth action: {provider} (not implemented)", severity="info")
+            except Exception:
+                pass
+
+        # Preference toggles
+        elif btn_id and btn_id.startswith("pref-"):
+            pref_key = btn_id.split("-", 1)[1]
+            try:
+                current = api.get_user_settings()
+                cur_val = getattr(current, pref_key, None)
+                if isinstance(cur_val, bool):
+                    setattr(current, pref_key, not cur_val)
+                    api.update_user_settings(current)
+                    try:
+                        new_check = "✅" if getattr(current, pref_key) else "⬜"
+                        btn = event.button
+                        label_parts = btn.label.split(" ", 2)
+                        # keep everything after the checkbox
+                        if len(label_parts) >= 3:
+                            # label_parts[2] is the rest after two spaces
+                            btn.label = f"  {new_check} {label_parts[2]}"
+                        elif len(label_parts) == 2:
+                            btn.label = f"  {new_check} {label_parts[1]}"
+                    except Exception:
+                        pass
+            except Exception:
+                try:
+                    self.app.notify("Failed to update preference", severity="error")
+                except Exception:
+                    pass
+
 
 class SettingsScreen(Container):
     def compose(self) -> ComposeResult:
         yield Sidebar(current="settings", id="sidebar")
         yield SettingsPanel(id="settings-panel")
+
+    def on_mount(self) -> None:
+        """When the SettingsScreen is mounted, ensure the settings panel is focused
+        so vim navigation and scrolling behave like other screens."""
+        try:
+            panel = self.query_one("#settings-panel", SettingsPanel)
+            # Initialize cursor and focus so j/k navigation works immediately
+            try:
+                panel.cursor_position = 0
+            except Exception:
+                pass
+            try:
+                panel.focus()
+            except Exception:
+                pass
+        except Exception:
+            pass
+
+    def on_focus(self) -> None:
+        """When screen receives focus, ensure the SettingsPanel is ready and focused."""
+        try:
+            panel = self.query_one("#settings-panel", SettingsPanel)
+            try:
+                panel.cursor_position = 0
+            except Exception:
+                pass
+            try:
+                panel.focus()
+            except Exception:
+                pass
+        except Exception:
+            pass
 
 
 class ProfilePanel(VerticalScroll):
@@ -3725,6 +3881,13 @@ class Proj101App(App):
                 # Final refresh to ensure the UI updates
                 try:
                     self.refresh()
+                except Exception:
+                    pass
+
+                # Ensure the initial content is focused (timeline feed) so vim navigation works immediately
+                try:
+                    # Schedule focusing after layout settles
+                    self.call_after_refresh(self._focus_initial_content)
                 except Exception:
                     pass
 

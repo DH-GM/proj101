@@ -528,6 +528,21 @@ Input.vim-cursor {
     border-right: heavy $primary;
 }
 
+/* Danger / sign-out cursor and selected state */
+.danger.vim-cursor, Button.danger.vim-cursor {
+    background: $danger-bg-hover;
+    color: $text-primary;
+    border-left: heavy $accent-red-hover;
+    border-right: heavy $accent-red-hover;
+}
+
+Button.danger.action-selected, .danger.action-selected {
+    background: $danger-bg-hover;
+    border: heavy $accent-red-hover;
+    color: $text-primary;
+    text-style: bold;
+}
+
 /* Profile panel cursor */
 .profile-stat-item.vim-cursor {
     background: $primary-dark;
