@@ -177,6 +177,28 @@ class MainUIScreen(Screen):
             auth_log.border_title = "Auth Debug Log"
             yield auth_log
 
+    def on_mount(self) -> None:
+        """When the MainUIScreen is mounted by the mode switch, ensure the
+        initial content (timeline) receives focus. This covers the case where
+        the App.switch_mode('main') path triggers the mode mount and previous
+        scheduling in App.show_main_app was too early.
+        """
+        try:
+            # Schedule focusing after the screen's layout settles
+            try:
+                # Ask the App to focus initial content after refresh
+                self.app.call_after_refresh(self.app._focus_initial_content)
+            except Exception:
+                pass
+
+            # Conservative fallback: small delayed timer to cover slow mounts
+            try:
+                self.app.set_timer(0.05, self.app._focus_initial_content)
+            except Exception:
+                pass
+        except Exception:
+            pass
+
 
 # ───────── Auth Screen ─────────
 class AuthScreen(Screen):
