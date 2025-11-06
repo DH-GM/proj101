@@ -37,7 +37,10 @@ dependencies = [
     "textual-imageview>=0.1.0",
     "python-dotenv>=1.0.0",
     "keyring>=24.0.0",
-    "numpy>=1.24.0"  # Required by asciifer
+    "numpy>=1.24.0",  # Required by asciifer
+    "rich>=13.0.0",   # used directly by textual and rendering
+    "SQLAlchemy>=2.0.0",
+    "pywin32>=305 ; sys_platform == 'win32'"  # optional Windows DPAPI support (win32crypt)
 ]
 
 [project.scripts]
