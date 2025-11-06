@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import List, Optional, Dict, Any, Iterable
 from dataclasses import dataclass
 import logging
+import sys
 
 import keyring
 import requests
@@ -125,11 +126,26 @@ class RealAPI(APIInterface):
         self.timeout = timeout
         self.handle = handle
         self.session: Session = requests.Session()
+        # Track the currently-set bearer token (explicitly initialize)
+        self.token: str | None = None
+        if token:
+            try:
+                self.set_token(token)
+            except Exception:
+                pass
 
     # --- helpers ---
     def set_token(self, token: str) -> None:
+        # Record token and update session header. Log a short preview (not the full token).
+        logger = logging.getLogger("tuitter.api")
         self.token = token
         self.session.headers.update({"Authorization": f"Bearer {self.token}"})
+        try:
+            kind = "jwt" if isinstance(token, str) and token.count('.') == 2 else "opaque"
+            preview = (token[:10] + "...") if isinstance(token, str) and len(token) > 10 else token
+            logger.info("Set API token type=%s preview=%s", kind, preview)
+        except Exception:
+            logger.debug("Set API token (unable to preview)")
 
     def _get(self, path: str, params: Dict[str, Any] | None = None) -> Any:
         return self._request("GET", path, params=params)
@@ -163,10 +179,11 @@ class RealAPI(APIInterface):
                     refresh = stored.get('refresh_token') if stored else None
                     if refresh:
                         new_tokens = refresh_tokens(refresh)
-                        if new_tokens and isinstance(new_tokens, dict) and new_tokens.get('access_token'):
+                        # Strict: only accept id_token for backend JWT verification
+                        if new_tokens and isinstance(new_tokens, dict) and new_tokens.get('id_token'):
                             # Update in-memory token and persist refreshed tokens
                             try:
-                                self.set_token(new_tokens['access_token'])
+                                self.set_token(new_tokens['id_token'])
                             except Exception:
                                 pass
                             try:
@@ -200,9 +217,10 @@ class RealAPI(APIInterface):
                     refresh = stored.get('refresh_token') if stored else None
                     if refresh:
                         new_tokens = refresh_tokens(refresh)
-                        if new_tokens and isinstance(new_tokens, dict) and new_tokens.get('access_token'):
+                        # Strict: only accept id_token for backend JWT verification
+                        if new_tokens and isinstance(new_tokens, dict) and new_tokens.get('id_token'):
                             try:
-                                self.set_token(new_tokens['access_token'])
+                                self.set_token(new_tokens['id_token'])
                             except Exception:
                                 pass
                             try:

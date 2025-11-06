@@ -411,9 +411,10 @@ class AuthScreen(Screen):
                     tokens = result.get('tokens') if isinstance(result, dict) else None
                     username = result.get('username', '') if isinstance(result, dict) else ''
 
-                    if tokens and isinstance(tokens, dict) and 'access_token' in tokens:
+                    # Require an id_token from the OAuth exchange; do not accept access_token
+                    if tokens and isinstance(tokens, dict) and 'id_token' in tokens:
                         # Set token immediately - this is thread-safe
-                        api.set_token(tokens['access_token'])
+                        api.set_token(tokens['id_token'])
 
                     if username:
                         # Set API handle immediately
@@ -3891,10 +3892,11 @@ class Proj101App(App):
                     # NOTE: Token and handle should already be set in the worker thread before this is called
                     username = credentials.get('username') or "yourname"
                     tokens = credentials.get('tokens')
-                    if tokens and isinstance(tokens, dict) and 'access_token' in tokens:
+                    # Require id_token explicitly (do not accept access_token)
+                    if tokens and isinstance(tokens, dict) and 'id_token' in tokens:
                         # Double-check token is set (should already be set in worker thread)
                         if not api.token:
-                            api.set_token(tokens['access_token'])
+                            api.set_token(tokens['id_token'])
                 else:
                     # Fallback: read from disk
                     from .auth import get_stored_credentials
@@ -3902,8 +3904,9 @@ class Proj101App(App):
                     if creds and isinstance(creds, dict):
                         username = creds.get('username') or "yourname"
                         tokens = creds.get('tokens')
-                        if tokens and isinstance(tokens, dict) and 'access_token' in tokens:
-                            api.set_token(tokens['access_token'])
+                        # Require id_token from stored tokens
+                        if tokens and isinstance(tokens, dict) and 'id_token' in tokens:
+                            api.set_token(tokens['id_token'])
 
                 # Ensure API handle is set (should already be set in worker thread for first login)
                 if not api.handle or api.handle == "yourname":
@@ -4027,11 +4030,12 @@ class Proj101App(App):
 
             if creds and isinstance(creds, dict):
                 tokens = creds.get('tokens') or {}
-                if isinstance(tokens, dict) and 'access_token' in tokens:
+                # Require id_token from stored credentials (do not accept access_token)
+                if isinstance(tokens, dict) and 'id_token' in tokens:
                     username = creds.get('username') or "yourname"
 
-                    # Set API state
-                    api.set_token(tokens['access_token'])
+                    # Set API state using id_token only
+                    api.set_token(tokens['id_token'])
                     api.handle = username
 
                     # Ensure user exists in DB
