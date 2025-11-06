@@ -10,6 +10,7 @@ from datetime import datetime
 @dataclass
 class User:
     """Represents a user in the system."""
+    id: int
     username: str
     display_name: str
     bio: str
@@ -36,8 +37,9 @@ class Post:
 @dataclass
 class Message:
     """Represents a chat message."""
-    id: str
+    id: int
     sender: str
+    sender_handle: str  # Denormalized from user table per PostgreSQL schema
     content: str
     timestamp: datetime
     is_read: bool = False
@@ -46,10 +48,10 @@ class Message:
 @dataclass
 class Conversation:
     """Represents a conversation thread."""
-    id: str
-    username: str
-    last_message: str
-    timestamp: datetime
+    id: int
+    participant_handles: List[str]
+    last_message_preview: str
+    last_message_at: datetime
     unread: bool = False
     messages: List[Message] = None
 
@@ -70,14 +72,13 @@ class Notification:
 @dataclass
 class UserSettings:
     """Represents user settings."""
-    username: str
-    display_name: str
-    bio: str
-    email_notifications: bool
-    show_online_status: bool
-    private_account: bool
-    ascii_pic: str = ""
+    user_id: int
+    email_notifications: bool = True
+    show_online_status: bool = True
+    private_account: bool = False
     github_connected: bool = False
     gitlab_connected: bool = False
     google_connected: bool = False
     discord_connected: bool = False
+    ascii_pic: str = ""
+    updated_at: Optional[datetime] = None

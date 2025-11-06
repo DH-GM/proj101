@@ -523,9 +523,13 @@ class ConversationItem(Static):
 
     def render(self) -> str:
         unread_marker = "🔵 " if self.conversation.unread else "  "
-        time_ago = format_time_ago(self.conversation.timestamp)
+        time_ago = format_time_ago(self.conversation.last_message_at)
         unread_text = "🔵 unread" if self.conversation.unread else ""
-        return f"{unread_marker}@{self.conversation.username}\n  {self.conversation.last_message}\n  {time_ago} {unread_text}"
+        # Get the other participant's username (first one that's not the current user)
+        current_user = keyring.get_password(serviceKeyring, "username") or "yourname"
+        other_participants = [h for h in self.conversation.participant_handles if h != current_user]
+        username = other_participants[0] if other_participants else self.conversation.participant_handles[0] if self.conversation.participant_handles else "unknown"
+        return f"{unread_marker}@{username}\n  {self.conversation.last_message_preview}\n  {time_ago} {unread_text}"
 
 class ChatMessage(Static):
     def __init__(self, message, current_user: str = "yourname", **kwargs):
@@ -1939,6 +1943,33 @@ class ConversationsList(VerticalScroll):
             return
         self.cursor_position = max(self.cursor_position - 3, 0)
 
+    def key_enter(self) -> None:
+        """Open the selected conversation when Enter is pressed"""
+        if self.app.command_mode:
+            return
+        try:
+            conversations = api.get_conversations()
+            if 0 <= self.cursor_position < len(conversations):
+                conv = conversations[self.cursor_position]
+                # Get the other participant's username
+                current_user = keyring.get_password(serviceKeyring, "username") or "yourname"
+                other_participants = [h for h in conv.participant_handles if h != current_user]
+                username = other_participants[0] if other_participants else conv.participant_handles[0] if conv.participant_handles else "unknown"
+                
+                # Update the chat view with this conversation
+                chat_view = self.app.query_one("#chat", ChatView)
+                chat_view.conversation_id = conv.id
+                chat_view.conversation_username = username
+                
+                # Reload messages
+                chat_view.remove_children()
+                chat_view.mount_all(chat_view.compose())
+                
+                # Focus the chat view
+                chat_view.focus()
+        except Exception:
+            pass
+
     def on_key(self, event) -> None:
         """Handle g+g key combination for top and prevent escape from unfocusing"""
         if self.app.command_mode:
@@ -1953,18 +1984,24 @@ class ConversationsList(VerticalScroll):
             event.prevent_default()
 
 class ChatView(VerticalScroll):
-    conversation_id = reactive("c1")
+    conversation_id = reactive(0)  # Changed to int to match backend
     conversation_username = reactive("alice")
     cursor_position = reactive(0)
 
-    def __init__(self, conversation_id: str = "c1", username: str = "alice", **kwargs):
+    def __init__(self, conversation_id: int = 0, username: str = "alice", **kwargs):
         super().__init__(**kwargs)
         self.conversation_id = conversation_id
         self.conversation_username = username
 
     def compose(self) -> ComposeResult:
         self.border_title = "[0] Chat"
-        messages = api.get_conversation_messages(self.conversation_id)
+        # Only fetch messages if conversation_id is valid (> 0)
+        messages = []
+        if self.conversation_id > 0:
+            try:
+                messages = api.get_conversation_messages(self.conversation_id)
+            except Exception as e:
+                messages = []
         yield Static(f"@{self.conversation_username} | conversation", classes="panel-header")
         for msg in messages:
             yield ChatMessage(msg, classes="chat-message")
@@ -1978,12 +2015,20 @@ class ChatView(VerticalScroll):
         text = event.value.strip()
         if not text:
             return
+        
+        # Only send if conversation_id is valid
+        if self.conversation_id <= 0:
+            return
 
-        new_msg = api.send_message(self.conversation_id, text)
-        self.mount(ChatMessage(new_msg, classes="chat-message"), before=event.input)
-        event.input.value = ""
-        event.input.focus()
-        self.scroll_end(animate=False)
+        try:
+            new_msg = api.send_message(self.conversation_id, text)
+            self.mount(ChatMessage(new_msg, classes="chat-message"), before=event.input)
+            event.input.value = ""
+            event.input.focus()
+            self.scroll_end(animate=False)
+        except Exception as e:
+            # Handle error silently or show notification
+            pass
 
     def watch_cursor_position(self, old_position: int, new_position: int) -> None:
         """Update the cursor when position changes"""
@@ -2040,9 +2085,13 @@ class MessagesScreen(Container):
 
         # If a specific username is provided, open chat with them
         if self.dm_username:
-            # Create a new conversation ID for this user
-            conv_id = f"dm-{self.dm_username}"
-            yield ChatView(conversation_id=conv_id, username=self.dm_username, id="chat")
+            # Get or create conversation with this user
+            try:
+                conv = api.get_or_create_dm(self.dm_username)
+                yield ChatView(conversation_id=conv.id, username=self.dm_username, id="chat")
+            except Exception:
+                # Fallback if API call fails
+                yield ChatView(conversation_id=0, username=self.dm_username, id="chat")
         else:
             yield ChatView(id="chat")
 
@@ -2077,37 +2126,37 @@ class SettingsPanel(VerticalScroll):
 
     def compose(self) -> ComposeResult:
         self.border_title = "Settings"
-        settings = api.get_user_settings()
+        # settings = api.get_user_settings()
         yield Static("settings.profile | line 1", classes="panel-header")
         yield Static("\n→ Profile Picture (ASCII)", classes="settings-section-header")
         yield Static("Make ASCII Profile Picture from image file")
         yield Button("Upload file", id="upload-profile-picture", classes="upload-profile-picture")
-        yield Static(f"{settings.ascii_pic}", id="profile-picture-display", classes="ascii-avatar")
+        # yield Static(f"{settings.ascii_pic}", id="profile-picture-display", classes="ascii-avatar")
 
-        yield Static("\n→ Account Information", classes="settings-section-header")
-        username = keyring.get_password(serviceKeyring, "username")
-        if username == None:
-            username = settings.username
-        yield Static(f"  Username:\n  @{username}", classes="settings-field")
-        yield Static(f"\n  Bio:\n  {settings.bio}", classes="settings-field")
-        yield Static("\n→ OAuth Connections", classes="settings-section-header")
-        github_status = "Connected" if settings.github_connected else "[:c] Connect"
-        gitlab_status = "Connected" if settings.gitlab_connected else "[:c] Connect"
-        google_status = "Connected" if settings.google_connected else "[:c] Connect"
-        discord_status = "Connected" if settings.discord_connected else "[:c] Connect"
-        yield Static(f"  [🟢] GitHub                                              {github_status}", classes="oauth-item")
-        yield Static(f"  [⚪] GitLab                                              {gitlab_status}", classes="oauth-item")
-        yield Static(f"  [⚪] Google                                              {google_status}", classes="oauth-item")
-        yield Static(f"  [⚪] Discord                                             {discord_status}", classes="oauth-item")
-        yield Static("\n→ Preferences", classes="settings-section-header")
-        email_check = "✅" if settings.email_notifications else "⬜"
-        online_check = "✅" if settings.show_online_status else "⬜"
-        private_check = "✅" if settings.private_account else "⬜"
-        yield Static(f"  {email_check} Email notifications", classes="checkbox-item")
-        yield Static(f"  {online_check} Show online status", classes="checkbox-item")
-        yield Static(f"  {private_check} Private account", classes="checkbox-item")
-        yield Static("\n  [:w] Save Changes     [:q] Cancel", classes="settings-actions")
-        yield Static("\n:w - save  [:e] Edit field  [Tab] Next field  [Esc] Cancel", classes="help-text", markup=False)
+        # yield Static("\n→ Account Information", classes="settings-section-header")
+        # username = keyring.get_password(serviceKeyring, "username")
+        # if username == None:
+        #     username = settings.username
+        # yield Static(f"  Username:\n  @{username}", classes="settings-field")
+        # yield Static(f"\n  Bio:\n  {settings.bio}", classes="settings-field")
+        # yield Static("\n→ OAuth Connections", classes="settings-section-header")
+        # github_status = "Connected" if settings.github_connected else "[:c] Connect"
+        # gitlab_status = "Connected" if settings.gitlab_connected else "[:c] Connect"
+        # google_status = "Connected" if settings.google_connected else "[:c] Connect"
+        # discord_status = "Connected" if settings.discord_connected else "[:c] Connect"
+        # yield Static(f"  [🟢] GitHub                                              {github_status}", classes="oauth-item")
+        # yield Static(f"  [⚪] GitLab                                              {gitlab_status}", classes="oauth-item")
+        # yield Static(f"  [⚪] Google                                              {google_status}", classes="oauth-item")
+        # yield Static(f"  [⚪] Discord                                             {discord_status}", classes="oauth-item")
+        # yield Static("\n→ Preferences", classes="settings-section-header")
+        # email_check = "✅" if settings.email_notifications else "⬜"
+        # online_check = "✅" if settings.show_online_status else "⬜"
+        # private_check = "✅" if settings.private_account else "⬜"
+        # yield Static(f"  {email_check} Email notifications", classes="checkbox-item")
+        # yield Static(f"  {online_check} Show online status", classes="checkbox-item")
+        # yield Static(f"  {private_check} Private account", classes="checkbox-item")
+        # yield Static("\n  [:w] Save Changes     [:q] Cancel", classes="settings-actions")
+        # yield Static("\n:w - save  [:e] Edit field  [Tab] Next field  [Esc] Cancel", classes="help-text", markup=False)
         
         # Sign Out button
         yield Static("\n→ Session", classes="settings-section-header")
@@ -2798,7 +2847,23 @@ class Proj101App(App):
             except Exception:
                 pass
             
+            # Get current user from backend (auto-creates if doesn't exist)
             username = keyring.get_password(serviceKeyring, "username") or "yourname"
+            try:
+                if hasattr(api, 'set_handle'):
+                    api.set_handle(username)
+                # Fetch user from backend to ensure they exist and get correct username
+                user = api.get_current_user()
+                # Update username from backend if different
+                if user.username != username:
+                    username = user.username
+                    keyring.set_password(serviceKeyring, "username", username)
+                    if hasattr(api, 'set_handle'):
+                        api.set_handle(username)
+            except Exception:
+                # If API call fails, use keyring username as fallback
+                pass
+            
             yield Static(f"tuitter [timeline] @{username}", id="app-header", markup=False)
             yield TopNav(id="top-navbar", current="timeline")
             yield TimelineScreen(id="screen-container")
@@ -2823,7 +2888,23 @@ class Proj101App(App):
         except Exception:
             pass
         
+        # Get current user from backend (auto-creates if doesn't exist)
         username = keyring.get_password(serviceKeyring, "username") or "yourname"
+        try:
+            if hasattr(api, 'set_handle'):
+                api.set_handle(username)
+            # Fetch user from backend to ensure they exist and get correct username
+            user = api.get_current_user()
+            # Update username from backend if different
+            if user.username != username:
+                username = user.username
+                keyring.set_password(serviceKeyring, "username", username)
+                if hasattr(api, 'set_handle'):
+                    api.set_handle(username)
+        except Exception:
+            # If API call fails, use keyring username as fallback
+            pass
+        
         self.mount(Static(f"tuitter [timeline] @{username}", id="app-header", markup=False))
         self.mount(TopNav(id="top-navbar", current="timeline"))
         self.mount(TimelineScreen(id="screen-container"))
