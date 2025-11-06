@@ -256,24 +256,27 @@ class AuthScreen(Screen):
         # requiring the user to quit/reopen. This mirrors App.on_mount but
         # runs when the AuthScreen becomes active.
         try:
-            from .auth import get_stored_credentials
-            creds = get_stored_credentials()
+            # Prefer the API's proactive restore which validates the token and
+            # attempts refresh if needed. This avoids switching to the main UI
+            # with an expired token which would crash during compose.
             try:
-                self.app.log_auth_event(f"AuthScreen.on_mount: silent-restore creds={bool(creds)}")
+                restored = api.try_restore_session()
+            except Exception:
+                restored = False
+
+            try:
+                self.app.log_auth_event(f"AuthScreen.on_mount: silent-restore restored={restored}")
             except Exception:
                 pass
 
-            if creds and isinstance(creds, dict):
-                # Use the same transition as authenticate() worker: hand off
-                # credentials to the App to mount the main UI.
+            if restored:
                 try:
-                    self.app.show_main_app(credentials=creds)
+                    # Let the App mount the main UI; tokens are already set on api
+                    self.app.show_main_app()
                     return
                 except Exception:
-                    # If show_main_app fails for any reason, fall back to
-                    # leaving the auth screen visible so user can sign in.
                     try:
-                        self.app.log_auth_event("AuthScreen.on_mount: silent restore failed, falling back to auth screen")
+                        self.app.log_auth_event("AuthScreen.on_mount: silent restore failed during show_main_app")
                     except Exception:
                         pass
         except Exception:
@@ -4020,43 +4023,37 @@ class Proj101App(App):
         except Exception:
             pass
         try:
-            from .auth import get_stored_credentials
-            creds = get_stored_credentials()
-
+            # First, attempt a proactive restore using the API helper which
+            # will attempt refresh if a refresh token is present. This avoids
+            # composing UI with an expired token and prevents 401s from
+            # bubbling into Textual lifecycle methods.
+            restored = False
             try:
-                self.log_auth_event(f"Got creds: {type(creds)}, has_tokens={bool(creds and creds.get('tokens')) if creds else False}")
-            except Exception:
-                pass
+                restored = api.try_restore_session()
+            except Exception as e:
+                try:
+                    self.log_auth_event(f"try_restore_session error: {e}")
+                except Exception:
+                    pass
 
-            if creds and isinstance(creds, dict):
-                tokens = creds.get('tokens') or {}
-                # Require id_token from stored credentials (do not accept access_token)
-                if isinstance(tokens, dict) and 'id_token' in tokens:
-                    username = creds.get('username') or "yourname"
+            if restored:
+                try:
+                    self.log_auth_event("Session successfully restored; switching to main mode")
+                except Exception:
+                    pass
+                # Ensure handle is set (may be persisted in keyring by auth flow)
+                try:
+                    api.handle = keyring.get_password(serviceKeyring, "username") or api.handle
+                except Exception:
+                    pass
 
-                    # Set API state using id_token only
-                    api.set_token(tokens['id_token'])
-                    api.handle = username
+                self.switch_mode("main")
+                self.log_auth_event("on_mount: Switched to main mode")
+                return
 
-                    # Ensure user exists in DB
-                    try:
-                        user_profile = api.get_current_user()
-                        self.log_auth_event(f"on_mount: User confirmed (id={user_profile.id})")
-                    except Exception as e:
-                        self.log_auth_event(f"on_mount: WARNING - {e}")
-
-                    # Show main UI
-                    try:
-                        self.log_auth_event("Switching to MAIN mode (has valid creds)")
-                    except Exception:
-                        pass
-                    self.switch_mode("main")
-                    self.log_auth_event("on_mount: Switched to main mode")
-                    return
-
-            # No valid credentials - show auth screen
+            # If restore failed, fall back to showing the auth screen
             try:
-                self.log_auth_event("Switching to AUTH mode (no valid creds)")
+                self.log_auth_event("No session to restore; switching to AUTH mode")
             except Exception:
                 pass
             self.switch_mode("auth")

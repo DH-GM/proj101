@@ -372,6 +372,113 @@ class RealAPI(APIInterface):
         )
         return out
 
+    def try_restore_session(self) -> bool:
+        """Attempt to restore session from stored credentials.
+
+        This uses the centralized auth.get_stored_credentials() helper which
+        will attempt a refresh if only a refresh token is present. On success
+        the API token and handle are set and True is returned. Otherwise
+        False is returned.
+        """
+        logger = logging.getLogger("tuitter.api")
+        try:
+            # Use auth_storage directly so we can see both full tokens and a
+            # separate refresh token. This lets us verify the token is still
+            # valid and attempt a refresh if necessary.
+            from .auth_storage import load_tokens as _load
+            found = _load()
+
+            if not found:
+                return False
+
+            # If we have a full token blob, try to validate it with a light /me call.
+            if 'tokens' in found and isinstance(found['tokens'], dict):
+                tokens = found['tokens']
+                username = found.get('username') or None
+                id_token = tokens.get('id_token')
+                refresh = tokens.get('refresh_token') or found.get('refresh_token')
+
+                if id_token:
+                    try:
+                        self.set_token(id_token)
+                    except Exception:
+                        logger.debug("try_restore_session: set_token failed")
+                    if username:
+                        self.handle = username
+
+                    # Quick validation call
+                    try:
+                        resp = self.session.get(f"{self.base_url}/me", timeout=self.timeout)
+                        if resp.ok:
+                            return True
+                        if resp.status_code == 401:
+                            # Try to refresh if we have a refresh token
+                            if refresh:
+                                try:
+                                    new_tokens = refresh_tokens(refresh)
+                                    if new_tokens and isinstance(new_tokens, dict) and new_tokens.get('id_token'):
+                                        try:
+                                            self.set_token(new_tokens['id_token'])
+                                        except Exception:
+                                            pass
+                                        try:
+                                            save_tokens_full(new_tokens, username)
+                                        except Exception:
+                                            pass
+                                        return True
+                                except Exception:
+                                    logger.debug("try_restore_session: refresh failed")
+                            return False
+                        # Other non-auth failures - treat as restore failure
+                        return False
+                    except Exception:
+                        logger.debug("try_restore_session: validation request failed")
+                        # Fallthrough to attempt refresh if possible
+                        if refresh:
+                            try:
+                                new_tokens = refresh_tokens(refresh)
+                                if new_tokens and isinstance(new_tokens, dict) and new_tokens.get('id_token'):
+                                    try:
+                                        self.set_token(new_tokens['id_token'])
+                                    except Exception:
+                                        pass
+                                    try:
+                                        save_tokens_full(new_tokens, username)
+                                    except Exception:
+                                        pass
+                                    if username:
+                                        self.handle = username
+                                    return True
+                            except Exception:
+                                logger.debug("try_restore_session: refresh after validation failure failed")
+                        return False
+
+            # If we only have a refresh token, try to refresh now
+            if 'refresh_token' in found and found.get('refresh_token'):
+                refresh = found.get('refresh_token')
+                username = found.get('username') or None
+                try:
+                    new_tokens = refresh_tokens(refresh)
+                    if new_tokens and isinstance(new_tokens, dict) and new_tokens.get('id_token'):
+                        try:
+                            self.set_token(new_tokens['id_token'])
+                        except Exception:
+                            pass
+                        try:
+                            save_tokens_full(new_tokens, username)
+                        except Exception:
+                            pass
+                        if username:
+                            self.handle = username
+                        return True
+                except Exception:
+                    logger.debug("try_restore_session: refresh_tokens failed for refresh-only blob")
+
+            return False
+        except Exception as e:
+            logging.getLogger("tuitter.api").exception("try_restore_session failed: %s", e)
+            return False
+
 # Global api selection: prefer real backend when BACKEND_URL is set
 _BACKEND_URL = "https://voqbyhcnqe.execute-api.us-east-2.amazonaws.com"
 
