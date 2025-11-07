@@ -179,11 +179,11 @@ class RealAPI(APIInterface):
                     refresh = stored.get('refresh_token') if stored else None
                     if refresh:
                         new_tokens = refresh_tokens(refresh)
-                        # Strict: only accept id_token for backend JWT verification
-                        if new_tokens and isinstance(new_tokens, dict) and new_tokens.get('id_token'):
+                        # Strict: only accept access_token for backend API authorization
+                        if new_tokens and isinstance(new_tokens, dict) and new_tokens.get('access_token'):
                             # Update in-memory token and persist refreshed tokens
                             try:
-                                self.set_token(new_tokens['id_token'])
+                                self.set_token(new_tokens['access_token'])
                             except Exception:
                                 pass
                             try:
@@ -217,10 +217,10 @@ class RealAPI(APIInterface):
                     refresh = stored.get('refresh_token') if stored else None
                     if refresh:
                         new_tokens = refresh_tokens(refresh)
-                        # Strict: only accept id_token for backend JWT verification
-                        if new_tokens and isinstance(new_tokens, dict) and new_tokens.get('id_token'):
+                        # Strict: only accept access_token for backend API authorization
+                        if new_tokens and isinstance(new_tokens, dict) and new_tokens.get('access_token'):
                             try:
-                                self.set_token(new_tokens['id_token'])
+                                self.set_token(new_tokens['access_token'])
                             except Exception:
                                 pass
                             try:
@@ -233,7 +233,7 @@ class RealAPI(APIInterface):
                 except Exception:
                     logger.debug("Refresh attempt failed (non-fatal) while handling 401")
 
-            # Re-raise original HTTP error if refresh didn't succeed or cannot be performed
+                        # Re-raise original HTTP error if refresh didn't succeed or cannot be performed
             raise
 
     # --- implementations (minimal, may need expansion) ---
@@ -395,12 +395,12 @@ class RealAPI(APIInterface):
             if 'tokens' in found and isinstance(found['tokens'], dict):
                 tokens = found['tokens']
                 username = found.get('username') or None
-                id_token = tokens.get('id_token')
+                access = tokens.get('access_token')
                 refresh = tokens.get('refresh_token') or found.get('refresh_token')
 
-                if id_token:
+                if access:
                     try:
-                        self.set_token(id_token)
+                        self.set_token(access)
                     except Exception:
                         logger.debug("try_restore_session: set_token failed")
                     if username:
@@ -416,9 +416,9 @@ class RealAPI(APIInterface):
                             if refresh:
                                 try:
                                     new_tokens = refresh_tokens(refresh)
-                                    if new_tokens and isinstance(new_tokens, dict) and new_tokens.get('id_token'):
+                                    if new_tokens and isinstance(new_tokens, dict) and new_tokens.get('access_token'):
                                         try:
-                                            self.set_token(new_tokens['id_token'])
+                                            self.set_token(new_tokens['access_token'])
                                         except Exception:
                                             pass
                                         try:
@@ -437,9 +437,9 @@ class RealAPI(APIInterface):
                         if refresh:
                             try:
                                 new_tokens = refresh_tokens(refresh)
-                                if new_tokens and isinstance(new_tokens, dict) and new_tokens.get('id_token'):
+                                if new_tokens and isinstance(new_tokens, dict) and new_tokens.get('access_token'):
                                     try:
-                                        self.set_token(new_tokens['id_token'])
+                                        self.set_token(new_tokens['access_token'])
                                     except Exception:
                                         pass
                                     try:
@@ -459,9 +459,9 @@ class RealAPI(APIInterface):
                 username = found.get('username') or None
                 try:
                     new_tokens = refresh_tokens(refresh)
-                    if new_tokens and isinstance(new_tokens, dict) and new_tokens.get('id_token'):
+                    if new_tokens and isinstance(new_tokens, dict) and new_tokens.get('access_token'):
                         try:
-                            self.set_token(new_tokens['id_token'])
+                            self.set_token(new_tokens['access_token'])
                         except Exception:
                             pass
                         try:
