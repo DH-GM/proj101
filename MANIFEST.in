@@ -1,0 +1,3 @@
+recursive-include asciifer *
+include asciifer/LICENSE
+include asciifer/README.md

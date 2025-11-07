@@ -4,6 +4,7 @@ __pycache__/
 venv/
 *.pyc
 .DS_Store
-.py
 oauth_tokens.json
 tuitter/clean_auth.py
+dist
+tuitter.egg-info

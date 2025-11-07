@@ -15,7 +15,7 @@ import subprocess
 import os
 import keyring
 
-serviceKeyring = "tuiitter"
+serviceKeyring = "tuitter"
 
 def get_token(username: str) -> str:
     return keyring.get_password(serviceKeyring, username)
@@ -49,16 +49,16 @@ class OAuthCallbackHandler(BaseHTTPRequestHandler):
     def log_message(self, format, *args):
         # Quiet mode - only print important messages
         pass
-    
+
     def do_GET(self):
         parsed = urlparse(self.path)
         if parsed.path == "/callback":
             qs = parse_qs(parsed.query)
             code = qs.get("code", [None])[0]
-            
+
             if code:
                 print(f"✅ Code received", file=sys.stderr, flush=True)
-                
+
                 # Exchange code for tokens
                 try:
                     data = {
@@ -70,29 +70,29 @@ class OAuthCallbackHandler(BaseHTTPRequestHandler):
                     }
                     headers = {"Content-Type": "application/x-www-form-urlencoded"}
                     resp = requests.post(COGNITO_TOKEN_URL, data=data, headers=headers)
-                    
+
                     if resp.ok:
                         tokens = resp.json()
                         # Path("oauth_tokens.json").write_text(json.dumps(tokens, indent=2) + "\n")
 
                         set_token("oauth_tokens.json", json.dumps(tokens, indent=2) + "\n")
                         print("✅ Tokens saved", file=sys.stderr, flush=True)
-                        
+
                         # Signal wrapper script to restart main.py
                         try:
                             pid_file = Path(MAIN_APP_PID_FILE)
                             if pid_file.exists():
                                 pid = int(pid_file.read_text().strip())
                                 print(f"🔄 Sending restart signal to main app (PID: {pid})...", file=sys.stderr, flush=True)
-                                
+
                                 # Create restart signal
                                 Path(".restart_signal").touch()
-                                
+
                                 # Kill main app - wrapper script will restart it
                                 os.kill(pid, signal.SIGTERM)
                         except Exception as e:
                             print(f"⚠️  Couldn't signal restart: {e}", file=sys.stderr, flush=True)
-                        
+
                         self.send_response(200)
                         self.send_header("Content-Type", "text/html")
                         self.end_headers()

@@ -1,30 +1,35 @@
-from typing import List, Optional, Dict, Any
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+import json
 import os
 import random
-import json
-import requests
 from pathlib import Path
+from typing import List, Optional, Dict, Any, Iterable
+from dataclasses import dataclass
+import logging
+import sys
+
+import keyring
+import requests
+from dotenv import load_dotenv
+from requests import Session
+from .auth_storage import load_tokens, save_tokens_full
+from .auth import refresh_tokens
 
 # === lightweight data objects used by the UI ===
-from dataclasses import dataclass
-from data_models import Notification
-import os
-import requests
-from requests import Session
-from typing import Iterable
-import keyring
+from .data_models import Notification
 
-from dotenv import load_dotenv
-
-serviceKeyring = "tuiitter"
+serviceKeyring = "tuitter"
 
 load_dotenv(override=True)
+
+# Make sure keyring service has default values
+if not keyring.get_password(serviceKeyring, "username"):
+    keyring.set_password(serviceKeyring, "username", "")
 
 @dataclass
 class User:
     id: int
-    handle: str  
+    handle: str
     username: str
     display_name: str
     bio: str
@@ -45,6 +50,7 @@ class Post:
     comments: int
     liked_by_user: bool = False
     reposted_by_user: bool = False
+    attachments: List[Dict[str, Any]] = None
 
 
 @dataclass
@@ -118,33 +124,115 @@ class RealAPI(APIInterface):
         self.timeout = timeout
         self.handle = handle
         self.session: Session = requests.Session()
+        # Track the currently-set bearer token (explicitly initialize)
+        self.token: str | None = None
+        if token:
+            try:
+                self.set_token(token)
+            except Exception:
+                pass
 
     # --- helpers ---
     def set_token(self, token: str) -> None:
+        # Record token and update session header. Log a short preview (not the full token).
+        logger = logging.getLogger("tuitter.api")
         self.token = token
         self.session.headers.update({"Authorization": f"Bearer {self.token}"})
-    
-    def set_handle(self, handle: str) -> None:
-        """Update the handle (username) used in API requests"""
-        self.handle = handle
+        try:
+            kind = "jwt" if isinstance(token, str) and token.count('.') == 2 else "opaque"
+            preview = (token[:10] + "...") if isinstance(token, str) and len(token) > 10 else token
+            logger.info("Set API token type=%s preview=%s", kind, preview)
+        except Exception:
+            logger.debug("Set API token (unable to preview)")
 
     def _get(self, path: str, params: Dict[str, Any] | None = None) -> Any:
-        if params is None:
-            params = {}
-        params.setdefault("handle", self.handle)
-        url = f"{self.base_url}/{path.lstrip('/')}"
-        resp = self.session.get(url, params=params, timeout=self.timeout)
-        resp.raise_for_status()
-        return resp.json()
+        return self._request("GET", path, params=params)
 
     def _post(self, path: str, json_payload: Dict[str, Any] | None = None, params: Dict[str, Any] | None = None) -> Any:
+        return self._request("POST", path, params=params, json_payload=json_payload)
+
+    def _request(self, method: str, path: str, params: Dict[str, Any] | None = None, json_payload: Dict[str, Any] | None = None, retry: bool = True) -> Any:
+        """Internal request helper that will attempt a single refresh+retry on 401.
+
+        - method: "GET" or "POST"
+        - retry: if True the helper will attempt refresh and one retry on 401
+        """
+        logger = logging.getLogger("tuitter.api")
         if params is None:
             params = {}
         params.setdefault("handle", self.handle)
         url = f"{self.base_url}/{path.lstrip('/')}"
-        resp = self.session.post(url, params=params, json=json_payload, timeout=self.timeout)
-        resp.raise_for_status()
-        return resp.json()
+
+        try:
+            if method.upper() == "GET":
+                resp = self.session.get(url, params=params, timeout=self.timeout)
+            else:
+                resp = self.session.post(url, params=params, json=json_payload, timeout=self.timeout)
+
+            # If unauthorized, try refresh once
+            if resp.status_code == 401 and retry:
+                logger.info("API 401 received for %s %s - attempting refresh", method, path)
+                try:
+                    stored = load_tokens()
+                    refresh = stored.get('refresh_token') if stored else None
+                    if refresh:
+                        new_tokens = refresh_tokens(refresh)
+                        # Strict: only accept access_token for backend API authorization
+                        if new_tokens and isinstance(new_tokens, dict) and new_tokens.get('access_token'):
+                            # Update in-memory token and persist refreshed tokens
+                            try:
+                                self.set_token(new_tokens['access_token'])
+                            except Exception:
+                                pass
+                            try:
+                                save_tokens_full(new_tokens)
+                            except Exception:
+                                logger.debug("Failed to persist refreshed tokens (non-fatal)")
+
+                            # Retry the request once
+                            if method.upper() == "GET":
+                                resp = self.session.get(url, params=params, timeout=self.timeout)
+                            else:
+                                resp = self.session.post(url, params=params, json=json_payload, timeout=self.timeout)
+                except Exception:
+                    logger.debug("Refresh attempt failed (non-fatal) while handling initial 401")
+
+            resp.raise_for_status()
+            return resp.json()
+
+        except requests.HTTPError as e:
+            status = None
+            try:
+                status = e.response.status_code if e.response is not None else None
+            except Exception:
+                pass
+
+            # If we got a 401 and haven't retried yet, try to refresh
+            if status == 401 and retry:
+                logger.info("HTTPError 401; attempting refresh and retry after exception path for %s %s", method, path)
+                try:
+                    stored = load_tokens()
+                    refresh = stored.get('refresh_token') if stored else None
+                    if refresh:
+                        new_tokens = refresh_tokens(refresh)
+                        # Strict: only accept access_token for backend API authorization
+                        if new_tokens and isinstance(new_tokens, dict) and new_tokens.get('access_token'):
+                            try:
+                                self.set_token(new_tokens['access_token'])
+                            except Exception:
+                                pass
+                            try:
+                                save_tokens_full(new_tokens)
+                            except Exception:
+                                logger.debug("Failed to persist refreshed tokens (non-fatal)")
+
+                            # Retry the original call once
+                            return self._request(method, path, params=params, json_payload=json_payload, retry=False)
+                except Exception:
+                    logger.debug("Refresh attempt failed (non-fatal) while handling 401")
+
+                        # Re-raise original HTTP error if refresh didn't succeed or cannot be performed
+            raise
 
     def get_current_user(self) -> User:
         data = self._get("/me")
@@ -173,7 +261,7 @@ class RealAPI(APIInterface):
             json_payload={"content": content, "sender_handle": self.handle},
         )
         return self._convert_message(data)
-    
+
     def get_or_create_dm(self, other_user_handle: str) -> Conversation:
         """Get or create a direct message conversation with another user"""
         data = self._post(
@@ -206,7 +294,13 @@ class RealAPI(APIInterface):
         return True
 
     def create_post(self, content: str) -> Post:
-        data = self._post("/posts", json_payload={"content": content})
+        # Check if content is JSON string containing attachments
+        try:
+            post_data = json.loads(content)
+            data = self._post("/posts", json_payload=post_data)
+        except json.JSONDecodeError:
+            # If not JSON, treat as simple text post
+            data = self._post("/posts", json_payload={"content": content})
         return Post(**self._convert_post(data))
 
     def like_post(self, post_id: int) -> bool:
@@ -228,15 +322,53 @@ class RealAPI(APIInterface):
     # --- conversion helpers ---
     def _convert_post(self, p: Dict[str, Any]) -> Dict[str, Any]:
         # Ensure fields match Post dataclass naming
+        # Normalize timestamp into a datetime object (local naive)
+        ts_raw = p.get("timestamp")
+        timestamp = None
+        try:
+            if isinstance(ts_raw, datetime):
+                timestamp = ts_raw
+            elif isinstance(ts_raw, str):
+                # If the string contains an explicit timezone (Z or ±HH:MM), parse
+                # it as an aware datetime. If it lacks timezone info, assume the
+                # server returned UTC (common for ISO timestamps without a suffix)
+                # and convert to local time.
+                try:
+                    s = ts_raw
+                    has_tz = s.endswith("Z") or ("+" in s[10:] or "-" in s[10:])
+                    if has_tz:
+                        # Normalize trailing Z to +00:00 then parse as aware
+                        dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
+                    else:
+                        # No timezone info: treat as UTC
+                        dt = datetime.fromisoformat(s)
+                        dt = dt.replace(tzinfo=timezone.utc)
+
+                    # Convert to local timezone and return naive local datetime
+                    timestamp = dt.astimezone().replace(tzinfo=None)
+                except Exception:
+                    # Last-resort parse: use now
+                    timestamp = datetime.now()
+            else:
+                timestamp = datetime.now()
+        except Exception:
+            timestamp = datetime.now()
+
+        try:
+            logging.getLogger("tuitter.api").debug(
+                "_convert_post: raw timestamp=%r parsed=%r for post id=%s",
+                ts_raw,
+                timestamp,
+                p.get("id"),
+            )
+        except Exception:
+            pass
+
         out = dict(
             id=str(p.get("id")),
             author=p.get("author") or p.get("username") or p.get("user"),
             content=p.get("content") or p.get("text") or "",
-            timestamp=p.get("timestamp")
-            if isinstance(p.get("timestamp"), datetime)
-            else datetime.fromisoformat(p.get("timestamp"))
-            if p.get("timestamp")
-            else datetime.now(),
+            timestamp=timestamp,
             likes=int(p.get("likes") or 0),
             reposts=int(p.get("reposts") or 0),
             comments=int(p.get("comments") or 0),
@@ -244,9 +376,10 @@ class RealAPI(APIInterface):
             reposted_by_user=bool(
                 p.get("reposted_by_user") or p.get("reposted") or False
             ),
+            attachments=p.get("attachments", [])  # Add attachments to the post object
         )
         return out
-    
+
     def _convert_message(self, m: Dict[str, Any]) -> Message:
         """Convert backend message response to Message dataclass"""
         return Message(
@@ -262,30 +395,115 @@ class RealAPI(APIInterface):
             is_read=bool(m.get("is_read") or False),
         )
 
+    def try_restore_session(self) -> bool:
+        """Attempt to restore session from stored credentials.
+
+        This uses the centralized auth.get_stored_credentials() helper which
+        will attempt a refresh if only a refresh token is present. On success
+        the API token and handle are set and True is returned. Otherwise
+        False is returned.
+        """
+        logger = logging.getLogger("tuitter.api")
+        try:
+            # Use auth_storage directly so we can see both full tokens and a
+            # separate refresh token. This lets us verify the token is still
+            # valid and attempt a refresh if necessary.
+            from .auth_storage import load_tokens as _load
+            found = _load()
+
+            if not found:
+                return False
+
+            # If we have a full token blob, try to validate it with a light /me call.
+            if 'tokens' in found and isinstance(found['tokens'], dict):
+                tokens = found['tokens']
+                username = found.get('username') or None
+                access = tokens.get('access_token')
+                refresh = tokens.get('refresh_token') or found.get('refresh_token')
+
+                if access:
+                    try:
+                        self.set_token(access)
+                    except Exception:
+                        logger.debug("try_restore_session: set_token failed")
+                    if username:
+                        self.handle = username
+
+                    # Quick validation call (include handle param required by backend)
+                    try:
+                        resp = self.session.get(f"{self.base_url}/me", params={"handle": self.handle}, timeout=self.timeout)
+                        if resp.ok:
+                            return True
+                        if resp.status_code == 401:
+                            # Try to refresh if we have a refresh token
+                            if refresh:
+                                try:
+                                    new_tokens = refresh_tokens(refresh)
+                                    if new_tokens and isinstance(new_tokens, dict) and new_tokens.get('access_token'):
+                                        try:
+                                            self.set_token(new_tokens['access_token'])
+                                        except Exception:
+                                            pass
+                                        try:
+                                            save_tokens_full(new_tokens, username)
+                                        except Exception:
+                                            pass
+                                        return True
+                                except Exception:
+                                    logger.debug("try_restore_session: refresh failed")
+                            return False
+                        # Other non-auth failures - treat as restore failure
+                        return False
+                    except Exception:
+                        logger.debug("try_restore_session: validation request failed")
+                        # Fallthrough to attempt refresh if possible
+                        if refresh:
+                            try:
+                                new_tokens = refresh_tokens(refresh)
+                                if new_tokens and isinstance(new_tokens, dict) and new_tokens.get('access_token'):
+                                    try:
+                                        self.set_token(new_tokens['access_token'])
+                                    except Exception:
+                                        pass
+                                    try:
+                                        save_tokens_full(new_tokens, username)
+                                    except Exception:
+                                        pass
+                                    if username:
+                                        self.handle = username
+                                    return True
+                            except Exception:
+                                logger.debug("try_restore_session: refresh after validation failure failed")
+                        return False
+
+            # If we only have a refresh token, try to refresh now
+            if 'refresh_token' in found and found.get('refresh_token'):
+                refresh = found.get('refresh_token')
+                username = found.get('username') or None
+                try:
+                    new_tokens = refresh_tokens(refresh)
+                    if new_tokens and isinstance(new_tokens, dict) and new_tokens.get('access_token'):
+                        try:
+                            self.set_token(new_tokens['access_token'])
+                        except Exception:
+                            pass
+                        try:
+                            save_tokens_full(new_tokens, username)
+                        except Exception:
+                            pass
+                        if username:
+                            self.handle = username
+                        return True
+                except Exception:
+                    logger.debug("try_restore_session: refresh_tokens failed for refresh-only blob")
+
+            return False
+        except Exception as e:
+            logging.getLogger("tuitter.api").exception("try_restore_session failed: %s", e)
+            return False
+
 # Global api selection: prefer real backend when BACKEND_URL is set
-_backend_url = os.environ.get("BACKEND_URL")
+_BACKEND_URL = "https://voqbyhcnqe.execute-api.us-east-2.amazonaws.com"
 
-if _backend_url:
-    # Get username from keyring if available, otherwise use default
-    _username = keyring.get_password(serviceKeyring, "username") or "yourname"
-    api = RealAPI(base_url=_backend_url, handle=_username)
-
-    try:
-        token_data = keyring.get_password(serviceKeyring, "oauth_tokens.json")
-        if token_data:
-            tokens = json.loads(token_data)
-            if "access_token" in tokens:
-                api.set_token(tokens["access_token"])
-    except Exception as e:
-        print(f"Warning: Could not load auth token: {e}")
-else:
-    # Fallback to prevent NameError on import
-    # Will fail at runtime with clear error message
-    class _StubAPI:
-        def __getattr__(self, name):
-            raise RuntimeError(
-                f"BACKEND_URL environment variable is not set. "
-                f"Please set BACKEND_URL to your FastAPI backend URL (e.g., 'http://localhost:8000'). "
-                f"Attempted to call: {name}"
-            )
-    api = _StubAPI()
+if _BACKEND_URL:
+    api = RealAPI(base_url=_BACKEND_URL)

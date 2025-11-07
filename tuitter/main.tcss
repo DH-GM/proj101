@@ -56,6 +56,12 @@ $text-dim: $dracula-comment;
 $text-subtle: #7A7A7A;
 $text-content: #D8D8D0;
 
+/* Danger Colors (using Dracula Red) */
+$danger-border: $dracula-red;
+$danger-text: #FFAAAA;
+$danger-bg: #441818;
+$danger-bg-hover: #553030;
+
 /* Named Colors (using Dracula palette) */
 $color-cyan: $dracula-cyan;
 $color-magenta: $dracula-pink;
@@ -101,9 +107,13 @@ $scrollbar-sidebar-active: $dracula-cyan;
 }
 
 #auth-center {
-    border: ascii white;
-    height: 9;
+    /* Use the app dialog style: rounded cyan border to match other dialogs */
+    border: round $color-cyan;
+    background: $bg-dark;
+    /* Compact sizing for aesthetics */
+    height: 11;
     width: 40;
+    padding: 1 3;
 }
 
 #auth-title {
@@ -119,13 +129,58 @@ $scrollbar-sidebar-active: $dracula-cyan;
 }
 
 #oauth-signin {
-    background: white;
-    color: black;
+    /* Make the standalone OAuth sign-in button more prominent (generic selector)
+       Keep it permissive so it applies whether the widget is a Button or Static */
+    min-width: 18;
+    height: 3;
+    padding: 0 2;
+    background: $primary;
+    color: $text-primary;
+    border: solid $primary;
+    content-align: center middle;
+    text-align: center;
+    text-style: bold;
+}
+
+/* Stronger specificity for Button widget with this id and primary variant */
+
+Button#oauth-signin, Button#oauth-signin.-primary {
+    /* Dialog-like, but slightly slimmer for a compact card */
+    min-width: 18;
+    height: 3;
+    padding: 0 3;
+    background: $bg-lighter;
+    color: $text-primary;
+    border: solid $primary-hover;
+    content-align: center middle;
+    text-align: center;
+    text-style: bold;
+}
+
+Button#oauth-signin:hover, Button#oauth-signin.-primary:hover {
+    background: $bg-highlight;
 }
 
 #quit-label {
     align: left bottom;
     margin: 1 2;
+}
+
+#auth-status {
+    margin-top: 1;
+    content-align-horizontal: center;
+    text-align: center;
+    color: $text-primary;
+    min-height: 1;
+}
+
+#auth-hint {
+    margin-top: 1;
+    content-align-horizontal: center;
+    text-align: center;
+    color: $text-subtle;
+    text-style: italic;
+    min-height: 1;
 }
 
 Button.danger {
@@ -176,23 +231,6 @@ DraftsScreen {
     border-title-style: bold;
 }
 
-.draft-box:hover {
-    border: round $border-green-hover;
-    background: $bg-lighter;
-}
-
-/* Less intense cursor for draft boxes to let action buttons stand out */
-.draft-box.vim-cursor {
-    border: round $border-hover;
-    background: $bg-highlight;
-}
-
-.draft-timestamp {
-    color: $text-dim;
-    text-style: italic;
-    margin-bottom: 1;
-}
-
 .draft-content-preview {
     color: $text-content;
     margin-bottom: 1;
@@ -213,50 +251,99 @@ DraftsScreen {
     align: center middle;
 }
 
-.draft-action-btn, .draft-action-btn-delete {
+.draft-action-btn, .draft-action-btn-delete, #cancel-delete, #confirm-delete {
     width: 1fr;
     margin: 0 1;
     height: 3;
     padding: 0 2;
     background: $bg-dark;
     color: $text-primary;
-    border: solid $color-cyan;
     text-style: bold;
     content-align: center middle;
     text-align: center;
     min-width: 15;
 }
 
-.draft-action-btn:hover {
+.draft-action-btn, #cancel-delete {
+    border: solid $color-cyan;
+}
+
+.draft-action-btn-delete, #confirm-delete {
+    border: solid $accent-red;
+}
+
+.draft-action-btn:hover, #cancel-delete:hover {
     background: $bg-highlight;
     border: heavy $accent-cyan;
     color: $text-primary;
 }
 
-.draft-action-btn-delete {
-    border: solid $accent-red;
-    color: $text-primary;
-}
-
-.draft-action-btn-delete:hover {
+.draft-action-btn-delete:hover, #confirm-delete:hover {
     background: $danger-bg-hover;
     border: heavy $accent-red-hover;
     color: $text-primary;
 }
 
 /* Selected action highlight */
-.draft-action-btn.action-selected {
+.draft-action-btn.action-selected, #cancel-delete.selected {
     background: $primary-dark;
     border: heavy $primary;
     color: $text-primary;
     text-style: bold;
 }
 
-.draft-action-btn-delete.action-selected {
+.draft-action-btn-delete.action-selected, #confirm-delete.selected {
     background: $danger-bg-hover;
     border: heavy $accent-red-hover;
     color: $text-primary;
     text-style: bold;
+}
+
+/* Dialog button states */
+/* Dialog buttons */
+#dialog-container #action-buttons Button {
+    width: 1fr;
+    margin: 0 1;
+    min-width: 15;
+    height: 5;
+    padding: 1 2;
+}
+
+/* Cancel button styles */
+#cancel-delete {
+    background: $bg-dark;
+    color: $text-primary;
+    border: solid $color-cyan;
+}
+
+#cancel-delete:hover {
+    background: $bg-highlight;
+    border: heavy $accent-cyan;
+    color: $text-primary;
+}
+
+#cancel-delete.selected {
+    background: $bg-dark;
+    border: heavy $color-cyan;
+    color: $text-primary;
+}
+
+/* Confirm delete button styles */
+#confirm-delete {
+    background: $bg-dark;
+    color: $text-primary;
+    border: solid $accent-red;
+}
+
+#confirm-delete:hover {
+    background: $accent-red-hover;
+    border: heavy $accent-red-hover;
+}
+
+#confirm-delete.selected {
+    background: $danger-bg-hover;
+    border: heavy $accent-red-hover;
+    color: $text-primary;
 }
 
 .no-drafts-message {
@@ -306,33 +393,6 @@ DraftsScreen {
     height: auto;
     align: center middle;
     margin-top: 1;
-}
-
-.draft-btn-open, .draft-btn-delete {
-    width: 1fr;
-    margin: 0 0;
-    height: 3;
-    padding: 0 1;
-    background: $bg-dark;
-    color: $text-primary;
-    border: solid $color-cyan;
-    text-style: bold;
-    content-align: center middle;
-    text-align: center;
-}
-
-.draft-btn-open:hover {
-    background: $bg-highlight;
-    border: solid $accent-cyan;
-}
-
-.draft-btn-delete {
-    border: solid $accent-red;
-}
-
-.draft-btn-delete:hover {
-    background: $danger-bg-hover;
-    border: solid $accent-red-hover;
 }
 
 /* App Header */
@@ -466,6 +526,21 @@ Input.vim-cursor {
     color: $text-primary;
     border-left: heavy $primary;
     border-right: heavy $primary;
+}
+
+/* Danger / sign-out cursor and selected state */
+.danger.vim-cursor, Button.danger.vim-cursor {
+    background: $danger-bg-hover;
+    color: $text-primary;
+    border-left: heavy $accent-red-hover;
+    border-right: heavy $accent-red-hover;
+}
+
+Button.danger.action-selected, .danger.action-selected {
+    background: $danger-bg-hover;
+    border: heavy $accent-red-hover;
+    color: $text-primary;
+    text-style: bold;
 }
 
 /* Profile panel cursor */
@@ -1354,6 +1429,8 @@ Button:hover {
     color: $text-primary;
 }
 
+/* Dialog button styles unified with draft action buttons above */
+
 Button.-primary {
     background: $primary;
     color: $text-primary;
@@ -1433,10 +1510,10 @@ NewPostDialog, DeleteDraftDialog {
 /* Attachments List */
 .attachments-list {
     width: 100%;
-    margin: 1;
+    margin: 0;
     color: $text-dim;
-    min-height: 3;
-    padding: 1;
+    min-height: 1;
+    padding: 0 1;
     background: $bg-dark;
     border: none;
 }
@@ -1457,7 +1534,8 @@ NewPostDialog, DeleteDraftDialog {
     height: auto;
     align: center middle;
     layout: horizontal;
-    margin: 1;
+    margin: 0;
+    padding: 0 1;
     background: $bg-dark;
 }
 
@@ -1549,6 +1627,7 @@ Button#draft-button:hover {
     color: $text-primary;
 }
 
+/* Default dialog button styles */
 Button#cancel-button, Button#cancel-delete {
     background: $bg-dark;
     color: $text-primary;
@@ -1556,10 +1635,37 @@ Button#cancel-button, Button#cancel-delete {
     height: 5;
 }
 
+/* Special styling for delete confirmation dialog */
+DeleteDraftDialog Button#confirm-delete {
+    background: $danger-bg;
+    color: $danger-text;
+    border: solid $danger-border;
+}
+
+DeleteDraftDialog Button#confirm-delete:hover {
+    background: $dracula-red;
+    border: heavy $accent-red-hover;
+    color: $text-primary;
+}
+
+DeleteDraftDialog Button#confirm-delete.selected {
+    background: $dracula-red;
+    border: heavy $accent-red-hover;
+    color: $text-primary;
+}
+
 Button#cancel-button:hover, Button#cancel-delete:hover {
     background: $bg-highlight;
     border: heavy $accent-cyan;
     color: $text-primary;
+}
+
+/* Override for selected state with higher specificity */
+DeleteDraftDialog Button#cancel-delete.selected {
+    background: $bg-highlight;
+    border: heavy $accent-cyan;
+    color: $text-primary;
+    text-style: bold;
 }
 
 Button#confirm-delete {

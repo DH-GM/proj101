@@ -1,23 +1,30 @@
 from textual.app import App, ComposeResult
 from textual.binding import Binding
-from textual.containers import Container, Horizontal, Vertical, VerticalScroll, ScrollableContainer
+from textual.containers import (
+    Container,
+    Horizontal,
+    Vertical,
+    VerticalScroll,
+    ScrollableContainer,
+)
 from textual.widgets import Static, Input, Button, TextArea, Label, RichLog
 from textual.reactive import reactive
 from textual.screen import ModalScreen, Screen
 from textual.message import Message
 from datetime import datetime
-from api_interface import api
+from .api_interface import api
 import sys
 import subprocess
 from pathlib import Path
 import tkinter as tk
 from tkinter import filedialog
 from PIL import Image
-from ascii_video_widget import ASCIIVideoPlayer
+from .ascii_video_widget import ASCIIVideoPlayer
 import json
 from typing import List, Dict
 from rich.text import Text
 import logging
+import time
 import webbrowser
 import keyring
 import os
@@ -25,32 +32,51 @@ import dotenv
 
 dotenv.load_dotenv()
 
-serviceKeyring = "tuiitter"
+serviceKeyring = "tuitter"
 
-# ───────── OAuth Constants ─────────
-COGNITO_AUTH_URL = "https://us-east-2xzzmuowl9.auth.us-east-2.amazoncognito.com/login/continue?client_id=7109b3p9beveapsmr806freqnn&redirect_uri=http%3A%2F%2Flocalhost%3A5173%2Fcallback&response_type=code&scope=email+openid+phone"
+# Service name for keyring storage
 
 # Custom message for draft updates
 class DraftsUpdated(Message):
     """Posted when drafts are updated."""
+
     pass
+
+
+class AuthenticationCompleted(Message):
+    """Posted when authentication completes successfully."""
+
+    def __init__(self, username: str) -> None:
+        super().__init__()
+        self.username = username
+
+
+class AuthenticationFailed(Message):
+    """Posted when authentication fails."""
+
+    def __init__(self, error: str) -> None:
+        super().__init__()
+        self.error = error
+
 
 # Drafts file path
 DRAFTS_FILE = Path.home() / ".proj101_drafts.json"
+
 
 def load_drafts() -> List[Dict]:
     """Load drafts from local storage."""
     if not DRAFTS_FILE.exists():
         return []
     try:
-        with open(DRAFTS_FILE, 'r') as f:
+        with open(DRAFTS_FILE, "r") as f:
             drafts = json.load(f)
             # Convert timestamp strings back to datetime objects
             for draft in drafts:
-                draft['timestamp'] = datetime.fromisoformat(draft['timestamp'])
+                draft["timestamp"] = datetime.fromisoformat(draft["timestamp"])
             return drafts
     except Exception:
         return []
+
 
 def save_drafts(drafts: List[Dict]) -> None:
     """Save drafts to local storage."""
@@ -59,13 +85,14 @@ def save_drafts(drafts: List[Dict]) -> None:
         drafts_to_save = []
         for draft in drafts:
             draft_copy = draft.copy()
-            draft_copy['timestamp'] = draft['timestamp'].isoformat()
+            draft_copy["timestamp"] = draft["timestamp"].isoformat()
             drafts_to_save.append(draft_copy)
 
-        with open(DRAFTS_FILE, 'w') as f:
+        with open(DRAFTS_FILE, "w") as f:
             json.dump(drafts_to_save, f, indent=2)
     except Exception as e:
         print(f"Error saving drafts: {e}")
+
 
 def add_draft(content: str, attachments: List = None) -> None:
     """Add a new draft and maintain max 2 drafts."""
@@ -75,14 +102,14 @@ def add_draft(content: str, attachments: List = None) -> None:
     new_draft = {
         "content": content,
         "attachments": attachments or [],
-        "timestamp": datetime.now()
+        "timestamp": datetime.now(),
     }
 
     # Add new draft
     drafts.append(new_draft)
 
     # Sort by timestamp (oldest first)
-    drafts.sort(key=lambda x: x['timestamp'])
+    drafts.sort(key=lambda x: x["timestamp"])
 
     # Keep only the 2 most recent drafts
     if len(drafts) > 2:
@@ -90,12 +117,14 @@ def add_draft(content: str, attachments: List = None) -> None:
 
     save_drafts(drafts)
 
+
 def delete_draft(index: int) -> None:
     """Delete a specific draft by index."""
     drafts = load_drafts()
     if 0 <= index < len(drafts):
         drafts.pop(index)
         save_drafts(drafts)
+
 
 def format_time_ago(dt: datetime) -> str:
     """Format datetime as 'time ago' string."""
@@ -110,11 +139,75 @@ def format_time_ago(dt: datetime) -> str:
     return f"{diff.seconds // 3600}h ago"
 
 
+# ───────── Main UI Screen (not auth) ─────────
+class MainUIScreen(Screen):
+    """The main authenticated app screen with timeline/discover/etc."""
+
+    def __init__(self, starting_view: str = "timeline"):
+        super().__init__()
+        self.starting_view = starting_view
+
+    def compose(self) -> ComposeResult:
+        username = keyring.get_password(serviceKeyring, "username") or "yourname"
+        yield Static(f"tuitter [{self.starting_view}] @{username}", id="app-header", markup=False)
+        yield TopNav(id="top-navbar", current=self.starting_view)
+
+        # Show the appropriate content based on starting_view
+        if self.starting_view == "timeline":
+            yield TimelineScreen(id="screen-container")
+        elif self.starting_view == "discover":
+            yield DiscoverScreen(id="screen-container")
+        elif self.starting_view == "notifications":
+            yield NotificationsScreen(id="screen-container")
+        elif self.starting_view == "messages":
+            yield MessagesScreen(id="screen-container")
+        elif self.starting_view == "settings":
+            yield SettingsScreen(id="screen-container")
+        else:
+            yield TimelineScreen(id="screen-container")
+
+        yield Static("[1-5] Screens [p] Profile [d] Drafts [j/k] Navigate [:n] New Post [:q] Quit", id="app-footer", markup=False)
+        yield Static("", id="command-bar")
+
+        # Auth Debug Log - only show if TUITTER_DEBUG environment variable is set
+        if os.getenv("TUITTER_DEBUG"):
+            auth_log = RichLog(id="auth-log", highlight=True, markup=True)
+            auth_log.styles.height = "10"
+            auth_log.styles.border = ("solid", "yellow")
+            auth_log.border_title = "Auth Debug Log"
+            yield auth_log
+
+    def on_mount(self) -> None:
+        """When the MainUIScreen is mounted by the mode switch, ensure the
+        initial content (timeline) receives focus. This covers the case where
+        the App.switch_mode('main') path triggers the mode mount and previous
+        scheduling in App.show_main_app was too early.
+        """
+        try:
+            # Schedule focusing after the screen's layout settles
+            try:
+                # Ask the App to focus initial content after refresh
+                self.app.call_after_refresh(self.app._focus_initial_content)
+            except Exception:
+                pass
+
+            # Conservative fallback: small delayed timer to cover slow mounts
+            try:
+                self.app.set_timer(0.05, self.app._focus_initial_content)
+            except Exception:
+                pass
+        except Exception:
+            pass
+
+
 # ───────── Auth Screen ─────────
-class AuthScreen(Container):
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
-        self._file_timer = None
+class AuthScreen(Screen):
+    """Authentication screen using Textual Screen for auth flow.
+
+    Making this a Screen lets the App push/pop it using native Textual
+    navigation which avoids layout races when switching between auth and
+    main UI.
+    """
 
     def compose(self) -> ComposeResult:
         # Minimal auth screen: centered sign-in button
@@ -122,50 +215,367 @@ class AuthScreen(Container):
             with Container(id="auth-center"):
                 yield Static("Continue in your browser", id="auth-title", classes="signin")
                 with Container(id="oauth-signin-container"):
-                    yield Button("Sign In", id="oauth-signin", classes="signin")
-        
+                    # Make this the app's primary button so global Button.-primary styles apply
+                    yield Button("Sign In", id="oauth-signin", variant="primary", classes="signin")
+
+        # Status text should appear outside and below the cyan card so it's visually
+        # separated from the dialog. Center it horizontally.
+        yield Static("", id="auth-status", classes="signin")
+        # Small hint so users know Enter will activate the sign-in
+        yield Static("press Enter to sign in", id="auth-hint", classes="signin")
+
         yield Static("press q to quit", id="quit-label", classes="signin")
 
-    def on_button_pressed(self, event: Button.Pressed) -> None:
-        if event.button.id == "oauth-signin":
-            # Update status immediately
-            try:
-                self.query_one("#oauth-status", Static).update("Status: Opening browser...")
-            except Exception:
-                pass
-            
-            # Schedule the OAuth flow
-            self.call_after_refresh(self._start_oauth_flow)
-
-    def _start_oauth_flow(self) -> None:
-        """Open Cognito Hosted UI and poll for tokens."""
-        print("Starting OAuth flow...")
-        
-        # Open browser to Cognito hosted UI
-        print("Opening browser...")
-        webbrowser.open(COGNITO_AUTH_URL)
-        
-        # Update status
+    def on_mount(self) -> None:
+        """Called when the AuthScreen is mounted."""
+        import sys
         try:
-            self.query_one("#oauth-status", Static).update("Status: Waiting for sign-in... (check your browser)")
+            # Use App-level logging so it respects TUITTER_DEBUG and in-TUI RichLog
+            self.app.log_auth_event("AuthScreen.on_mount CALLED")
         except Exception:
             pass
-        
-        # Poll for tokens file
-        self._file_timer = self.set_interval(1.0, self._check_tokens_file)
-
-    def _check_tokens_file(self) -> None:
         try:
-            p = keyring.get_password(serviceKeyring, "oauth_tokens.json")
-            print(f"p: {p}")
-            if p:
-                data = json.loads(p or "{}")
-                # Check for valid tokens
-                if isinstance(data, dict) and ("access_token" in data or "id_token" in data):
-                    if self._file_timer:
-                        self._file_timer.pause()
-                    self.query_one("#oauth-status", Static).update("Status: Signed in (tokens detected)")
+            button = self.query_one("#oauth-signin", Button)
+            try:
+                self.app.log_auth_event(f"Found button: {button.id}")
+            except Exception:
+                pass
+        except Exception as e:
+            try:
+                self.app.log_auth_event(f"Failed to find button: {e}")
+            except Exception:
+                pass
+
+        try:
+            self.app.log_auth_event("AuthScreen.on_mount: Screen mounted")
+        except Exception:
+            pass
+
+        # Attempt a silent restore here so if tokens are present (written by
+        # another session) we immediately switch to the main UI without
+        # requiring the user to quit/reopen. This mirrors App.on_mount but
+        # runs when the AuthScreen becomes active.
+        try:
+            # Prefer the API's proactive restore which validates the token and
+            # attempts refresh if needed. This avoids switching to the main UI
+            # with an expired token which would crash during compose.
+            try:
+                restored = api.try_restore_session()
+            except Exception:
+                restored = False
+
+            try:
+                self.app.log_auth_event(f"AuthScreen.on_mount: silent-restore restored={restored}")
+            except Exception:
+                pass
+
+            if restored:
+                try:
+                    # Let the App mount the main UI; tokens are already set on api
                     self.app.show_main_app()
+                    return
+                except Exception:
+                    try:
+                        self.app.log_auth_event("AuthScreen.on_mount: silent restore failed during show_main_app")
+                    except Exception:
+                        pass
+        except Exception:
+            # Don't let silent-restore errors prevent the auth screen from working
+            pass
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        """Handle sign-in button press."""
+        import sys
+        try:
+            self.app.log_auth_event(f"BUTTON PRESSED: {event.button.id}")
+        except Exception:
+            pass
+
+        if event.button.id == "oauth-signin":
+            try:
+                self.app.log_auth_event("Sign-in button confirmed")
+            except Exception:
+                pass
+            # Update status immediately
+            try:
+                self.query_one("#auth-status", Static).update("Opening browser...")
+                try:
+                    self.app.log_auth_event("Updated status text")
+                except Exception:
+                    pass
+            except Exception as e:
+                try:
+                    self.app.log_auth_event(f"Failed to update status: {e}")
+                except Exception:
+                    pass
+
+            # Schedule the OAuth flow
+            try:
+                self.app.log_auth_event("About to call call_after_refresh")
+            except Exception:
+                pass
+            self.call_after_refresh(self._start_auth_flow)
+            try:
+                self.app.log_auth_event("call_after_refresh returned")
+            except Exception:
+                pass
+
+    def key_enter(self) -> None:
+        """Allow Enter to trigger the auth flow even when the button isn't focused.
+
+        If the Button has keyboard focus it will handle Enter itself, so skip in
+        that case to avoid double-triggering.
+        """
+        try:
+            btn = self.query_one("#oauth-signin", Button)
+            if getattr(btn, "has_focus", False):
+                return
+        except Exception:
+            # No button found - still allow flow to start
+            pass
+
+        try:
+            # Mirror the same behaviour as clicking the button
+            self.query_one("#auth-status", Static).update("Opening browser...")
+        except Exception:
+            pass
+        # Schedule the OAuth flow on the UI thread
+        self.call_after_refresh(self._start_auth_flow)
+
+    def _start_auth_flow(self) -> None:
+        """Start the OAuth flow using simplified auth module."""
+        # Run authenticate() in a background thread so the Textual event loop
+        # stays responsive. Marshal UI updates back to the main thread using
+        # call_from_thread / app.call_from_thread.
+        from .auth import authenticate, AuthError
+        import threading
+        import sys
+
+        # Log immediately that this method was called
+        if os.getenv("TUITTER_DEBUG"):
+            # Keep a very early guard to avoid spamming when debug not set
+            try:
+                self.app.log_auth_event("_start_auth_flow CALLED")
+            except Exception:
+                pass
+        try:
+            self.app.log_auth_event("_start_auth_flow: Method called, about to start worker thread")
+        except Exception:
+            try:
+                self.app.log_auth_event("Failed to log start_auth_flow")
+            except Exception:
+                pass
+
+        def _ui_call(fn):
+            # Try to schedule a callable on the UI thread. Prefer Screen.call_from_thread
+            # then App.call_from_thread, falling back to posting a no-op if unavailable.
+            try:
+                self.call_from_thread(fn)
+            except Exception:
+                try:
+                    # Schedule the callable on the App thread
+                    self.app.call_from_thread(fn)
+                except Exception:
+                    # Last-resort: post a message to trigger the UI loop
+                    try:
+                        self.app.call_from_thread(lambda: self.post_message(DraftsUpdated()))
+                    except Exception:
+                        pass
+
+        def worker():
+            try:
+                # Wrap authenticate() call to catch ANY exception including Windows keyring errors
+                result = None
+                try:
+                    result = authenticate()
+                except Exception as auth_exc:
+                    # Authentication failed - could be keyring error, network error, etc.
+                    # Try to read any tokens that might have been saved to fallback file
+                    # despite the exception (keyring errors often still save to fallback)
+                    try:
+                        from .auth import get_stored_credentials
+                        creds = get_stored_credentials()
+                        if creds and isinstance(creds, dict):
+                            result = creds
+                        else:
+                            # No fallback credentials available - re-raise the auth error
+                            raise
+                    except Exception:
+                        # Could not recover - re-raise original exception
+                        raise auth_exc from None
+
+                if not result:
+                    raise AuthError("Authentication returned no result")
+
+                # CRITICAL FIX: Set credentials IMMEDIATELY in the worker thread
+                # Don't wait for UI thread to process them - this is thread-safe
+                username = ""
+                try:
+                    tokens = result.get('tokens') if isinstance(result, dict) else None
+                    username = result.get('username', '') if isinstance(result, dict) else ''
+
+                    # Require an access_token from the OAuth exchange; do not accept id_token
+                    if tokens and isinstance(tokens, dict) and 'access_token' in tokens:
+                        # Set access token immediately - this is thread-safe
+                        api.set_token(tokens['access_token'])
+
+                    if username:
+                        # Set API handle immediately
+                        api.handle = username
+
+                        # Ensure user exists in DB (do this in worker thread)
+                        try:
+                            user_profile = api.get_current_user()
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
+
+                # Post a message and try to directly trigger the UI transition on the
+                # application's main thread. We do multiple attempts to be robust
+                # across Textual versions / environments where call_from_thread or
+                # message routing may behave differently.
+                def on_success():
+                    try:
+                        # Update status text if widget present
+                        try:
+                            self.query_one("#auth-status", Static).update("✓ Successfully signed in!")
+                        except Exception:
+                            pass
+                        # Ensure tokens are picked up and main UI mounted - pass credentials
+                        try:
+                            self.app.show_main_app(credentials=result)
+                        except Exception:
+                            pass
+
+                    except Exception:
+                        pass
+
+                try:
+                    # 1) Post AuthenticationCompleted message
+                    try:
+                        self.app.call_from_thread(lambda: self.post_message(AuthenticationCompleted(username=username)))
+                    except Exception:
+                        try:
+                            # Some Textual versions route messages differently; try posting on screen
+                            self.post_message(AuthenticationCompleted(username=username))
+                        except Exception:
+                            pass
+
+                    # 2) Set reactive flag on App
+                    try:
+                        self.app.call_from_thread(lambda: setattr(self.app, "authenticated", True))
+                    except Exception:
+                        try:
+                            setattr(self.app, "authenticated", True)
+                        except Exception:
+                            pass
+
+                    # 3) Directly ask the App to show main UI (best-effort)
+                    # Pass credentials directly to avoid file I/O race conditions
+
+                    def transition_to_main():
+                        try:
+                            # Schedule show_main_app on the next event loop iteration
+                            # This ensures all current event processing is complete first
+                            self.app.call_later(lambda: self.app.show_main_app(credentials=result))
+                        except Exception:
+                            pass
+
+                    try:
+                        # Use call_from_thread to schedule the transition on the main thread
+                        self.app.call_from_thread(transition_to_main)
+                    except Exception:
+                        # Fallback: try direct call (might work if already on main thread)
+                        try:
+                            self.app.show_main_app(credentials=result)
+                        except Exception:
+                            pass
+
+                except Exception:
+                    # Last-resort: schedule on-success closure via _ui_call
+                    _ui_call(on_success)
+
+            except AuthError as e:
+                # Post a message on the UI thread with failure
+                try:
+                    self.app.call_from_thread(lambda: self.post_message(AuthenticationFailed(error=str(e))))
+                except Exception:
+                    def on_auth_fail():
+                        try:
+                            self.query_one("#auth-status", Static).update(f"⚠️ Auth failed: {str(e)}")
+                        except Exception:
+                            pass
+                        try:
+                            self.app.notify("Authentication failed", severity="error")
+                        except Exception:
+                            pass
+
+                    _ui_call(on_auth_fail)
+
+            except Exception as e:
+                try:
+                    self.app.call_from_thread(lambda: self.post_message(AuthenticationFailed(error=str(e))))
+                except Exception:
+                    def on_exc():
+                        try:
+                            self.query_one("#auth-status", Static).update("⚠️ An error occurred")
+                        except Exception:
+                            pass
+                        try:
+                            self.app.notify(str(e), severity="error")
+                        except Exception:
+                            pass
+
+                    _ui_call(on_exc)
+
+        try:
+            self.app.log_auth_event("Creating worker thread")
+        except Exception:
+            pass
+        t = threading.Thread(target=worker, daemon=True)
+        try:
+            self.app.log_auth_event("Starting worker thread")
+        except Exception:
+            pass
+        t.start()
+        try:
+            self.app.log_auth_event("Worker thread started")
+        except Exception:
+            pass
+        try:
+            self.app.log_auth_event("_start_auth_flow: Worker thread created and started")
+        except Exception:
+            try:
+                self.app.log_auth_event("Failed to log thread start")
+            except Exception:
+                pass
+
+    # Message handlers for authentication results
+    def on_authentication_completed(self, message: AuthenticationCompleted) -> None:
+        """Handle successful authentication message."""
+        try:
+            # Update status - the worker thread already called show_main_app with credentials
+            try:
+                self.query_one("#auth-status", Static).update("✓ Successfully signed in!")
+            except Exception:
+                pass
+            # NOTE: Don't call show_main_app() here - it's already being called from the worker
+            # thread with the correct credentials. Calling it again would overwrite with defaults.
+        except Exception:
+            pass
+
+    def on_authentication_failed(self, message: AuthenticationFailed) -> None:
+        """Handle failed authentication message."""
+        try:
+            try:
+                self.query_one("#auth-status", Static).update(f"⚠️ Auth failed: {message.error}")
+            except Exception:
+                pass
+            try:
+                self.app.notify("Authentication failed", severity="error")
+            except Exception:
+                pass
         except Exception:
             pass
 
@@ -173,6 +583,7 @@ class AuthScreen(Container):
 # ───────── Comment Screen ─────────
 class CommentFeed(VerticalScroll):
     """Comment feed modeled after DiscoverFeed"""
+
     cursor_position = reactive(0)  # 0 = post, 1 = input, 2+ = comments
     scroll_y = reactive(0)  # Track scroll position
 
@@ -189,7 +600,10 @@ class CommentFeed(VerticalScroll):
         yield Static("─ Comments ─", classes="comment-thread-header", markup=False)
 
         # Input for new comment
-        yield Input(placeholder="[i] Type your comment and press Enter… [q] to go back", id="comment-input")
+        yield Input(
+            placeholder="[i] to comment... Press Enter to submit",
+            id="comment-input",
+        )
 
         # Comments
         self.comments = api.get_comments(self.post.id)
@@ -198,12 +612,19 @@ class CommentFeed(VerticalScroll):
         for i, c in enumerate(self.comments):
             author = c.get("user", "unknown")
             content = c.get("text", "")
-            timestamp = c.get("timestamp") or c.get("created_at") or datetime.now().isoformat()
+            timestamp = (
+                c.get("timestamp") or c.get("created_at") or datetime.now().isoformat()
+            )
             try:
                 c_time = format_time_ago(datetime.fromisoformat(timestamp))
             except Exception:
                 c_time = "just now"
-            comment = Static(f"  @{author} • {c_time}\n  {content}\n", classes="comment-thread-item comment-item", id=f"comment-{i}", markup=False)
+            comment = Static(
+                f"  @{author} • {c_time}\n  {content}\n",
+                classes="comment-thread-item comment-item",
+                id=f"comment-{i}",
+                markup=False,
+            )
             comment.styles.background = "#282A36"  # Force dark background
             yield comment
 
@@ -235,7 +656,7 @@ class CommentFeed(VerticalScroll):
         self._refresh_comments()
 
         # Show notification
-        if hasattr(self.app, 'notify'):
+        if hasattr(self.app, "notify"):
             self.app.notify("Comment posted!", timeout=2)
 
     def _refresh_comments(self) -> None:
@@ -252,12 +673,21 @@ class CommentFeed(VerticalScroll):
             for i, c in enumerate(self.comments):
                 author = c.get("user", "unknown")
                 content = c.get("text", "")
-                timestamp = c.get("timestamp") or c.get("created_at") or datetime.now().isoformat()
+                timestamp = (
+                    c.get("timestamp")
+                    or c.get("created_at")
+                    or datetime.now().isoformat()
+                )
                 try:
                     c_time = format_time_ago(datetime.fromisoformat(timestamp))
                 except Exception:
                     c_time = "just now"
-                comment_widget = Static(f"  @{author} • {c_time}\n  {content}\n", classes="comment-thread-item comment-item", id=f"comment-{i}", markup=False)
+                comment_widget = Static(
+                    f"  @{author} • {c_time}\n  {content}\n",
+                    classes="comment-thread-item comment-item",
+                    id=f"comment-{i}",
+                    markup=False,
+                )
                 comment_widget.styles.background = "#282A36"  # Force dark background
                 self.mount(comment_widget)
 
@@ -310,7 +740,9 @@ class CommentFeed(VerticalScroll):
             comment_input.remove_class("vim-cursor")
             for item in comment_items:
                 item.remove_class("vim-cursor")
-                item.styles.background = "#282A36"  # Reset to dark background, not empty
+                item.styles.background = (
+                    "#282A36"  # Reset to dark background, not empty
+                )
 
             if 0 <= self.cursor_position < len(items):
                 item = items[self.cursor_position]
@@ -424,9 +856,14 @@ class CommentFeed(VerticalScroll):
             except Exception:
                 pass
 
-        if event.key == "g" and event.is_repeat:
-            self.cursor_position = 0
-            event.prevent_default()
+        if event.key == "g":
+            now = time.time()
+            if hasattr(self, "last_g_time") and now - self.last_g_time < 0.5:
+                self.cursor_position = 0
+                event.prevent_default()
+                delattr(self, "last_g_time")
+            else:
+                self.last_g_time = now
 
         # Prevent 'd' from propagating to app level (show drafts)
         if event.key == "d":
@@ -443,15 +880,20 @@ class CommentScreen(Screen):
 
     def compose(self) -> ComposeResult:
         yield CommentFeed(self.post, id="comment-feed")
-        yield Static("[i] Input [q] Back [j/k] Navigate", id="comment-footer", markup=False)
+        yield Static(
+            "[i] Input [q] Back [j/k] Navigate", id="comment-footer", markup=False
+        )
 
 
 # ───────── Items ─────────
 
+
 class NavigationItem(Static):
-    def __init__(self, label: str, screen_name: str, number: int, active: bool = False, **kwargs):
+    def __init__(
+        self, label: str, screen_name: str, number: int, active: bool = False, **kwargs
+    ):
         # Ensure markup is enabled
-        kwargs.setdefault('markup', True)
+        kwargs.setdefault("markup", True)
         super().__init__(**kwargs)
         self.label_text = label
         self.screen_name = screen_name
@@ -474,6 +916,7 @@ class NavigationItem(Static):
         (self.add_class if is_active else self.remove_class)("active")
         self.refresh()
 
+
 class CommandItem(Static):
     def __init__(self, shortcut: str, description: str, **kwargs):
         super().__init__(**kwargs)
@@ -482,6 +925,7 @@ class CommandItem(Static):
 
     def render(self) -> str:
         return f"{self.shortcut} - {self.description}"
+
 
 class DraftItem(Static):
     """Display a saved draft in sidebar."""
@@ -495,9 +939,13 @@ class DraftItem(Static):
 
     def render(self) -> str:
         """Render the draft item as text."""
-        content = self.draft['content'][:40] + "..." if len(self.draft['content']) > 40 else self.draft['content']
-        time_ago = format_time_ago(self.draft['timestamp'])
-        attachments_count = len(self.draft.get('attachments', []))
+        content = (
+            self.draft["content"][:40] + "..."
+            if len(self.draft["content"]) > 40
+            else self.draft["content"]
+        )
+        time_ago = format_time_ago(self.draft["timestamp"])
+        attachments_count = len(self.draft.get("attachments", []))
         attach_text = f" 📎{attachments_count}" if attachments_count > 0 else ""
 
         return f"{time_ago}\n{content}{attach_text}"
@@ -505,6 +953,7 @@ class DraftItem(Static):
     def on_click(self) -> None:
         """Handle click on draft item - for now just open it."""
         self.app.action_open_draft(self.draft_index)
+
 
 class ProfileDisplay(Static):
     """Display user profile."""
@@ -514,7 +963,7 @@ class ProfileDisplay(Static):
         username = keyring.get_password(serviceKeyring, "username")
         if username == None:
             username = user.username
-        yield Static(f"@{username}", classes="profile-username")
+        yield Static(f"@{username} • {user.display_name}", classes="profile-username")
 
 class ConversationItem(Static):
     def __init__(self, conversation, **kwargs):
@@ -531,6 +980,7 @@ class ConversationItem(Static):
         username = other_participants[0] if other_participants else self.conversation.participant_handles[0] if self.conversation.participant_handles else "unknown"
         return f"{unread_marker}@{username}\n  {self.conversation.last_message_preview}\n  {time_ago} {unread_text}"
 
+
 class ChatMessage(Static):
     def __init__(self, message, current_user: str = "yourname", **kwargs):
         super().__init__(**kwargs)
@@ -541,6 +991,7 @@ class ChatMessage(Static):
     def render(self) -> str:
         return f"{self.message.content}\n{format_time_ago(self.message.timestamp)}"
 
+
 class PostItem(Static):
     """Simple non-interactive post display."""
 
@@ -548,7 +999,16 @@ class PostItem(Static):
         super().__init__(**kwargs)
         self.post = post
         self.reposted_by_you = reposted_by_you
-        self.has_video = hasattr(post, 'video_path') and post.video_path
+        self.has_video = hasattr(post, "video_path") and post.video_path
+
+        # Check for ASCII art attachments in both the post.attachments property and dict
+        attachments = getattr(post, "attachments", None)
+        if isinstance(attachments, list):
+            self.has_ascii_art = any(
+                att.get("type") == "ascii_photo" for att in attachments
+            )
+        else:
+            self.has_ascii_art = False
 
     def compose(self) -> ComposeResult:
         """Compose compact post."""
@@ -557,29 +1017,48 @@ class PostItem(Static):
         repost_symbol = "🔁" if self.post.reposted_by_user else "🔁"
 
         # Repost banner if this is a reposted post by you (either client-injected or backend-marked)
-        if getattr(self, "reposted_by_you", False) or getattr(self.post, "reposted_by_user", False):
+        if getattr(self, "reposted_by_you", False) or getattr(
+            self.post, "reposted_by_user", False
+        ):
             yield Static("🔁 Reposted by you", classes="repost-banner", markup=False)
 
         # Post header and content
         yield Static(
             f"@{self.post.author} • {time_ago}\n{self.post.content}",
             classes="post-text",
-            markup=False
+            markup=False,
         )
+
+        # Display ASCII art attachments
+        if self.has_ascii_art:
+            attachments = getattr(self.post, "attachments", [])
+            for attachment in attachments:
+                if attachment.get("type") == "ascii_photo":
+                    art_content = attachment.get("content", "")
+                    if art_content:  # Only yield if we have content
+                        # Add spacing before ASCII art
+                        yield Static("\n", markup=False)
+                        yield Static(
+                            art_content,
+                            classes="ascii-art",
+                            markup=False,
+                        )
+                        # Add spacing after ASCII art
+                        yield Static("\n", markup=False)
 
         # Video player if post has video
         if self.has_video and Path(self.post.video_path).exists():
             yield ASCIIVideoPlayer(
                 frames_dir=self.post.video_path,
-                fps=getattr(self.post, 'video_fps', 2),
-                classes="post-video"
+                fps=getattr(self.post, "video_fps", 2),
+                classes="post-video",
             )
 
         # Post stats - non-interactive
         yield Static(
             f"{like_symbol} {self.post.likes}  {repost_symbol} {self.post.reposts}  💬 {self.post.comments}",
             classes="post-stats",
-            markup=False
+            markup=False,
         )
 
     def watch_has_class(self, has_class: bool) -> None:
@@ -600,6 +1079,7 @@ class PostItem(Static):
         except Exception:
             pass
 
+
 class NotificationItem(Static):
     def __init__(self, notification, **kwargs):
         super().__init__(**kwargs)
@@ -609,7 +1089,13 @@ class NotificationItem(Static):
 
     def render(self) -> str:
         t = format_time_ago(self.notification.timestamp)
-        icon = {"mention": "📢", "like": "❤️", "repost": "🔁", "follow": "👥", "comment": "💬"}.get(self.notification.type, "🔵")
+        icon = {
+            "mention": "📢",
+            "like": "❤️",
+            "repost": "🔁",
+            "follow": "👥",
+            "comment": "💬",
+        }.get(self.notification.type, "🔵")
         n = self.notification
         if n.type == "mention":
             return f"@{n.actor} mentioned you • {t}\n{n.content}"
@@ -621,10 +1107,20 @@ class NotificationItem(Static):
             return f"{icon} @{n.actor} started following you • {t}"
         return f"{icon} @{n.actor} • {t}\n{n.content}"
 
+
 class UserProfileCard(Static):
     """A user profile card for search results."""
 
-    def __init__(self, username: str, display_name: str, bio: str, followers: int, following: int, ascii_pic: str, **kwargs):
+    def __init__(
+        self,
+        username: str,
+        display_name: str,
+        bio: str,
+        followers: int,
+        following: int,
+        ascii_pic: str,
+        **kwargs,
+    ):
         super().__init__(**kwargs)
         self.username = username
         self.display_name = display_name
@@ -645,28 +1141,30 @@ class UserProfileCard(Static):
             info_container = Container(classes="user-card-info")
             with info_container:
                 yield Static(self.display_name, classes="user-card-name")
-                username = keyring.get_password(serviceKeyring, "username")
-                if username == None:
-                    username = self.username
+                # Resolve current local username once (fall back to the profile's username)
+                current_user = keyring.get_password(serviceKeyring, "username") or self.username
                 # Make username clickable as a button-like widget
-                yield Button(f"@{username}", id=f"username-{username}", classes="user-card-username-btn")
+                yield Button(f"@{current_user}", id=f"username-{current_user}", classes="user-card-username-btn")
 
                 yield Static(self.bio, classes="user-card-bio")
 
                 stats_container = Container(classes="user-card-stats")
                 with stats_container:
-                    yield Static(f"{self.followers} Followers", classes="user-card-stat")
-                    yield Static(f"{self.following} Following", classes="user-card-stat")
+                    yield Static(
+                        f"{self.followers} Followers", classes="user-card-stat"
+                    )
+                    yield Static(
+                        f"{self.following} Following", classes="user-card-stat"
+                    )
                 yield stats_container
 
                 buttons_container = Container(classes="user-card-buttons")
                 with buttons_container:
-                    username = keyring.get_password(serviceKeyring, "username")
-                    if username == None:
-                        username = self.username
-                    yield Button("Follow", id=f"follow-{username}", classes="user-card-button")
-                    yield Button("Message", id=f"message-{username}", classes="user-card-button")
-                    yield Button("View Profile", id=f"view-{username}", classes="user-card-button")
+                    # Reuse the resolved current_user to avoid repeated keyring calls
+                    buttons_user = current_user
+                    yield Button("Follow", id=f"follow-{buttons_user}", classes="user-card-button")
+                    yield Button("Message", id=f"message-{buttons_user}", classes="user-card-button")
+                    yield Button("View Profile", id=f"view-{buttons_user}", classes="user-card-button")
                 yield buttons_container
             yield info_container
 
@@ -687,10 +1185,13 @@ class UserProfileCard(Static):
             # Open messages screen with this user
             self.app.action_open_dm(self.username)
 
+
 # ───────── Top Navbar ─────────
+
 
 class TopNav(Horizontal):
     """Horizontal top navigation bar."""
+
     current = reactive("timeline")
 
     def __init__(self, current: str = "timeline", **kwargs):
@@ -759,7 +1260,9 @@ class TopNav(Horizontal):
             except Exception:
                 pass
 
+
 # ───────── Sidebar ─────────
+
 
 class Sidebar(VerticalScroll):
     current_screen = reactive("timeline")
@@ -775,11 +1278,41 @@ class Sidebar(VerticalScroll):
             nav_container = Container(classes="navigation-box")
             nav_container.border_title = "Navigation [N]"
             with nav_container:
-                yield NavigationItem("Timeline", "timeline", 1, self.current_screen == "timeline", classes="nav-item")
-                yield NavigationItem("Discover", "discover", 2, self.current_screen == "discover", classes="nav-item")
-                yield NavigationItem("Notifs", "notifications", 3, self.current_screen == "notifications", classes="nav-item")
-                yield NavigationItem("Messages", "messages", 4, self.current_screen == "messages", classes="nav-item")
-                yield NavigationItem("Settings", "settings", 5, self.current_screen == "settings", classes="nav-item")
+                yield NavigationItem(
+                    "Timeline",
+                    "timeline",
+                    1,
+                    self.current_screen == "timeline",
+                    classes="nav-item",
+                )
+                yield NavigationItem(
+                    "Discover",
+                    "discover",
+                    2,
+                    self.current_screen == "discover",
+                    classes="nav-item",
+                )
+                yield NavigationItem(
+                    "Notifs",
+                    "notifications",
+                    3,
+                    self.current_screen == "notifications",
+                    classes="nav-item",
+                )
+                yield NavigationItem(
+                    "Messages",
+                    "messages",
+                    4,
+                    self.current_screen == "messages",
+                    classes="nav-item",
+                )
+                yield NavigationItem(
+                    "Settings",
+                    "settings",
+                    5,
+                    self.current_screen == "settings",
+                    classes="nav-item",
+                )
             yield nav_container
 
         profile_container = Container(classes="profile-box")
@@ -798,7 +1331,9 @@ class Sidebar(VerticalScroll):
                 for i, draft in enumerate(reversed(drafts)):
                     yield DraftItem(draft, len(drafts) - 1 - i, classes="draft-item")
             else:
-                yield Static("No drafts\n\nPress :n to create", classes="no-drafts-text")
+                yield Static(
+                    "No drafts\n\nPress :n to create", classes="no-drafts-text"
+                )
         yield drafts_container
 
         commands_container = Container(classes="commands-box")
@@ -851,9 +1386,13 @@ class Sidebar(VerticalScroll):
             if drafts:
                 # Show most recent first
                 for i, draft in enumerate(reversed(drafts)):
-                    drafts_container.mount(DraftItem(draft, len(drafts) - 1 - i, classes="draft-item"))
+                    drafts_container.mount(
+                        DraftItem(draft, len(drafts) - 1 - i, classes="draft-item")
+                    )
             else:
-                drafts_container.mount(Static("No drafts\n\nPress :n to create", classes="no-drafts-text"))
+                drafts_container.mount(
+                    Static("No drafts\n\nPress :n to create", classes="no-drafts-text")
+                )
         except Exception as e:
             print(f"Error refreshing drafts: {e}")
 
@@ -861,7 +1400,9 @@ class Sidebar(VerticalScroll):
         """Handle drafts updated message."""
         self.refresh_drafts()
 
+
 # ───────── Modal Dialogs ─────────
+
 
 class NewPostDialog(ModalScreen):
     """Modal dialog for creating a new post."""
@@ -879,15 +1420,16 @@ class NewPostDialog(ModalScreen):
             yield Static("✨ Create New Post", id="dialog-title")
             yield TextArea(id="post-textarea")
             # Key hints for vim navigation
-            yield Static("\\[i] edit | \\[esc] navigate", id="vim-hints", classes="vim-hints")
+            yield Static(
+                "\\[i] edit | \\[esc] navigate", id="vim-hints", classes="vim-hints"
+            )
             # Status/attachments display area
             yield Static("", id="attachments-list", classes="attachments-list")
             yield Static("", id="status-message", classes="status-message")
 
             # Media attachment buttons
             with Container(id="media-buttons"):
-                yield Button("📁 Files", id="attach-files")
-                yield Button("🖼️ Photo", id="attach-photo")
+                yield Button("🖼️ Add Photo", id="attach-photo")
 
             # Action buttons
             with Container(id="action-buttons"):
@@ -904,7 +1446,9 @@ class NewPostDialog(ModalScreen):
             textarea.text = self.draft_content
 
         # Initialize attachments list
-        self._attachments = self.draft_attachments.copy() if self.draft_attachments else []
+        self._attachments = (
+            self.draft_attachments.copy() if self.draft_attachments else []
+        )
 
         # Update attachments display
         self._update_attachments_display()
@@ -917,8 +1461,7 @@ class NewPostDialog(ModalScreen):
         """Get list of all navigable buttons in order."""
         buttons = []
         try:
-            # Media buttons
-            buttons.append(self.query_one("#attach-files", Button))
+            # Media button
             buttons.append(self.query_one("#attach-photo", Button))
             # Action buttons
             buttons.append(self.query_one("#post-button", Button))
@@ -977,45 +1520,29 @@ class NewPostDialog(ModalScreen):
             if not buttons:
                 return
 
-            # Current position: 1-2 (media buttons) -> 3-5 (action buttons)
-            if self.cursor_position in [1, 2]:  # Media buttons row
-                # Move to corresponding action button (Files->Post, Photo->Save)
-                if self.cursor_position == 1:
-                    self.cursor_position = 3  # Files -> Post
-                else:  # position == 2
-                    self.cursor_position = 4  # Photo -> Save
-            elif self.cursor_position in [3, 4, 5]:  # Already in action buttons row
-                # Stay in same row, or wrap if desired
-                pass
+            # Current position: 1 (photo button) -> 2-4 (action buttons)
+            if self.cursor_position == 1:  # Photo button row
+                self.cursor_position = 2  # Move to Post button
+            # Action buttons stay in their row
 
     def key_k(self) -> None:
         """Move cursor up (to previous row)."""
         if self.app.command_mode:
             return
         if not self.in_insert_mode:
-            # Current position: 3-5 (action buttons) -> 1-2 (media buttons)
-            if self.cursor_position in [3, 4, 5]:  # Action buttons row
-                # Move to corresponding media button (Post->Files, Save->Photo, Cancel->Photo)
-                if self.cursor_position == 3:
-                    self.cursor_position = 1  # Post -> Files
-                elif self.cursor_position == 4:
-                    self.cursor_position = 2  # Save -> Photo
-                else:  # position == 5 (Cancel)
-                    self.cursor_position = 2  # Cancel -> Photo
-            elif self.cursor_position in [1, 2]:  # Already in media buttons row
-                # Stay in same row, or wrap if desired
-                pass
+            # Current position: 2-4 (action buttons) -> 1 (photo button)
+            if self.cursor_position >= 2:  # Action buttons row
+                self.cursor_position = 1  # Move to photo button
+            # Photo button stays in its row
 
     def key_h(self) -> None:
         """Move cursor left (within same row)."""
         if self.app.command_mode:
             return
         if not self.in_insert_mode:
-            # Move left within the same row
-            if self.cursor_position in [1, 2]:  # Media buttons row
-                self.cursor_position = max(self.cursor_position - 1, 1)
-            elif self.cursor_position in [3, 4, 5]:  # Action buttons row
-                self.cursor_position = max(self.cursor_position - 1, 3)
+            if self.cursor_position >= 2:  # Action buttons row
+                self.cursor_position = max(self.cursor_position - 1, 2)
+            # Photo button is alone in its row, no left movement needed
 
     def key_l(self) -> None:
         """Move cursor right (within same row)."""
@@ -1026,11 +1553,9 @@ class NewPostDialog(ModalScreen):
             if not buttons:
                 return
 
-            # Move right within the same row
-            if self.cursor_position in [1, 2]:  # Media buttons row
-                self.cursor_position = min(self.cursor_position + 1, 2)
-            elif self.cursor_position in [3, 4, 5]:  # Action buttons row
-                self.cursor_position = min(self.cursor_position + 1, 5)
+            if self.cursor_position >= 2:  # Action buttons row
+                self.cursor_position = min(self.cursor_position + 1, 4)
+            # Photo button is alone in its row, no right movement needed
 
     def on_key(self, event) -> None:
         """Handle key events to prevent double-triggering."""
@@ -1055,47 +1580,49 @@ class NewPostDialog(ModalScreen):
     def on_button_pressed(self, event: Button.Pressed) -> None:
         btn_id = getattr(event.button, "id", None)
 
-        if btn_id == "attach-files":
-            self._show_status("📁 Opening file browser...")
-            # Implement camera capture here
-            # For now, we'll just open a file dialog as placeholder
-            try:
-                root = tk.Tk()
-                root.withdraw()
-                file_path = filedialog.askopenfilename(
-                    title="Select a file",
-                    filetypes=[
-                        ("All files", "*.*"),
-                        ("Images", "*.png *.jpg *.jpeg *.gif *.bmp"),
-                        ("Documents", "*.pdf *.doc *.docx *.txt")
-                    ]
-                )
-                root.destroy()
-                if file_path:
-                    self._attachments.append(("file", file_path))
-                    self._update_attachments_display()
-                    self._show_status("✓ File added!")
-            except Exception as e:
-                self._show_status(f"⚠ Error: {str(e)}", error=True)
-
-        elif btn_id == "attach-photo":
+        if btn_id == "attach-photo":
             self._show_status("🖼️ Opening photo selector...")
             try:
                 root = tk.Tk()
                 root.withdraw()
                 file_path = filedialog.askopenfilename(
                     title="Select an image",
-                    filetypes=[("Image files", "*.png *.jpg *.jpeg *.gif *.bmp")]
+                    filetypes=[("Image files", "*.png *.jpg *.jpeg *.gif *.bmp")],
                 )
                 root.destroy()
-                if file_path:
-                    try:
-                        Image.open(file_path).verify()
-                        self._attachments.append(("photo", file_path))
-                        self._update_attachments_display()
-                        self._show_status("✓ Photo added!")
-                    except Exception:
-                        self._show_status("⚠ Invalid image file", error=True)
+                if not file_path:
+                    return
+
+                try:
+                    # Convert image to ASCII art
+                    img = Image.open(file_path).convert('L')  # Convert to grayscale
+
+                    # Calculate new dimensions
+                    width = 60  # Desired width in characters
+                    aspect_ratio = img.height / img.width
+                    height = int(width * aspect_ratio * 0.5)  # Multiply by 0.5 since characters are taller than wide
+                    img = img.resize((width, height))
+
+                    # Convert pixels to ASCII
+                    pixels = img.load()
+                    # Use reversed density ramp so dark areas map to sparse chars
+                    ascii_chars = ['.', ',', ':', ';', '+', '*', '?', '%', 'S', '#', '@']
+                    ascii_lines = []
+                    for y in range(height):
+                        line = ""
+                        for x in range(width):
+                            pixel_value = pixels[x, y]
+                            char_index = (pixel_value * (len(ascii_chars) - 1)) // 255
+                            line += ascii_chars[char_index]
+                        ascii_lines.append(line)
+                    ascii_art = '\n'.join(ascii_lines)
+
+                    # Store ASCII version instead of original photo
+                    self._attachments.append(("ascii_photo", ascii_art))
+                    self._update_attachments_display()
+                    self._show_status("✓ Photo converted to ASCII!")
+                except Exception as e:
+                    self._show_status(f"⚠ Error converting image: {str(e)}", error=True)
             except Exception as e:
                 self._show_status(f"⚠ Error: {str(e)}", error=True)
 
@@ -1119,14 +1646,29 @@ class NewPostDialog(ModalScreen):
 
         self._show_status("📤 Publishing post...")
 
-        # Prepare attachments payload
-        attachments_payload = [
-            {"type": t, "path": p} for (t, p) in self._attachments
-        ]
+        # Prepare attachments payload - ensure attachments is a list that gets set on the post
+        attachments = []
+        for t, p in self._attachments:
+            if t == "ascii_photo":
+                attachments.append({
+                    "type": "ascii_photo",
+                    "content": p
+                })
+            else:
+                attachments.append({
+                    "type": t,
+                    "path": p
+                })
 
-        # Call API to create post
+        # Call API to create post with attachments properly set
         try:
-            new_post = api.create_post(content, attachments=attachments_payload)
+            # Create post with attachment data included in content
+            post_data = {
+                "content": content,
+                "attachments": attachments
+            }
+            new_post = api.create_post(json.dumps(post_data))
+
             self._show_status("✓ Post published successfully!")
             try:
                 self.app.notify("📤 Post published!", severity="success")
@@ -1134,8 +1676,10 @@ class NewPostDialog(ModalScreen):
                 pass
             self.dismiss(True)
         except TypeError:
+            # If first attempt fails, try direct API call with attachments
             try:
-                new_post = api.create_post(content, attachments_payload)
+                new_post = api.create_post(content)  # Simple post without attachments
+                setattr(new_post, 'attachments', attachments)  # Add attachments after creation
                 self._show_status("✓ Post published successfully!")
                 try:
                     self.app.notify("📤 Post published!", severity="success")
@@ -1191,8 +1735,9 @@ class NewPostDialog(ModalScreen):
             for i, (t, p) in enumerate(self._attachments, start=1):
                 short = Path(p).name
                 icon = {"file": "📁", "photo": "🖼️"}.get(t, "📎")
-                lines.append(f"  {i}. {icon} {short}")
-            widget.update("\n".join(lines))
+                if t == "ascii_photo":
+                    lines.append(f"\n{p}")  # p is the ASCII art itself
+                widget.update("\n".join(lines))
         except Exception:
             pass
 
@@ -1210,21 +1755,72 @@ class NewPostDialog(ModalScreen):
         except Exception:
             pass
 
+
 class DeleteDraftDialog(ModalScreen):
     """Modal dialog for confirming draft deletion."""
+    cursor_position = reactive(0)  # 0 = Yes, 1 = Cancel
 
     def __init__(self, draft_index: int):
         super().__init__()
         self.draft_index = draft_index
 
+    def on_mount(self) -> None:
+        """Initialize selection"""
+        self.cursor_position = 0  # Default to Yes
+
     def compose(self) -> ComposeResult:
         with Container(id="dialog-container"):
             yield Static("🗑️ Delete Draft?", id="dialog-title")
-            yield Static("Are you sure you want to delete this draft?", classes="dialog-message")
+            yield Static(
+                "Are you sure you want to delete this draft?", classes="dialog-message"
+            )
 
             with Container(id="action-buttons"):
-                yield Button("✓ Yes, Delete", variant="error", id="confirm-delete")
-                yield Button("❌ Cancel", id="cancel-delete")
+                confirm_btn = Button("✓ Yes, Delete", id="confirm-delete")
+                cancel_btn = Button("❌ Cancel", id="cancel-delete")
+                if self.cursor_position == 0:
+                    confirm_btn.add_class("selected")
+                else:
+                    cancel_btn.add_class("selected")
+                yield confirm_btn
+                yield cancel_btn
+
+    def key_h(self) -> None:
+        """Select Yes (left)"""
+        self.cursor_position = 0
+
+    def key_l(self) -> None:
+        """Select Cancel (right)"""
+        self.cursor_position = 1
+
+    def key_enter(self) -> None:
+        """Execute the selected action"""
+        if self.cursor_position == 0:
+            delete_draft(self.draft_index)
+            try:
+                self.app.notify("🗑️ Draft deleted!", severity="success")
+                # Post message to refresh drafts everywhere
+                self.app.post_message(DraftsUpdated())
+            except:
+                pass
+            self.dismiss(True)
+        else:
+            self.dismiss(False)
+
+    def watch_cursor_position(self, old_position: int, new_position: int) -> None:
+        """Update button styles based on cursor position"""
+        try:
+            confirm_btn = self.query_one("#confirm-delete", Button)
+            cancel_btn = self.query_one("#cancel-delete", Button)
+
+            if new_position == 0:
+                confirm_btn.add_class("selected")
+                cancel_btn.remove_class("selected")
+            else:
+                cancel_btn.add_class("selected")
+                confirm_btn.remove_class("selected")
+        except:
+            pass
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         btn_id = getattr(event.button, "id", None)
@@ -1241,7 +1837,9 @@ class DeleteDraftDialog(ModalScreen):
         elif btn_id == "cancel-delete":
             self.dismiss(False)
 
+
 # ───────── Screens ─────────
+
 
 class TimelineFeed(VerticalScroll):
     cursor_position = reactive(0)
@@ -1262,11 +1860,15 @@ class TimelineFeed(VerticalScroll):
         """Open the comment screen for the currently focused post"""
         logging.debug("open_comment_screen called in TimelineFeed")
         items = list(self.query(".post-item"))
-        logging.debug(f"cursor_position={self.cursor_position}, total_items={len(items)}")
+        logging.debug(
+            f"cursor_position={self.cursor_position}, total_items={len(items)}"
+        )
         if 0 <= self.cursor_position < len(items):
             post_item = items[self.cursor_position]
             post = getattr(post_item, "post", None)
-            logging.debug(f"Opening comment screen for post id={getattr(post, 'id', None)} author={getattr(post, 'author', None)}")
+            logging.debug(
+                f"Opening comment screen for post id={getattr(post, 'id', None)} author={getattr(post, 'author', None)}"
+            )
             if post:
                 self.app.push_screen(CommentScreen(post))
         else:
@@ -1278,15 +1880,27 @@ class TimelineFeed(VerticalScroll):
         reposted_sorted = sorted(self.reposted_posts, key=lambda x: x[1], reverse=True)
         self._all_posts = [p for p, _ in reposted_sorted] + posts
 
-        unread_count = len([p for p in self._all_posts if (datetime.now() - p.timestamp).seconds < 3600])
+        unread_count = len(
+            [
+                p
+                for p in self._all_posts
+                if (datetime.now() - p.timestamp).seconds < 3600
+            ]
+        )
         self.border_title = "Main Timeline"
-        yield Static(f"timeline.home | {unread_count} new posts | line 1", classes="panel-header", markup=False)
+        yield Static(
+            f"timeline.home | {unread_count} new posts | line 1",
+            classes="panel-header",
+            markup=False,
+        )
 
         # Initially display only the first batch
         repost_count = len(reposted_sorted)
-        for i, post in enumerate(self._all_posts[:self._displayed_count]):
+        for i, post in enumerate(self._all_posts[: self._displayed_count]):
             is_repost = i < repost_count
-            post_item = PostItem(post, reposted_by_you=is_repost, classes="post-item", id=f"post-{i}")
+            post_item = PostItem(
+                post, reposted_by_you=is_repost, classes="post-item", id=f"post-{i}"
+            )
             if i == 0:
                 post_item.add_class("vim-cursor")
             yield post_item
@@ -1303,7 +1917,10 @@ class TimelineFeed(VerticalScroll):
             container_size = self.container_size.height
 
             # If we're within 100 pixels of the bottom, load more
-            if virtual_size > 0 and self.scroll_y + container_size >= virtual_size - 100:
+            if (
+                virtual_size > 0
+                and self.scroll_y + container_size >= virtual_size - 100
+            ):
                 self._load_more_posts()
         except Exception:
             pass
@@ -1317,14 +1934,25 @@ class TimelineFeed(VerticalScroll):
         try:
             # Calculate how many new posts to add
             old_count = self._displayed_count
-            self._displayed_count = min(self._displayed_count + self._batch_size, len(self._all_posts))
+            self._displayed_count = min(
+                self._displayed_count + self._batch_size, len(self._all_posts)
+            )
 
             # Mount the new posts
-            repost_count = len([p for p, _ in sorted(self.reposted_posts, key=lambda x: x[1], reverse=True)])
+            repost_count = len(
+                [
+                    p
+                    for p, _ in sorted(
+                        self.reposted_posts, key=lambda x: x[1], reverse=True
+                    )
+                ]
+            )
             for i in range(old_count, self._displayed_count):
                 post = self._all_posts[i]
                 is_repost = i < repost_count
-                post_item = PostItem(post, reposted_by_you=is_repost, classes="post-item", id=f"post-{i}")
+                post_item = PostItem(
+                    post, reposted_by_you=is_repost, classes="post-item", id=f"post-{i}"
+                )
                 self.mount(post_item)
         finally:
             self._loading_more = False
@@ -1428,14 +2056,21 @@ class TimelineFeed(VerticalScroll):
             event.prevent_default()
             event.stop()
             return
-        if event.key == "g" and event.is_repeat:
-            self.cursor_position = 0
-            event.prevent_default()
+        if event.key == "g":
+            now = time.time()
+            if hasattr(self, "last_g_time") and now - self.last_g_time < 0.5:
+                self.cursor_position = 0
+                event.prevent_default()
+                delattr(self, "last_g_time")
+            else:
+                self.last_g_time = now
+
 
 class TimelineScreen(Container):
     def compose(self) -> ComposeResult:
         yield Sidebar(current="timeline", id="sidebar")
         yield TimelineFeed(id="timeline-feed")
+
 
 class DiscoverFeed(VerticalScroll):
     cursor_position = reactive(0)
@@ -1472,17 +2107,25 @@ class DiscoverFeed(VerticalScroll):
         self.border_title = "Discover"
 
         # Search input at the top
-        yield Input(placeholder="[/] Search posts, people, tags...", classes="discover-search-input", id="discover-search")
+        yield Input(
+            placeholder="[/] Search posts, people, tags...",
+            classes="discover-search-input",
+            id="discover-search",
+        )
 
         # Fetch all posts once and cache them
         self._all_posts = api.get_discover_posts()
         self._filtered_posts = self._all_posts.copy()
         self._displayed_count = min(self._batch_size, len(self._filtered_posts))
 
-        yield Static("discover.trending | explore posts | line 1", classes="panel-header", markup=False)
+        yield Static(
+            "discover.trending | explore posts | line 1",
+            classes="panel-header",
+            markup=False,
+        )
 
         # Initially display only the first batch
-        for i, post in enumerate(self._filtered_posts[:self._displayed_count]):
+        for i, post in enumerate(self._filtered_posts[: self._displayed_count]):
             post_item = PostItem(post, classes="post-item", id=f"discover-post-{i}")
             # Don't add cursor here, will be handled by _update_cursor
             yield post_item
@@ -1499,7 +2142,10 @@ class DiscoverFeed(VerticalScroll):
             container_size = self.container_size.height
 
             # If we're within 100 pixels of the bottom, load more
-            if virtual_size > 0 and self.scroll_y + container_size >= virtual_size - 100:
+            if (
+                virtual_size > 0
+                and self.scroll_y + container_size >= virtual_size - 100
+            ):
                 self._load_more_posts()
         except Exception:
             pass
@@ -1522,7 +2168,11 @@ class DiscoverFeed(VerticalScroll):
             # Filter from cached posts
             if self.query_text:
                 q = self.query_text.lower()
-                self._filtered_posts = [p for p in self._all_posts if q in p.author.lower() or q in p.content.lower()]
+                self._filtered_posts = [
+                    p
+                    for p in self._all_posts
+                    if q in p.author.lower() or q in p.content.lower()
+                ]
             else:
                 self._filtered_posts = self._all_posts.copy()
 
@@ -1534,7 +2184,7 @@ class DiscoverFeed(VerticalScroll):
                 item.remove()
 
             # Add filtered posts (only first batch)
-            for i, post in enumerate(self._filtered_posts[:self._displayed_count]):
+            for i, post in enumerate(self._filtered_posts[: self._displayed_count]):
                 post_item = PostItem(post, classes="post-item", id=f"discover-post-{i}")
                 self.mount(post_item)
 
@@ -1552,7 +2202,9 @@ class DiscoverFeed(VerticalScroll):
         try:
             # Calculate how many new posts to add
             old_count = self._displayed_count
-            self._displayed_count = min(self._displayed_count + self._batch_size, len(self._filtered_posts))
+            self._displayed_count = min(
+                self._displayed_count + self._batch_size, len(self._filtered_posts)
+            )
 
             # Mount the new posts
             for i in range(old_count, self._displayed_count):
@@ -1717,7 +2369,29 @@ class DiscoverFeed(VerticalScroll):
         # Focus the search input to start typing
         if self.cursor_position == 0:
             # Check if it's a typeable character (letter, number, space, punctuation except vim keys)
-            if len(event.key) == 1 and event.key not in ['j', 'k', 'g', 'G', 'w', 'b', 'h', 'l', '0', '1', '2', '3', '4', '5', '6', 'p', 'd', 'i', 'q', ':', '/']:
+            if len(event.key) == 1 and event.key not in [
+                "j",
+                "k",
+                "g",
+                "G",
+                "w",
+                "b",
+                "h",
+                "l",
+                "0",
+                "1",
+                "2",
+                "3",
+                "4",
+                "5",
+                "6",
+                "p",
+                "d",
+                "i",
+                "q",
+                ":",
+                "/",
+            ]:
                 try:
                     search_input = self.query_one("#discover-search", Input)
                     search_input.focus()
@@ -1726,14 +2400,21 @@ class DiscoverFeed(VerticalScroll):
                 except Exception:
                     pass
 
-        if event.key == "g" and event.is_repeat:
-            self.cursor_position = 0
-            event.prevent_default()
+        if event.key == "g":
+            now = time.time()
+            if hasattr(self, "last_g_time") and now - self.last_g_time < 0.5:
+                self.cursor_position = 0
+                event.prevent_default()
+                delattr(self, "last_g_time")
+            else:
+                self.last_g_time = now
+
 
 class DiscoverScreen(Container):
     def compose(self) -> ComposeResult:
         yield Sidebar(current="discover", id="sidebar")
         yield DiscoverFeed(id="discover-feed")
+
 
 class NotificationsFeed(VerticalScroll):
     cursor_position = reactive(0)
@@ -1742,13 +2423,20 @@ class NotificationsFeed(VerticalScroll):
         notifications = api.get_notifications()
         unread_count = len([n for n in notifications if not n.read])
         self.border_title = "Notifications"
-        yield Static(f"notifications.all | {unread_count} unread | line 1", classes="panel-header")
+        yield Static(
+            f"notifications.all | {unread_count} unread | line 1",
+            classes="panel-header",
+        )
         for i, notif in enumerate(notifications):
             item = NotificationItem(notif, classes="notification-item", id=f"notif-{i}")
             if i == 0:
                 item.add_class("vim-cursor")
             yield item
-        yield Static("\n[j/k] Navigate [g/G] Top/Bottom [Enter] Open [:q] Quit", classes="help-text", markup=False)
+        yield Static(
+            "\n[j/k] Navigate [Enter] Open [:q] Quit",
+            classes="help-text",
+            markup=False,
+        )
 
     def on_mount(self) -> None:
         """Watch for cursor position changes"""
@@ -1833,14 +2521,21 @@ class NotificationsFeed(VerticalScroll):
             event.prevent_default()
             event.stop()
             return
-        if event.key == "g" and event.is_repeat:
-            self.cursor_position = 0
-            event.prevent_default()
+        if event.key == "g":
+            now = time.time()
+            if hasattr(self, "last_g_time") and now - self.last_g_time < 0.5:
+                self.cursor_position = 0
+                event.prevent_default()
+                delattr(self, "last_g_time")
+            else:
+                self.last_g_time = now
+
 
 class NotificationsScreen(Container):
     def compose(self) -> ComposeResult:
         yield Sidebar(current="notifications", id="sidebar")
         yield NotificationsFeed(id="notifications-feed")
+
 
 class ConversationsList(VerticalScroll):
     cursor_position = reactive(0)
@@ -1955,16 +2650,16 @@ class ConversationsList(VerticalScroll):
                 current_user = keyring.get_password(serviceKeyring, "username") or "yourname"
                 other_participants = [h for h in conv.participant_handles if h != current_user]
                 username = other_participants[0] if other_participants else conv.participant_handles[0] if conv.participant_handles else "unknown"
-                
+
                 # Update the chat view with this conversation
                 chat_view = self.app.query_one("#chat", ChatView)
                 chat_view.conversation_id = conv.id
                 chat_view.conversation_username = username
-                
+
                 # Reload messages
                 chat_view.remove_children()
                 chat_view.mount_all(chat_view.compose())
-                
+
                 # Focus the chat view
                 chat_view.focus()
         except Exception:
@@ -1979,9 +2674,15 @@ class ConversationsList(VerticalScroll):
             event.prevent_default()
             event.stop()
             return
-        if event.key == "g" and event.is_repeat:
-            self.cursor_position = 0
-            event.prevent_default()
+        if event.key == "g":
+            now = time.time()
+            if hasattr(self, "last_g_time") and now - self.last_g_time < 0.5:
+                self.cursor_position = 0
+                event.prevent_default()
+                delattr(self, "last_g_time")
+            else:
+                self.last_g_time = now
+
 
 class ChatView(VerticalScroll):
     conversation_id = reactive(0)  # Changed to int to match backend
@@ -2006,8 +2707,11 @@ class ChatView(VerticalScroll):
         for msg in messages:
             yield ChatMessage(msg, classes="chat-message")
         yield Static("-- INSERT --", classes="mode-indicator")
-        yield Input(placeholder="Type message and press Enter… (Esc to cancel)",
-                    classes="message-input", id="message-input")
+        yield Input(
+            placeholder="Type message and press Enter… (Esc to cancel)",
+            classes="message-input",
+            id="message-input",
+        )
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
         if event.input.id != "message-input":
@@ -2015,7 +2719,7 @@ class ChatView(VerticalScroll):
         text = event.value.strip()
         if not text:
             return
-        
+
         # Only send if conversation_id is valid
         if self.conversation_id <= 0:
             return
@@ -2074,6 +2778,7 @@ class ChatView(VerticalScroll):
         messages = self.query(".chat-message")
         self.cursor_position = max(0, len(messages) - 1)
 
+
 class MessagesScreen(Container):
     def __init__(self, username: str = None, **kwargs):
         super().__init__(**kwargs)
@@ -2121,51 +2826,166 @@ class MessagesScreen(Container):
         except:
             pass
 
+
 class SettingsPanel(VerticalScroll):
     cursor_position = reactive(0)
+    settings_loaded = reactive(False)
 
     def compose(self) -> ComposeResult:
+        """Build settings content synchronously so items are real children
+        of the VerticalScroll (matching Timeline/Discover). This makes
+        scroll_to_widget and vim-style navigation work identically.
+        """
         self.border_title = "Settings"
-        # settings = api.get_user_settings()
+
+        try:
+            settings = api.get_user_settings()
+        except Exception:
+            # If the API call fails, provide a lightweight fallback so the
+            # screen still composes and shows an error message that can be
+            # replaced once on_mount runs.
+            settings = None
+
+        # Header
         yield Static("settings.profile | line 1", classes="panel-header")
+
+        # Profile Picture section
         yield Static("\n→ Profile Picture (ASCII)", classes="settings-section-header")
         yield Static("Make ASCII Profile Picture from image file")
-        yield Button("Upload file", id="upload-profile-picture", classes="upload-profile-picture")
-        # yield Static(f"{settings.ascii_pic}", id="profile-picture-display", classes="ascii-avatar")
+        yield Button(
+            "Upload file",
+            id="upload-profile-picture",
+            classes="upload-profile-picture",
+        )
 
-        # yield Static("\n→ Account Information", classes="settings-section-header")
-        # username = keyring.get_password(serviceKeyring, "username")
-        # if username == None:
-        #     username = settings.username
-        # yield Static(f"  Username:\n  @{username}", classes="settings-field")
-        # yield Static(f"\n  Bio:\n  {settings.bio}", classes="settings-field")
-        # yield Static("\n→ OAuth Connections", classes="settings-section-header")
-        # github_status = "Connected" if settings.github_connected else "[:c] Connect"
-        # gitlab_status = "Connected" if settings.gitlab_connected else "[:c] Connect"
-        # google_status = "Connected" if settings.google_connected else "[:c] Connect"
-        # discord_status = "Connected" if settings.discord_connected else "[:c] Connect"
-        # yield Static(f"  [🟢] GitHub                                              {github_status}", classes="oauth-item")
-        # yield Static(f"  [⚪] GitLab                                              {gitlab_status}", classes="oauth-item")
-        # yield Static(f"  [⚪] Google                                              {google_status}", classes="oauth-item")
-        # yield Static(f"  [⚪] Discord                                             {discord_status}", classes="oauth-item")
-        # yield Static("\n→ Preferences", classes="settings-section-header")
-        # email_check = "✅" if settings.email_notifications else "⬜"
-        # online_check = "✅" if settings.show_online_status else "⬜"
-        # private_check = "✅" if settings.private_account else "⬜"
-        # yield Static(f"  {email_check} Email notifications", classes="checkbox-item")
-        # yield Static(f"  {online_check} Show online status", classes="checkbox-item")
-        # yield Static(f"  {private_check} Private account", classes="checkbox-item")
-        # yield Static("\n  [:w] Save Changes     [:q] Cancel", classes="settings-actions")
-        # yield Static("\n:w - save  [:e] Edit field  [Tab] Next field  [Esc] Cancel", classes="help-text", markup=False)
-        
-        # Sign Out button
+        # Display current ascii avatar if available
+        avatar_text = getattr(settings, "ascii_pic", "") if settings else "(not available)"
+        yield Static(avatar_text, id="profile-picture-display", classes="ascii-avatar")
+
+        # Account information
+        yield Static("\n→ Account Information", classes="settings-section-header")
+        username = keyring.get_password(serviceKeyring, "username")
+        if username is None and settings:
+            username = getattr(settings, "username", "yourname")
+        yield Static(f"  Username:\n  @{username}", classes="settings-field")
+        if settings:
+            yield Static(f"\n  Display Name:\n  {settings.display_name}", classes="settings-field")
+            yield Static(f"\n  Bio:\n  {settings.bio}", classes="settings-field")
+        else:
+            yield Static("\n  Display Name:\n  (loading)", classes="settings-field")
+            yield Static("\n  Bio:\n  (loading)", classes="settings-field")
+
+        # OAuth connections - use Buttons so they are navigable
+        yield Static("\n→ OAuth Connections", classes="settings-section-header")
+        github_status = "Connected" if settings and getattr(settings, "github_connected", False) else "[:c] Connect"
+        gitlab_status = "Connected" if settings and getattr(settings, "gitlab_connected", False) else "[:c] Connect"
+        google_status = "Connected" if settings and getattr(settings, "google_connected", False) else "[:c] Connect"
+        discord_status = "Connected" if settings and getattr(settings, "discord_connected", False) else "[:c] Connect"
+        yield Button(f"  [🟢] GitHub                                              {github_status}", id="oauth-github", classes="oauth-item")
+        yield Button(f"  [⚪] GitLab                                              {gitlab_status}", id="oauth-gitlab", classes="oauth-item")
+        yield Button(f"  [⚪] Google                                              {google_status}", id="oauth-google", classes="oauth-item")
+        yield Button(f"  [⚪] Discord                                             {discord_status}", id="oauth-discord", classes="oauth-item")
+
+        # Preferences
+        yield Static("\n→ Preferences", classes="settings-section-header")
+        email_check = "✅" if settings and getattr(settings, "email_notifications", False) else "⬜"
+        online_check = "✅" if settings and getattr(settings, "show_online_status", False) else "⬜"
+        private_check = "✅" if settings and getattr(settings, "private_account", False) else "⬜"
+        yield Button(f"  {email_check} Email notifications", id="pref-email_notifications", classes="checkbox-item")
+        yield Button(f"  {online_check} Show online status", id="pref-show_online_status", classes="checkbox-item")
+        yield Button(f"  {private_check} Private account", id="pref-private_account", classes="checkbox-item")
+
+        # Session / Sign out
         yield Static("\n→ Session", classes="settings-section-header")
         yield Button("Sign Out", id="settings-signout", classes="danger")
+
+    def on_mount(self) -> None:
+        """Fetch settings after mount to ensure API handle is set."""
+        try:
+            # Ensure we have the latest settings; compose built a best-effort view
+            try:
+                latest = api.get_user_settings()
+                # If compose used a placeholder, update widgets now
+                try:
+                    avatar = self.query_one("#profile-picture-display", Static)
+                    avatar.update(getattr(latest, "ascii_pic", ""))
+                except Exception:
+                    pass
+            except Exception:
+                pass
+
+            # Mark loaded and initialize cursor/focus so navigation works
+            self.settings_loaded = True
+            try:
+                self.cursor_position = 0
+            except Exception:
+                pass
+            try:
+                # Focus the panel so it receives vim key events
+                self.focus()
+            except Exception:
+                pass
+            # Ensure first selectable item shows the cursor visually
+            try:
+                selectable_classes = [
+                    ".upload-profile-picture",
+                    ".oauth-item",
+                    ".checkbox-item",
+                    ".danger",
+                ]
+                items = []
+                for cls in selectable_classes:
+                    items.extend(list(self.query(cls)))
+                if items:
+                    first = items[0]
+                    first.add_class("vim-cursor")
+                    try:
+                        if isinstance(first, Button):
+                            first.add_class("action-selected")
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+
+        except Exception as e:
+            # Handle API error gracefully
+            try:
+                self.query_one("#settings-loading").remove()
+            except Exception:
+                pass
+
+            container = self.query_one("#settings-content", Container)
+            container.mount(Static(
+                f"⚠️ Failed to load settings\n\nError: {str(e)}\n\nAPI Handle: {api.handle}",
+                classes="panel-header"
+            ))
+            container.mount(Static(
+                "\nThis is likely a server-side issue. The username was sent correctly.",
+                classes="settings-field"
+            ))
+            container.mount(Static("\n→ Session", classes="settings-section-header"))
+            container.mount(Button("Sign Out", id="settings-signout", classes="danger"))
+
+            try:
+                self.app.log_auth_event(f"SettingsPanel: ERROR loading settings - {str(e)}")
+            except Exception:
+                pass
+
+            # Show notification
+            try:
+                self.app.notify(f"Failed to load settings: {str(e)}", severity="error", timeout=5)
+            except Exception:
+                pass
 
     def watch_cursor_position(self, old_position: int, new_position: int) -> None:
         """Update the cursor when position changes"""
         # We'll consider settings items that can be selected for cursor movement:
-        selectable_classes = [".upload-profile-picture", ".oauth-item", ".checkbox-item"]
+        selectable_classes = [
+            ".upload-profile-picture",
+            ".oauth-item",
+            ".checkbox-item",
+            ".danger",
+        ]
 
         items = []
         for cls in selectable_classes:
@@ -2176,18 +2996,44 @@ class SettingsPanel(VerticalScroll):
             old_item = items[old_position]
             if "vim-cursor" in old_item.classes:
                 old_item.remove_class("vim-cursor")
+                try:
+                    # If the old item was a Button, remove any button-specific
+                    # selection class so the visual state matches other panels.
+                    if isinstance(old_item, Button):
+                        old_item.remove_class("action-selected")
+                except Exception:
+                    pass
 
         # Add cursor to new position
         if new_position < len(items):
             new_item = items[new_position]
             new_item.add_class("vim-cursor")
+            try:
+                # If the selected item is a Button, add a visible selection
+                # class used elsewhere (e.g. Drafts) so the sign-out button
+                # and other Buttons show the expected focus state.
+                if isinstance(new_item, Button):
+                    new_item.add_class("action-selected")
+            except Exception:
+                pass
+            # Scroll so the selected item is visible and keep focus on the panel
             self.scroll_to_widget(new_item)
+            try:
+                # Keep focus on the panel so vim navigation (j/k) is handled here
+                self.focus()
+            except Exception:
+                pass
 
     def key_j(self) -> None:
         """Vim-style down navigation"""
         if self.app.command_mode:
             return
-        selectable_classes = [".upload-profile-picture", ".oauth-item", ".checkbox-item"]
+        selectable_classes = [
+            ".upload-profile-picture",
+            ".oauth-item",
+            ".checkbox-item",
+            ".danger",
+        ]
         items = []
         for cls in selectable_classes:
             items.extend(list(self.query(cls)))
@@ -2212,20 +3058,74 @@ class SettingsPanel(VerticalScroll):
         """Vim-style go to bottom"""
         if self.app.command_mode:
             return
-        selectable_classes = [".upload-profile-picture", ".oauth-item", ".checkbox-item"]
+        selectable_classes = [
+            ".upload-profile-picture",
+            ".oauth-item",
+            ".checkbox-item",
+            ".danger",
+        ]
         items = []
         for cls in selectable_classes:
             items.extend(list(self.query(cls)))
         self.cursor_position = max(0, len(items) - 1)
 
+    def on_focus(self) -> None:
+        """When the panel gets focus, ensure cursor is initialized and visible."""
+        try:
+            # If settings not yet loaded, _on_mount will initialize
+            if self.settings_loaded:
+                self.cursor_position = max(0, self.cursor_position)
+                try:
+                    self.focus()
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+    def key_enter(self) -> None:
+        """Activate the currently-selected settings item when Enter is pressed.
+
+        We keep focus on the panel so vim keys are handled here; Enter will
+        trigger the underlying Button if present.
+        """
+        if self.app.command_mode:
+            return
+        selectable_classes = [
+            ".upload-profile-picture",
+            ".oauth-item",
+            ".checkbox-item",
+            ".danger",
+        ]
+        items = []
+        for cls in selectable_classes:
+            items.extend(list(self.query(cls)))
+
+        if 0 <= self.cursor_position < len(items):
+            item = items[self.cursor_position]
+            try:
+                # If the item is a Button, call its press method to trigger handlers
+                if hasattr(item, "press"):
+                    item.press()
+                else:
+                    # Fallback: try to call on_click or simulate a button press event
+                    try:
+                        item.on_click()
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+
     def on_button_pressed(self, event: Button.Pressed) -> None:
-        if event.button.id == "upload-profile-picture":
+        btn_id = getattr(event.button, "id", "")
+
+        # Upload profile picture
+        if btn_id == "upload-profile-picture":
             try:
                 root = tk.Tk()
                 root.withdraw()
                 file_path = filedialog.askopenfilename(
                     title="Select an Image",
-                    filetypes=[("Image files", "*.png *.jpg *.jpeg")]
+                    filetypes=[("Image files", "*.png *.jpg *.jpeg")],
                 )
                 root.destroy()
 
@@ -2233,7 +3133,6 @@ class SettingsPanel(VerticalScroll):
                     return
 
                 script_path = Path("asciifer/asciifer.py")
-
                 if not script_path.exists():
                     return
 
@@ -2244,15 +3143,18 @@ class SettingsPanel(VerticalScroll):
                 cmd = [
                     sys.executable,
                     str(script_path),
-                    "--output-text", output_text,
-                    "--output-image", output_image,
-                    "--font", font_path,
-                    "--font-size", "24",
-                    file_path
+                    "--output-text",
+                    output_text,
+                    "--output-image",
+                    output_image,
+                    "--font",
+                    font_path,
+                    "--font-size",
+                    "24",
+                    file_path,
                 ]
 
                 result = subprocess.run(cmd, capture_output=True, text=True)
-
                 if result.returncode != 0:
                     return
 
@@ -2274,27 +3176,144 @@ class SettingsPanel(VerticalScroll):
                         avatar.update(ascii_art)
                         self.app.notify("Profile picture updated!", severity="success")
                     except Exception as e:
-                        self.app.notify(f"Widget not found: {e}", severity="error")
+                        try:
+                            self.app.notify(f"Widget not found: {e}", severity="error")
+                        except Exception:
+                            pass
                 else:
-                    self.app.notify("Output file not generated", severity="error")
+                    try:
+                        self.app.notify("Output file not generated", severity="error")
+                    except Exception:
+                        pass
             except Exception:
                 pass
-        elif event.button.id == "settings-signout":
-            # Delete tokens and exit
+
+        # Sign out
+        elif btn_id == "settings-signout":
             try:
-                keyring.delete_password(serviceKeyring, "oauth_tokens.json")
-                keyring.delete_password(serviceKeyring, "username")
+                from .auth import clear_credentials
+
+                try:
+                    clear_credentials()
+                except Exception:
+                    # best-effort fallback to remove legacy keys
+                    try:
+                        keyring.delete_password(serviceKeyring, "refresh_token")
+                        keyring.delete_password(serviceKeyring, "username")
+                        keyring.delete_password(serviceKeyring, "oauth_tokens.json")
+                    except Exception:
+                        pass
+
+                # Clear API auth header and reset handle
+                try:
+                    from .api_interface import api
+                    try:
+                        api.session.headers.pop('Authorization', None)
+                    except Exception:
+                        pass
+                    try:
+                        api.handle = "yourname"
+                    except Exception:
+                        pass
+                except Exception:
+                    pass
+
+                try:
+                    self.app.notify("Signing out and exiting application...", severity="info")
+                except Exception:
+                    pass
+
+                # small sleep to allow any UI notifications to flush
+                try:
+                    import time as _time
+                    _time.sleep(0.05)
+                except Exception:
+                    pass
+
+                try:
+                    self.app.exit()
+                except Exception:
+                    try:
+                        import sys as _sys
+                        _sys.exit(0)
+                    except Exception:
+                        pass
             except Exception:
                 pass
+
+        # OAuth connection buttons (focusable)
+        elif btn_id and btn_id.startswith("oauth-"):
+            provider = btn_id.split("-", 1)[1]
             try:
-                self.app.exit()
+                self.app.notify(f"OAuth action: {provider} (not implemented)", severity="info")
             except Exception:
                 pass
+
+        # Preference toggles
+        elif btn_id and btn_id.startswith("pref-"):
+            pref_key = btn_id.split("-", 1)[1]
+            try:
+                current = api.get_user_settings()
+                cur_val = getattr(current, pref_key, None)
+                if isinstance(cur_val, bool):
+                    setattr(current, pref_key, not cur_val)
+                    api.update_user_settings(current)
+                    try:
+                        new_check = "✅" if getattr(current, pref_key) else "⬜"
+                        btn = event.button
+                        label_parts = btn.label.split(" ", 2)
+                        # keep everything after the checkbox
+                        if len(label_parts) >= 3:
+                            # label_parts[2] is the rest after two spaces
+                            btn.label = f"  {new_check} {label_parts[2]}"
+                        elif len(label_parts) == 2:
+                            btn.label = f"  {new_check} {label_parts[1]}"
+                    except Exception:
+                        pass
+            except Exception:
+                try:
+                    self.app.notify("Failed to update preference", severity="error")
+                except Exception:
+                    pass
+
 
 class SettingsScreen(Container):
     def compose(self) -> ComposeResult:
         yield Sidebar(current="settings", id="sidebar")
         yield SettingsPanel(id="settings-panel")
+
+    def on_mount(self) -> None:
+        """When the SettingsScreen is mounted, ensure the settings panel is focused
+        so vim navigation and scrolling behave like other screens."""
+        try:
+            panel = self.query_one("#settings-panel", SettingsPanel)
+            # Initialize cursor and focus so j/k navigation works immediately
+            try:
+                panel.cursor_position = 0
+            except Exception:
+                pass
+            try:
+                panel.focus()
+            except Exception:
+                pass
+        except Exception:
+            pass
+
+    def on_focus(self) -> None:
+        """When screen receives focus, ensure the SettingsPanel is ready and focused."""
+        try:
+            panel = self.query_one("#settings-panel", SettingsPanel)
+            try:
+                panel.cursor_position = 0
+            except Exception:
+                pass
+            try:
+                panel.focus()
+            except Exception:
+                pass
+        except Exception:
+            pass
+
 
 class ProfilePanel(VerticalScroll):
     cursor_position = reactive(0)
@@ -2318,8 +3337,12 @@ class ProfilePanel(VerticalScroll):
             stats_row = Container(classes="profile-stats-row")
             with stats_row:
                 yield Static(f"{user.posts_count}\nPosts", classes="profile-stat-item")
-                yield Static(f"{user.following}\nFollowing", classes="profile-stat-item")
-                yield Static(f"{user.followers}\nFollowers", classes="profile-stat-item")
+                yield Static(
+                    f"{user.following}\nFollowing", classes="profile-stat-item"
+                )
+                yield Static(
+                    f"{user.followers}\nFollowers", classes="profile-stat-item"
+                )
             yield stats_row
 
             bio_container = Container(classes="profile-bio-container")
@@ -2329,7 +3352,11 @@ class ProfilePanel(VerticalScroll):
             yield bio_container
 
         yield profile_container
-        yield Static("\n[j/k] Navigate  [:e] Edit Profile  [Esc] Back", classes="help-text", markup=False)
+        yield Static(
+            "\n[j/k] Navigate  [:e] Edit Profile  [Esc] Back",
+            classes="help-text",
+            markup=False,
+        )
 
     def key_j(self) -> None:
         """Scroll down with j key"""
@@ -2380,14 +3407,21 @@ class ProfilePanel(VerticalScroll):
             event.prevent_default()
             event.stop()
             return
-        if event.key == "g" and event.is_repeat:
-            self.scroll_home(animate=False)
-            event.prevent_default()
+        if event.key == "g":
+            now = time.time()
+            if hasattr(self, "last_g_time") and now - self.last_g_time < 0.5:
+                self.scroll_home(animate=False)
+                event.prevent_default()
+                delattr(self, "last_g_time")
+            else:
+                self.last_g_time = now
+
 
 class ProfileScreen(Container):
     def compose(self) -> ComposeResult:
         yield Sidebar(current="profile", id="sidebar")
         yield ProfilePanel(id="profile-panel")
+
 
 class UserProfileViewPanel(VerticalScroll):
     """Panel for viewing another user's profile."""
@@ -2409,14 +3443,21 @@ class UserProfileViewPanel(VerticalScroll):
         profile_container = Container(classes="profile-center-container")
 
         with profile_container:
-            yield Static(user_data['ascii_pic'], classes="profile-avatar-large")
+            yield Static(user_data["ascii_pic"], classes="profile-avatar-large")
+            yield Static(f"{user_data['display_name']}", classes="profile-name-large")
             yield Static(f"@{self.username}", classes="profile-username-display")
 
             stats_row = Container(classes="profile-stats-row")
             with stats_row:
-                yield Static(f"{user_data['posts_count']}\nPosts", classes="profile-stat-item")
-                yield Static(f"{user_data['following']}\nFollowing", classes="profile-stat-item")
-                yield Static(f"{user_data['followers']}\nFollowers", classes="profile-stat-item")
+                yield Static(
+                    f"{user_data['posts_count']}\nPosts", classes="profile-stat-item"
+                )
+                yield Static(
+                    f"{user_data['following']}\nFollowing", classes="profile-stat-item"
+                )
+                yield Static(
+                    f"{user_data['followers']}\nFollowers", classes="profile-stat-item"
+                )
             yield stats_row
 
             bio_container = Container(classes="profile-bio-container")
@@ -2428,9 +3469,13 @@ class UserProfileViewPanel(VerticalScroll):
             # Action buttons
             buttons_container = Container(classes="profile-action-buttons")
             with buttons_container:
-                follow_btn = Button("👥 Follow", id="follow-user-btn", classes="profile-action-btn")
+                follow_btn = Button(
+                    "👥 Follow", id="follow-user-btn", classes="profile-action-btn"
+                )
                 yield follow_btn
-                yield Button("💬 Message", id="message-user-btn", classes="profile-action-btn")
+                yield Button(
+                    "💬 Message", id="message-user-btn", classes="profile-action-btn"
+                )
             yield buttons_container
 
         yield profile_container
@@ -2441,7 +3486,9 @@ class UserProfileViewPanel(VerticalScroll):
         for post in posts:
             yield PostItem(post, classes="post-item")
 
-        yield Static("\n[Esc] Back  [:f] Follow  [:m] Message", classes="help-text", markup=False)
+        yield Static(
+            "\n[Esc] Back  [:f] Follow  [:m] Message", classes="help-text", markup=False
+        )
 
     def _get_user_data(self) -> Dict:
         """Get or generate user data."""
@@ -2450,31 +3497,31 @@ class UserProfileViewPanel(VerticalScroll):
             discover_feed = self.app.query_one("#discover-feed", DiscoverFeed)
 
             for name, data in discover_feed._dummy_users.items():
-                if data['username'] == self.username:
+                if data["username"] == self.username:
                     return {
-                        'display_name': data['display_name'],
-                        'bio': data['bio'],
-                        'followers': data['followers'],
-                        'following': data['following'],
-                        'ascii_pic': data['ascii_pic'],
-                        'posts_count': 42  # Fake post count
+                        "display_name": data["display_name"],
+                        "bio": data["bio"],
+                        "followers": data["followers"],
+                        "following": data["following"],
+                        "ascii_pic": data["ascii_pic"],
+                        "posts_count": 42,  # Fake post count
                     }
         except:
             pass
 
         # Generate fake data for other users
         return {
-            'display_name': self.username.replace('_', ' ').title(),
-            'bio': f"Hi! I'm {self.username}. Welcome to my profile! 👋",
-            'followers': 156,
-            'following': 89,
-            'ascii_pic': "  [👀]\n  |◠ ◡ ◠|\n  |▓███▓|",
-            'posts_count': 28
+            "display_name": self.username.replace("_", " ").title(),
+            "bio": f"Hi! I'm {self.username}. Welcome to my profile! 👋",
+            "followers": 156,
+            "following": 89,
+            "ascii_pic": "  [👀]\n  |◠ ◡ ◠|\n  |▓███▓|",
+            "posts_count": 28,
         }
 
     def _get_user_posts(self) -> List:
         """Get fake posts from this user."""
-        from api_interface import Post
+        from .api_interface import Post
 
         # Generate 3 fake posts
         posts = []
@@ -2482,13 +3529,13 @@ class UserProfileViewPanel(VerticalScroll):
             post = Post(
                 id=f"fake-{self.username}-{i}",
                 author=self.username,
-                content=f"This is a sample post from @{self.username}! Post #{i+1}",
+                content=f"This is a sample post from @{self.username}! Post #{i + 1}",
                 timestamp=datetime.now(),
                 likes=10 + i * 5,
                 reposts=2 + i,
                 comments=3 + i,
                 liked_by_user=False,
-                reposted_by_user=False
+                reposted_by_user=False,
             )
             posts.append(post)
 
@@ -2511,7 +3558,9 @@ class UserProfileViewPanel(VerticalScroll):
                     # Increment following count in user profile
                     current_user = api.get_current_user()
                     current_user.following += 1
-                    self.app.notify(f"✓ Following @{self.username}!", severity="success")
+                    self.app.notify(
+                        f"✓ Following @{self.username}!", severity="success"
+                    )
                 else:
                     follow_btn.label = "👥 Follow"
                     follow_btn.remove_class("following")
@@ -2525,6 +3574,7 @@ class UserProfileViewPanel(VerticalScroll):
             # Open DM with this user
             self.app.action_open_dm(self.username)
 
+
 class UserProfileViewScreen(Container):
     """Screen for viewing another user's profile."""
 
@@ -2536,8 +3586,10 @@ class UserProfileViewScreen(Container):
         yield Sidebar(current="discover", id="sidebar")
         yield UserProfileViewPanel(username=self.username, id="user-profile-panel")
 
+
 class DraftsPanel(VerticalScroll):
     """Main panel for viewing all drafts."""
+
     cursor_position = reactive(0)
     selected_action = reactive("open")  # "open" or "delete"
 
@@ -2545,11 +3597,15 @@ class DraftsPanel(VerticalScroll):
         self.border_title = "Drafts"
         drafts = load_drafts()
 
-        yield Static(f"drafts.all | {len(drafts)} saved | line 1", classes="panel-header")
+        yield Static(
+            f"drafts.all | {len(drafts)} saved | line 1", classes="panel-header"
+        )
 
         if not drafts:
-            yield Static("\n📝 No drafts saved yet\n\nPress :n to create a new post",
-                        classes="no-drafts-message")
+            yield Static(
+                "\n📝 No drafts saved yet\n\nPress :n to create a new post",
+                classes="no-drafts-message",
+            )
         else:
             # Show most recent first
             for i, draft in enumerate(reversed(drafts)):
@@ -2559,8 +3615,11 @@ class DraftsPanel(VerticalScroll):
                     box.add_class("vim-cursor")
                 yield box
 
-        yield Static("\n[j/k] Navigate [h/l] Select Action [Enter] Execute [:o#/:x#] Direct [Esc] Back",
-                    classes="help-text", markup=False)
+        yield Static(
+            "\n[j/k] Navigate [h/l] Select Action [Enter] Execute [:o#/:x#] Direct [Esc] Back",
+            classes="help-text",
+            markup=False,
+        )
 
     def on_mount(self) -> None:
         """Watch for cursor position changes"""
@@ -2671,27 +3730,10 @@ class DraftsPanel(VerticalScroll):
             return
         self.selected_action = "delete"
 
-    def key_enter(self) -> None:
-        """Execute the selected action on the current draft"""
-        # Don't process if app is in command mode
-        if self.app.command_mode:
-            return
 
-        try:
-            drafts = load_drafts()
-            if 0 <= self.cursor_position < len(drafts):
-                # Get the actual draft index (reversed display)
-                actual_index = len(drafts) - 1 - self.cursor_position
-
-                if self.selected_action == "open":
-                    self.app.action_open_draft(actual_index)
-                else:  # delete
-                    self.app.push_screen(DeleteDraftDialog(actual_index))
-        except Exception:
-            pass
 
     def on_key(self, event) -> None:
-        """Handle g+g key combination for top and escape for command mode"""
+        """Handle g+g key combination for top, enter for actions, and escape for command mode"""
         if event.key == "escape":
             # If in command mode, let the app handle it (don't stop propagation)
             if self.app.command_mode:
@@ -2701,9 +3743,30 @@ class DraftsPanel(VerticalScroll):
             event.prevent_default()
             event.stop()
             return
-        if event.key == "g" and event.is_repeat:
-            self.cursor_position = 0
+        if event.key == "enter":
+            if self.app.command_mode:
+                return
             event.prevent_default()
+            event.stop()
+            try:
+                drafts = load_drafts()
+                if 0 <= self.cursor_position < len(drafts):
+                    actual_index = len(drafts) - 1 - self.cursor_position
+                    if self.selected_action == "open":
+                        self.app.action_open_draft(actual_index)
+                    else:
+                        self.app.push_screen(DeleteDraftDialog(actual_index))
+            except Exception:
+                pass
+            return
+        if event.key == "g":
+            now = time.time()
+            if hasattr(self, "last_g_time") and now - self.last_g_time < 0.5:
+                self.cursor_position = 0
+                event.prevent_default()
+                delattr(self, 'last_g_time')
+            else:
+                self.last_g_time = now
 
     def _create_draft_box(self, draft: Dict, index: int) -> Container:
         """Create a nice box for displaying a draft."""
@@ -2712,24 +3775,32 @@ class DraftsPanel(VerticalScroll):
         box.border_title = f"💾 Draft {index + 1}"
 
         # Header with timestamp
-        time_ago = format_time_ago(draft['timestamp'])
+        time_ago = format_time_ago(draft["timestamp"])
         box.mount(Static(f"⏰ Saved {time_ago}", classes="draft-timestamp"))
 
         # Content preview
-        content = draft['content']
+        content = draft["content"]
         preview = content if len(content) <= 200 else content[:200] + "..."
         box.mount(Static(preview, classes="draft-content-preview"))
 
         # Attachments info
-        attachments = draft.get('attachments', [])
+        attachments = draft.get("attachments", [])
         if attachments:
             attach_text = f"📎 {len(attachments)} attachment(s)"
             box.mount(Static(attach_text, classes="draft-attachments-info"))
 
         # Action buttons
         actions_container = Container(classes="draft-actions")
-        actions_container.mount(Button(f"✏️ Open", id=f"open-draft-{index}", classes="draft-action-btn"))
-        actions_container.mount(Button(f"🗑️ Delete", id=f"delete-draft-{index}", classes="draft-action-btn-delete"))
+        actions_container.mount(
+            Button(f"✏️ Open", id=f"open-draft-{index}", classes="draft-action-btn")
+        )
+        actions_container.mount(
+            Button(
+                f"🗑️ Delete",
+                id=f"delete-draft-{index}",
+                classes="draft-action-btn-delete",
+            )
+        )
         box.mount(actions_container)
 
         return box
@@ -2751,11 +3822,17 @@ class DraftsPanel(VerticalScroll):
         self.remove_children()
         drafts = load_drafts()
 
-        self.mount(Static(f"drafts.all | {len(drafts)} saved | line 1", classes="panel-header"))
+        self.mount(
+            Static(f"drafts.all | {len(drafts)} saved | line 1", classes="panel-header")
+        )
 
         if not drafts:
-            self.mount(Static("\n📝 No drafts saved yet\n\nPress :n to create a new post",
-                        classes="no-drafts-message"))
+            self.mount(
+                Static(
+                    "\n📝 No drafts saved yet\n\nPress :n to create a new post",
+                    classes="no-drafts-message",
+                )
+            )
         else:
             # Show most recent first
             for i, draft in enumerate(reversed(drafts)):
@@ -2765,11 +3842,17 @@ class DraftsPanel(VerticalScroll):
                     box.add_class("vim-cursor")
                 self.mount(box)
 
-        self.mount(Static("\n[j/k] Navigate [h/l] Select Action [Enter] Execute [:o#/:x#] Direct [Esc] Back",
-                    classes="help-text", markup=False))
+        self.mount(
+            Static(
+                "\n[j/k] Navigate [h/l] Select Action [Enter] Execute [:o#/:x#] Direct [Esc] Back",
+                classes="help-text",
+                markup=False,
+            )
+        )
 
         # Reset cursor position
         self.cursor_position = 0
+
 
 class DraftsScreen(Container):
     """Screen for viewing and managing all drafts."""
@@ -2778,18 +3861,25 @@ class DraftsScreen(Container):
         yield Sidebar(current="drafts", id="sidebar")
         yield DraftsPanel(id="drafts-panel")
 
+
 class Proj101App(App):
     CSS_PATH = "main.tcss"
 
     # Disable dark mode toggle - we use our own colors
     ENABLE_COMMAND_PALETTE = False
 
+    # Use MODES for seamless screen transitions
+    # Modes automatically handle initial screen display
+    MODES = {
+        "auth": AuthScreen,
+        "main": MainUIScreen
+    }
+
     BINDINGS = [
         # Basic app controls
         Binding("q", "quit", "Quit", show=False),
         Binding("i", "insert_mode", "Insert", show=True),
         Binding("escape", "normal_mode", "Normal", show=False),
-
         # Screen navigation
         Binding("0", "focus_main_content", "Main Content", show=False),
         Binding("1", "show_timeline", "Timeline", show=False),
@@ -2802,7 +3892,6 @@ class Proj101App(App):
         Binding("6", "focus_messages", "Messages List", show=False),
         Binding("shift+n", "focus_navigation", "Nav Focus", show=False),
         Binding("colon", "show_command_bar", "Command", show=False),
-
         # Vim-style navigation bindings
         Binding("j", "vim_down", "Down", show=False),
         Binding("k", "vim_up", "Up", show=False),
@@ -2810,7 +3899,6 @@ class Proj101App(App):
         Binding("l", "vim_right", "Right", show=False),
         Binding("w", "vim_word_forward", "Word Forward", show=False),
         Binding("b", "vim_word_backward", "Word Backward", show=False),
-        Binding("g g", "vim_top", "Top", show=False),
         Binding("G", "vim_bottom", "Bottom", show=False),
         Binding("ctrl+d", "vim_half_page_down", "Half Page Down", show=False),
         Binding("ctrl+u", "vim_half_page_up", "Half Page Up", show=False),
@@ -2833,88 +3921,196 @@ class Proj101App(App):
         except:
             pass
 
-    def compose(self) -> ComposeResult:
-        # Check if tokens exist - if not, show auth screen
-        token_data = keyring.get_password(serviceKeyring, "oauth_tokens.json")
-        if not token_data or token_data == "":
-            yield AuthScreen()
-        else:
-            # Load token and set it in API
+    def show_main_app(self, credentials=None) -> None:
+        """Transition to authenticated main UI screen.
+
+        This method is safe to call from threads - it schedules the mode switch
+        on the main thread using call_later.
+
+        Args:
+            credentials: Optional dict with 'username' and 'tokens' from authenticate().
+                        If not provided, will read from disk (slower, may have timing issues).
+        """
+        try:
+            # Use provided credentials or load from disk
+            username = "yourname"
             try:
-                tokens = json.loads(token_data)
-                if "access_token" in tokens:
-                    api.set_token(tokens["access_token"])
+                if credentials and isinstance(credentials, dict):
+                    # Use credentials passed directly from authenticate() - faster and avoids file I/O
+                    # NOTE: Token and handle should already be set in the worker thread before this is called
+                    username = credentials.get('username') or "yourname"
+                    tokens = credentials.get('tokens')
+                    # Require access_token explicitly (do not accept id_token)
+                    if tokens and isinstance(tokens, dict) and 'access_token' in tokens:
+                        # Double-check token is set (should already be set in worker thread)
+                        if not api.token:
+                            api.set_token(tokens['access_token'])
+                else:
+                    # Fallback: read from disk
+                    from .auth import get_stored_credentials
+                    creds = get_stored_credentials()
+                    if creds and isinstance(creds, dict):
+                        username = creds.get('username') or "yourname"
+                        tokens = creds.get('tokens')
+                        # Require access_token from stored tokens
+                        if tokens and isinstance(tokens, dict) and 'access_token' in tokens:
+                            api.set_token(tokens['access_token'])
+
+                # Ensure API handle is set (should already be set in worker thread for first login)
+                if not api.handle or api.handle == "yourname":
+                    api.handle = username
+
+                # Verify user exists in DB (should already be done in worker thread)
+                try:
+                    user_profile = api.get_current_user()
+                except Exception:
+                    pass
             except Exception:
                 pass
-            
-            # Get current user from backend (auto-creates if doesn't exist)
-            username = keyring.get_password(serviceKeyring, "username") or "yourname"
+
+            # Directly switch mode - thread safety handled by call_from_thread wrapper
             try:
-                if hasattr(api, 'set_handle'):
-                    api.set_handle(username)
-                # Fetch user from backend to ensure they exist and get correct username
-                user = api.get_current_user()
-                # Update username from backend if different
-                if user.username != username:
-                    username = user.username
-                    keyring.set_password(serviceKeyring, "username", username)
-                    if hasattr(api, 'set_handle'):
-                        api.set_handle(username)
+                self.switch_mode("main")
+
+                # Force the screen to update by triggering a layout refresh
+                try:
+                    current_screen = self.screen
+                    # Force a refresh
+                    current_screen.refresh(layout=True)
+                    self.refresh(layout=True)
+                except Exception:
+                    pass
+
+                # Final refresh to ensure the UI updates
+                try:
+                    self.refresh()
+                except Exception:
+                    pass
+
+                # Ensure the initial content is focused (timeline feed) so vim navigation works immediately
+                try:
+                    # Schedule focusing after layout settles
+                    self.call_after_refresh(self._focus_initial_content)
+                except Exception:
+                    pass
+
             except Exception:
-                # If API call fails, use keyring username as fallback
                 pass
-            
-            yield Static(f"tuitter [timeline] @{username}", id="app-header", markup=False)
-            yield TopNav(id="top-navbar", current="timeline")
-            yield TimelineScreen(id="screen-container")
-            yield Static("[1-5] Screens [p] Profile [d] Drafts [j/k] Navigate [:n] New Post [:q] Quit", id="app-footer", markup=False)
-            yield Static("", id="command-bar")
 
-    def show_main_app(self) -> None:
-        """Transition from auth screen to main app after authentication."""
-        try:
-            for w in list(self.children):
-                w.remove()
         except Exception:
             pass
-        
-        # Load token and set it in API
-        try:
-            token_data = keyring.get_password(serviceKeyring, "oauth_tokens.json")
-            if token_data:
-                tokens = json.loads(token_data)
-                if "access_token" in tokens:
-                    api.set_token(tokens["access_token"])
-        except Exception:
-            pass
-        
-        # Get current user from backend (auto-creates if doesn't exist)
-        username = keyring.get_password(serviceKeyring, "username") or "yourname"
-        try:
-            if hasattr(api, 'set_handle'):
-                api.set_handle(username)
-            # Fetch user from backend to ensure they exist and get correct username
-            user = api.get_current_user()
-            # Update username from backend if different
-            if user.username != username:
-                username = user.username
-                keyring.set_password(serviceKeyring, "username", username)
-                if hasattr(api, 'set_handle'):
-                    api.set_handle(username)
-        except Exception:
-            # If API call fails, use keyring username as fallback
-            pass
-        
-        self.mount(Static(f"tuitter [timeline] @{username}", id="app-header", markup=False))
-        self.mount(TopNav(id="top-navbar", current="timeline"))
-        self.mount(TimelineScreen(id="screen-container"))
-        self.mount(Static("[1-5] Screens [p] Profile [d] Drafts [j/k] Navigate [:n] New Post [:q] Quit", id="app-footer", markup=False))
-        self.mount(Static("", id="command-bar"))
-        self.current_screen_name = "timeline"
 
+    def show_auth_screen(self) -> None:
+        """Transition to unauthenticated auth screen."""
+        try:
+            self.log_auth_event("show_auth_screen: Switching to auth mode")
+
+            # Clear API state
+            api.session.headers.pop('Authorization', None)
+            api.handle = "yourname"
+
+            # Switch to the auth mode
+            self.switch_mode("auth")
+            self.log_auth_event("show_auth_screen: ✓ Switched to auth mode")
+        except Exception as e:
+            self.log_auth_event(f"show_auth_screen: ERROR - {e}")
+
+    def ensure_auth_overlay(self) -> None:
+        """Alias for show_auth_screen - used by sign-out."""
+        self.show_auth_screen()
+
+    def log_auth_event(self, msg: str) -> None:
+        """Write a short auth-lifecycle message to the in-TUI RichLog if present,
+        otherwise fall back to the standard logging facility.
+
+        This is intentionally lightweight and tolerant of any failures so it
+        doesn't interfere with the auth flow.
+        """
+        if os.getenv("TUITTER_DEBUG"):
+            try:
+                rl = self.query_one("#auth-log", RichLog)
+                rl.write(msg)
+                return
+            except Exception:
+                pass
+        # Fallback to module logging
+        try:
+            logging.getLogger("tuitter.auth").info(msg)
+        except Exception:
+            pass
+
+    def on_authentication_completed(self, message: AuthenticationCompleted) -> None:
+        """App-level handler for successful authentication to ensure UI transitions.
+
+        Some environments dispatch messages to the App rather than the Screen; having
+        this here ensures we always transition to the main app when auth succeeds.
+
+        NOTE: We don't call show_main_app() here anymore because the worker thread
+        handles it directly with the correct credentials to avoid race conditions.
+        """
+        try:
+            # Resolve username once (prefer the message payload, then keyring, then a default)
+            username = (message.username if getattr(message, 'username', None) else None) or keyring.get_password(serviceKeyring, "username") or "yourname"
+            # If header exists, update it
+            try:
+                hdr = self.query_one("#app-header", Static)
+                hdr.update(f"tuitter [timeline] @{username}")
+            except Exception:
+                pass
+            # NOTE: Don't call show_main_app() here - the worker thread already did it with credentials
+        except Exception:
+            pass
     def on_mount(self) -> None:
-        """Focus the main timeline feed on app startup"""
-        self.call_after_refresh(self._focus_initial_content)
+        """App startup - decide which mode to show based on stored credentials."""
+        import sys
+        try:
+            self.log_auth_event("App.on_mount CALLED")
+        except Exception:
+            pass
+        try:
+            # First, attempt a proactive restore using the API helper which
+            # will attempt refresh if a refresh token is present. This avoids
+            # composing UI with an expired token and prevents 401s from
+            # bubbling into Textual lifecycle methods.
+            restored = False
+            try:
+                restored = api.try_restore_session()
+            except Exception as e:
+                try:
+                    self.log_auth_event(f"try_restore_session error: {e}")
+                except Exception:
+                    pass
+
+            if restored:
+                try:
+                    self.log_auth_event("Session successfully restored; switching to main mode")
+                except Exception:
+                    pass
+                # Ensure handle is set (may be persisted in keyring by auth flow)
+                try:
+                    api.handle = keyring.get_password(serviceKeyring, "username") or api.handle
+                except Exception:
+                    pass
+
+                self.switch_mode("main")
+                self.log_auth_event("on_mount: Switched to main mode")
+                return
+
+            # If restore failed, fall back to showing the auth screen
+            try:
+                self.log_auth_event("No session to restore; switching to AUTH mode")
+            except Exception:
+                pass
+            self.switch_mode("auth")
+            self.log_auth_event("on_mount: Switched to auth mode")
+
+        except Exception as e:
+            # On error, show auth screen
+            try:
+                self.log_auth_event(f"on_mount: ERROR - {e}, showing auth")
+            except Exception:
+                pass
+            self.switch_mode("auth")
 
     def _focus_initial_content(self) -> None:
         """Helper to focus the timeline feed after initial render"""
@@ -2934,14 +4130,38 @@ class Proj101App(App):
         if screen_name == self.current_screen_name and not kwargs:
             return
         screen_map = {
-            "timeline": (TimelineScreen, "[1-5] Screens [p] Profile [d] Drafts [j/k] Navigate [:n] New Post [:q] Quit"),
-            "discover": (DiscoverScreen, "[1-5] Screens [p] Profile [d] Drafts [j/k] Navigate [/] Search [:n] New Post [:q] Quit"),
-            "notifications": (NotificationsScreen, "[1-5] Screens [p] Profile [d] Drafts [j/k] Navigate [:q] Quit"),
-            "messages": (MessagesScreen, "[0] Chat [6] Messages [1-5] Screens [p] Profile [d] Drafts [j/k] Navigate [:n] New Message [:q] Quit"),
-            "profile": (ProfileScreen, "[1-5] Screens [d] Drafts [j/k] Navigate [:q] Quit"),
-            "settings": (SettingsScreen, "[1-5] Screens [p] Profile [d] Drafts [j/k] Navigate [:q] Quit"),
-            "drafts": (DraftsScreen, "[1-5] Screens [p] Profile [j/k] Navigate [h/l] Select [Enter] Execute [:q] Quit"),
-            "user_profile": (UserProfileViewScreen, "[1-5] Screens [p] Profile [d] Drafts [:m] Message [:q] Quit"),
+            "timeline": (
+                TimelineScreen,
+                "[1-5] Screens [p] Profile [d] Drafts [j/k] Navigate [:n] New Post [:q] Quit",
+            ),
+            "discover": (
+                DiscoverScreen,
+                "[1-5] Screens [p] Profile [d] Drafts [j/k] Navigate [/] Search [:n] New Post [:q] Quit",
+            ),
+            "notifications": (
+                NotificationsScreen,
+                "[1-5] Screens [p] Profile [d] Drafts [j/k] Navigate [:q] Quit",
+            ),
+            "messages": (
+                MessagesScreen,
+                "[0] Chat [6] Messages [1-5] Screens [p] Profile [d] Drafts [j/k] Navigate [:n] New Message [:q] Quit",
+            ),
+            "profile": (
+                ProfileScreen,
+                "[1-5] Screens [d] Drafts [j/k] Navigate [:q] Quit",
+            ),
+            "settings": (
+                SettingsScreen,
+                "[1-5] Screens [p] Profile [d] Drafts [j/k] Navigate [:q] Quit",
+            ),
+            "drafts": (
+                DraftsScreen,
+                "[1-5] Screens [p] Profile [j/k] Navigate [h/l] Select [Enter] Execute [:q] Quit",
+            ),
+            "user_profile": (
+                UserProfileViewScreen,
+                "[1-5] Screens [p] Profile [d] Drafts [:m] Message [:q] Quit",
+            ),
         }
         if screen_name in screen_map:
             self._switching = True  # Set flag to prevent concurrent switches
@@ -2949,15 +4169,22 @@ class Proj101App(App):
             for container in self.query("#screen-container"):
                 container.remove()
             ScreenClass, footer_text = screen_map[screen_name]
-            self.call_after_refresh(self.mount, ScreenClass(id="screen-container", **kwargs))
+            self.call_after_refresh(
+                self.mount, ScreenClass(id="screen-container", **kwargs)
+            )
 
-            # Update header based on screen
-            if screen_name == "user_profile" and 'username' in kwargs:
-                self.query_one("#app-header", Static).update(f"tuitter [@{kwargs['username']}] @yourname")
-            elif screen_name == "messages" and 'username' in kwargs:
-                self.query_one("#app-header", Static).update(f"tuitter [dm:@{kwargs['username']}] @yourname")
-            else:
-                self.query_one("#app-header", Static).update(f"tuitter [{screen_name}] @yourname")
+            # Update header based on screen (guarded: header may not be mounted yet)
+            try:
+                header = self.query_one("#app-header", Static)
+                if screen_name == "user_profile" and "username" in kwargs:
+                    header.update(f"tuitter [@{kwargs['username']}] @yourname")
+                elif screen_name == "messages" and "username" in kwargs:
+                    header.update(f"tuitter [dm:@{kwargs['username']}] @yourname")
+                else:
+                    header.update(f"tuitter [{screen_name}] @yourname")
+            except Exception:
+                # Header widget isn't present (e.g. main UI not mounted yet) — skip update
+                pass
 
             self.query_one("#app-footer", Static).update(footer_text)
             self.current_screen_name = screen_name
@@ -2985,7 +4212,7 @@ class Proj101App(App):
             self.call_after_refresh(self._focus_main_content_for_screen, screen_name)
 
             # Reset the switching flag after a brief delay
-            self.set_timer(0.1, lambda: setattr(self, '_switching', False))
+            self.set_timer(0.1, lambda: setattr(self, "_switching", False))
 
     def _focus_main_content_for_screen(self, screen_name: str) -> None:
         """Focus the main content feed/panel for the current screen"""
@@ -3008,12 +4235,18 @@ class Proj101App(App):
                 widget.focus()
 
                 # Reset cursor position to 0 for feeds with cursor navigation
-                if hasattr(widget, 'cursor_position'):
+                if hasattr(widget, "cursor_position"):
                     widget.cursor_position = 0
         except Exception:
             pass
 
     def action_quit(self) -> None:
+        # Clean up OAuth server if on auth screen
+        try:
+            auth_screen = self.query_one(AuthScreen)
+            auth_screen._cleanup_oauth_server()
+        except Exception:
+            pass
         self.exit()
 
     def action_insert_mode(self) -> None:
@@ -3153,8 +4386,9 @@ class Proj101App(App):
 
     def action_vim_bottom(self) -> None:
         """Move to the bottom (G key)"""
-        # The key will be handled by the focused widget's key_G method if it exists
-        pass
+        focused = self.focused
+        if focused and hasattr(focused, "key_G"):
+            focused.key_G()
 
     def action_vim_half_page_down(self) -> None:
         """Move half page down (Ctrl+d)"""
@@ -3201,6 +4435,7 @@ class Proj101App(App):
 
     def action_new_post(self) -> None:
         """Show the new post dialog."""
+
         def check_refresh(result):
             if result:
                 if self.current_screen_name == "timeline":
@@ -3241,10 +4476,10 @@ class Proj101App(App):
 
                 self.push_screen(
                     NewPostDialog(
-                        draft_content=draft['content'],
-                        draft_attachments=draft.get('attachments', [])
+                        draft_content=draft["content"],
+                        draft_attachments=draft.get("attachments", []),
                     ),
-                    check_refresh
+                    check_refresh,
                 )
             else:
                 self.notify("Draft not found", severity="error")
@@ -3266,7 +4501,6 @@ class Proj101App(App):
                 self.command_text = ""
                 self.command_mode = False
             elif event.key == "enter":
-
                 command = self.command_text.strip()
                 try:
                     command_bar = self.query_one("#command-bar", Static)
@@ -3281,7 +4515,13 @@ class Proj101App(App):
                 elif command.startswith("/"):
                     command = command[1:]
 
-                screen_map = {"1": "timeline", "2": "discover", "3": "notifications", "4": "messages", "5": "settings"}
+                screen_map = {
+                    "1": "timeline",
+                    "2": "discover",
+                    "3": "notifications",
+                    "4": "messages",
+                    "5": "settings",
+                }
                 if command in screen_map:
                     self.switch_screen(screen_map[command])
                 elif command in ("q", "quit"):
@@ -3314,6 +4554,7 @@ class Proj101App(App):
                                 post = getattr(post_item, "post", None)
                                 if post:
                                     api.like_post(post.id)
+                                    self.notify("Post liked!", severity="success")
                                     # Refresh timeline
                                     self.switch_screen("timeline")
                         except Exception:
@@ -3328,6 +4569,7 @@ class Proj101App(App):
                                 post = getattr(post_item, "post", None)
                                 if post:
                                     api.like_post(post.id)
+                                    self.notify("Post liked!", severity="success")
                                     # Refresh discover
                                     self.switch_screen("discover")
                         except Exception:
@@ -3340,11 +4582,15 @@ class Proj101App(App):
                             timeline_feed = self.query_one("#timeline-feed")
                             items = list(timeline_feed.query(".post-item"))
                             idx = getattr(timeline_feed, "cursor_position", 0)
-                            logging.debug(f"timeline_feed.cursor_position={idx}, items={len(items)}")
+                            logging.debug(
+                                f"timeline_feed.cursor_position={idx}, items={len(items)}"
+                            )
                             if 0 <= idx < len(items):
                                 post_item = items[idx]
                                 post = getattr(post_item, "post", None)
-                                logging.debug(f"Opening comment screen for post id={getattr(post, 'id', None)} author={getattr(post, 'author', None)}")
+                                logging.debug(
+                                    f"Opening comment screen for post id={getattr(post, 'id', None)} author={getattr(post, 'author', None)}"
+                                )
                                 if post:
                                     self.push_screen(CommentScreen(post))
                             else:
@@ -3356,11 +4602,15 @@ class Proj101App(App):
                             discover_feed = self.query_one("#discover-feed")
                             items = list(discover_feed.query(".post-item"))
                             idx = getattr(discover_feed, "cursor_position", 0)
-                            logging.debug(f"discover_feed.cursor_position={idx}, items={len(items)}")
+                            logging.debug(
+                                f"discover_feed.cursor_position={idx}, items={len(items)}"
+                            )
                             if 0 <= idx < len(items):
                                 post_item = items[idx]
                                 post = getattr(post_item, "post", None)
-                                logging.debug(f"Opening comment screen for post id={getattr(post, 'id', None)} author={getattr(post, 'author', None)}")
+                                logging.debug(
+                                    f"Opening comment screen for post id={getattr(post, 'id', None)} author={getattr(post, 'author', None)}"
+                                )
                                 if post:
                                     self.push_screen(CommentScreen(post))
                             else:
@@ -3381,10 +4631,19 @@ class Proj101App(App):
                                     api.repost(post.id)
                                     # Insert a reposted copy at the top of the timeline
                                     from copy import deepcopy
+
                                     repost_copy = deepcopy(post)
                                     repost_copy.timestamp = datetime.now()
                                     # Add to reposted_posts in TimelineFeed
-                                    timeline_feed.reposted_posts = [(repost_copy, repost_copy.timestamp)] + [p for p in getattr(timeline_feed, 'reposted_posts', [])]
+                                    timeline_feed.reposted_posts = [
+                                        (repost_copy, repost_copy.timestamp)
+                                    ] + [
+                                        p
+                                        for p in getattr(
+                                            timeline_feed, "reposted_posts", []
+                                        )
+                                    ]
+                                    self.notify("Post reposted!", severity="success")
                                     # Refresh timeline
                                     self.switch_screen("timeline")
                         except Exception:
@@ -3406,14 +4665,14 @@ class Proj101App(App):
                 elif command.startswith("o") and len(command) > 1:
                     try:
                         draft_number = int(command[1:])  # User enters 1-indexed
-                        draft_index = draft_number - 1   # Convert to 0-indexed for array
+                        draft_index = draft_number - 1  # Convert to 0-indexed for array
                         self.action_open_draft(draft_index)
                     except:
                         pass
                 elif command.startswith("x") and len(command) > 1:
                     try:
                         draft_number = int(command[1:])  # User enters 1-indexed
-                        draft_index = draft_number - 1   # Convert to 0-indexed for array
+                        draft_index = draft_number - 1  # Convert to 0-indexed for array
                         self.push_screen(DeleteDraftDialog(draft_index))
                     except:
                         pass
@@ -3427,6 +4686,13 @@ class Proj101App(App):
             # All other keys are already stopped at the top of command_mode block
             return
 
+def main():
+    logging.debug("inside __main__ guard, about to run app")
+    try:
+        Proj101App().run()
+    except Exception as e:
+        import traceback
+        logging.exception("Exception occurred while running Proj101App:")
 if __name__ == "__main__":
     pid_file = Path(".main_app_pid")
     pid_file.write_text(str(os.getpid()))
