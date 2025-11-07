@@ -18,7 +18,7 @@ from .auth import refresh_tokens
 # === lightweight data objects used by the UI ===
 from .data_models import Notification
 
-serviceKeyring = "tuiitter"
+serviceKeyring = "tuitter"
 
 load_dotenv(override=True)
 

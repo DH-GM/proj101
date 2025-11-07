@@ -32,7 +32,7 @@ import dotenv
 
 dotenv.load_dotenv()
 
-serviceKeyring = "tuiitter"
+serviceKeyring = "tuitter"
 
 # Service name for keyring storage
 

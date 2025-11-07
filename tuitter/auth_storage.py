@@ -6,7 +6,7 @@ import os
 
 _DEBUG_FLAG_FILE = Path.home() / ".tuitter_tokens_debug.log"
 
-SERVICE_NAME = "tuiitter"
+SERVICE_NAME = "tuitter"
 FALLBACK_TOKEN_FILE = Path.home() / ".tuitter_tokens.json"
 REFRESH_PLAIN_FILE = Path.home() / ".tuitter_refresh.json"
 

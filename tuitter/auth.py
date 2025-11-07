@@ -29,7 +29,7 @@ CLIENT_ID = "7109b3p9beveapsmr806freqnn"
 CLIENT_SECRET = "1t46ik23730a5fbboiimdbh8ffkicnm69c40ifbg9jou401pft02"
 REDIRECT_PORT = 5173  # Fixed redirect port as configured in Cognito
 REDIRECT_URI = f"http://localhost:{REDIRECT_PORT}/callback"
-SERVICE_NAME = "tuiitter"  # Keyring service name
+SERVICE_NAME = "tuitter"  # Keyring service name
 SCOPES = ["email", "openid", "phone"]
 FALLBACK_TOKEN_FILE = Path.home() / ".tuitter_tokens.json"
 
