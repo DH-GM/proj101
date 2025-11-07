@@ -406,9 +406,9 @@ class RealAPI(APIInterface):
                     if username:
                         self.handle = username
 
-                    # Quick validation call
+                    # Quick validation call (include handle param required by backend)
                     try:
-                        resp = self.session.get(f"{self.base_url}/me", timeout=self.timeout)
+                        resp = self.session.get(f"{self.base_url}/me", params={"handle": self.handle}, timeout=self.timeout)
                         if resp.ok:
                             return True
                         if resp.status_code == 401:
