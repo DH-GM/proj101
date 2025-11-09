@@ -4257,11 +4257,21 @@ class Proj101App(App):
             # composing UI with an expired token and prevents 401s from
             # bubbling into Textual lifecycle methods.
             restored = False
-            try:
-                restored = api.try_restore_session()
-            except Exception as e:
+            # Try a few quick attempts to restore session to avoid races with
+            # another process writing the fallback token file (small window at startup).
+            for attempt in range(3):
                 try:
-                    self.log_auth_event(f"try_restore_session error: {e}")
+                    restored = api.try_restore_session()
+                except Exception as e:
+                    try:
+                        self.log_auth_event(f"try_restore_session error: {e}")
+                    except Exception:
+                        pass
+                if restored:
+                    break
+                # small backoff between attempts
+                try:
+                    time.sleep(0.1)
                 except Exception:
                     pass
 

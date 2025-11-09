@@ -26,6 +26,18 @@ FALLBACK_TOKEN_FILE = Path.home() / ".tuitter_tokens.json"
 
 logger = logging.getLogger("tuitter.auth_storage")
 
+# Ensure auth_storage logger writes to the same debug file used elsewhere
+if not any(isinstance(h, logging.FileHandler) and getattr(h, "baseFilename", "") == str(_DEBUG_FLAG_FILE) for h in logger.handlers):
+    try:
+        fh = logging.FileHandler(str(_DEBUG_FLAG_FILE), encoding="utf-8")
+        fh.setLevel(logging.DEBUG)
+        fh.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
+        logger.addHandler(fh)
+    except Exception:
+        # never fail core logic for logging issues
+        pass
+logger.setLevel(logging.DEBUG)
+
 
 def _write_debug(msg: str) -> None:
     try:
@@ -69,8 +81,22 @@ def save_tokens_full(tokens: dict, username: Optional[str] = None) -> None:
                     json.dumps(tokens_to_save).encode("utf-8"), None, None, None, None, 0
                 )
                 b64 = base64.b64encode(protected).decode("ascii")
-                FALLBACK_TOKEN_FILE.write_text(json.dumps({"encrypted": True, "data": b64}), encoding="utf-8")
-                logger.info("auth_storage: wrote encrypted full tokens to fallback file")
+                payload = json.dumps({"encrypted": True, "data": b64})
+                # Atomic write: write to temp file then replace
+                try:
+                    import tempfile
+                    tmp = None
+                    FALLBACK_TOKEN_FILE.parent.mkdir(parents=True, exist_ok=True)
+                    with tempfile.NamedTemporaryFile("w", encoding="utf-8", delete=False, dir=str(FALLBACK_TOKEN_FILE.parent)) as fh:
+                        tmp = fh.name
+                        fh.write(payload)
+                    # Use os.replace for atomic rename across platforms
+                    import os
+                    os.replace(tmp, str(FALLBACK_TOKEN_FILE))
+                    logger.info("auth_storage: wrote encrypted full tokens to fallback file (atomic)")
+                except Exception:
+                    logger.exception("auth_storage: failed atomic write for DPAPI fallback; trying direct write")
+                    FALLBACK_TOKEN_FILE.write_text(payload, encoding="utf-8")
                 # best-effort username into keyring
                 if keyring and username:
                     try:
@@ -99,8 +125,20 @@ def save_tokens_full(tokens: dict, username: Optional[str] = None) -> None:
 
     # Last resort: plaintext fallback file (insecure)
     try:
-        FALLBACK_TOKEN_FILE.write_text(json.dumps(tokens_to_save), encoding="utf-8")
-        logger.warning("auth_storage: wrote plaintext full tokens to fallback file (insecure)")
+        FALLBACK_TOKEN_FILE.parent.mkdir(parents=True, exist_ok=True)
+        payload = json.dumps(tokens_to_save)
+        try:
+            import tempfile, os
+            with tempfile.NamedTemporaryFile("w", encoding="utf-8", delete=False, dir=str(FALLBACK_TOKEN_FILE.parent)) as fh:
+                tmp = fh.name
+                fh.write(payload)
+            os.replace(tmp, str(FALLBACK_TOKEN_FILE))
+            logger.warning("auth_storage: wrote plaintext full tokens to fallback file (insecure, atomic)")
+        except Exception:
+            # Best-effort fallback to direct write if atomic rename fails
+            FALLBACK_TOKEN_FILE.write_text(payload, encoding="utf-8")
+            logger.warning("auth_storage: wrote plaintext full tokens to fallback file (insecure)")
+
         if keyring and username:
             try:
                 keyring.set_password(SERVICE_NAME, "username", username)

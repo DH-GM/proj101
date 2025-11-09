@@ -26,6 +26,20 @@ load_dotenv(override=True)
 if not keyring.get_password(serviceKeyring, "username"):
     keyring.set_password(serviceKeyring, "username", "")
 
+# File-based debug logger (Textual swallows stdout/stderr in some modes)
+_debug_logfile = Path.home() / ".tuitter_tokens_debug.log"
+_debug_logger = logging.getLogger("tuitter.api.debug")
+if not any(isinstance(h, logging.FileHandler) and getattr(h, "baseFilename", "") == str(_debug_logfile) for h in _debug_logger.handlers):
+    try:
+        fh = logging.FileHandler(_debug_logfile, encoding="utf-8")
+        fh.setLevel(logging.DEBUG)
+        fh.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
+        _debug_logger.addHandler(fh)
+    except Exception:
+        # If file logging fails, fall back to normal logging handlers
+        logging.getLogger("tuitter.api").exception("Failed to create debug logfile %s", _debug_logfile)
+_debug_logger.setLevel(logging.DEBUG)
+
 @dataclass
 class User:
     id: int
@@ -381,34 +395,50 @@ class RealAPI(APIInterface):
         False is returned.
         """
         logger = logging.getLogger("tuitter.api")
+        _debug_logger.debug("try_restore_session: called")
         try:
             # Use auth_storage directly so we can see both full tokens and a
             # separate refresh token. This lets us verify the token is still
             # valid and attempt a refresh if necessary.
             from .auth_storage import load_tokens as _load
             found = _load()
+            _debug_logger.debug("try_restore_session: load_tokens returned %s", type(found).__name__)
 
             if not found:
+                _debug_logger.debug("try_restore_session: no stored tokens found")
                 return False
 
+            # Normalize common shapes: dict or JSON string
+            if isinstance(found, str):
+                try:
+                    found = json.loads(found)
+                    _debug_logger.debug("try_restore_session: parsed json token blob")
+                except Exception:
+                    _debug_logger.exception("try_restore_session: failed to parse token string")
+                    return False
+
             # If we have a full token blob, try to validate it with a light /me call.
-            if 'tokens' in found and isinstance(found['tokens'], dict):
+            if isinstance(found, dict) and 'tokens' in found and isinstance(found['tokens'], dict):
                 tokens = found['tokens']
                 username = found.get('username') or None
                 access = tokens.get('access_token')
                 refresh = tokens.get('refresh_token') or found.get('refresh_token')
 
+                _debug_logger.debug("try_restore_session: found tokens keys=%s username=%s", list(tokens.keys()), username)
+
                 if access:
                     try:
                         self.set_token(access)
+                        _debug_logger.debug("try_restore_session: applied access token to session headers")
                     except Exception:
-                        logger.debug("try_restore_session: set_token failed")
+                        _debug_logger.exception("try_restore_session: set_token failed")
                     if username:
                         self.handle = username
 
                     # Quick validation call (include handle param required by backend)
                     try:
                         resp = self.session.get(f"{self.base_url}/me", params={"handle": self.handle}, timeout=self.timeout)
+                        _debug_logger.debug("try_restore_session: /me validation status=%s", getattr(resp, 'status_code', None))
                         if resp.ok:
                             return True
                         if resp.status_code == 401:
@@ -416,23 +446,25 @@ class RealAPI(APIInterface):
                             if refresh:
                                 try:
                                     new_tokens = refresh_tokens(refresh)
+                                    _debug_logger.debug("try_restore_session: refresh_tokens returned type=%s", type(new_tokens).__name__)
                                     if new_tokens and isinstance(new_tokens, dict) and new_tokens.get('access_token'):
                                         try:
                                             self.set_token(new_tokens['access_token'])
                                         except Exception:
-                                            pass
+                                            _debug_logger.exception("try_restore_session: set_token failed after refresh")
                                         try:
                                             save_tokens_full(new_tokens, username)
+                                            _debug_logger.debug("try_restore_session: saved refreshed tokens")
                                         except Exception:
-                                            pass
+                                            _debug_logger.exception("try_restore_session: save_tokens_full failed (non-fatal)")
                                         return True
                                 except Exception:
-                                    logger.debug("try_restore_session: refresh failed")
+                                    _debug_logger.exception("try_restore_session: refresh failed")
                             return False
                         # Other non-auth failures - treat as restore failure
                         return False
                     except Exception:
-                        logger.debug("try_restore_session: validation request failed")
+                        _debug_logger.exception("try_restore_session: validation request failed")
                         # Fallthrough to attempt refresh if possible
                         if refresh:
                             try:
@@ -441,41 +473,45 @@ class RealAPI(APIInterface):
                                     try:
                                         self.set_token(new_tokens['access_token'])
                                     except Exception:
-                                        pass
+                                        _debug_logger.exception("try_restore_session: set_token failed after validation failure")
                                     try:
                                         save_tokens_full(new_tokens, username)
                                     except Exception:
-                                        pass
+                                        _debug_logger.exception("try_restore_session: save_tokens_full failed (non-fatal)")
                                     if username:
                                         self.handle = username
                                     return True
                             except Exception:
-                                logger.debug("try_restore_session: refresh after validation failure failed")
+                                _debug_logger.exception("try_restore_session: refresh after validation failure failed")
                         return False
 
             # If we only have a refresh token, try to refresh now
-            if 'refresh_token' in found and found.get('refresh_token'):
+            if isinstance(found, dict) and 'refresh_token' in found and found.get('refresh_token'):
                 refresh = found.get('refresh_token')
                 username = found.get('username') or None
+                _debug_logger.debug("try_restore_session: refresh-only blob found username=%s", username)
                 try:
                     new_tokens = refresh_tokens(refresh)
+                    _debug_logger.debug("try_restore_session: refresh_tokens returned type=%s", type(new_tokens).__name__)
                     if new_tokens and isinstance(new_tokens, dict) and new_tokens.get('access_token'):
                         try:
                             self.set_token(new_tokens['access_token'])
                         except Exception:
-                            pass
+                            _debug_logger.exception("try_restore_session: set_token failed after refresh-only")
                         try:
                             save_tokens_full(new_tokens, username)
                         except Exception:
-                            pass
+                            _debug_logger.exception("try_restore_session: save_tokens_full failed (non-fatal)")
                         if username:
                             self.handle = username
                         return True
                 except Exception:
-                    logger.debug("try_restore_session: refresh_tokens failed for refresh-only blob")
+                    _debug_logger.exception("try_restore_session: refresh_tokens failed for refresh-only blob")
 
+            _debug_logger.debug("try_restore_session: no usable tokens or refresh failed")
             return False
         except Exception as e:
+            _debug_logger.exception("try_restore_session failed: %s", e)
             logging.getLogger("tuitter.api").exception("try_restore_session failed: %s", e)
             return False
 
