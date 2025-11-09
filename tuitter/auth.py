@@ -8,7 +8,7 @@ import webbrowser
 import threading
 import requests
 import keyring
-from .auth_storage import save_tokens_full, save_refresh_token, load_tokens, clear_tokens
+from .auth_storage import save_tokens_full, load_tokens, clear_tokens
 import json
 import sys
 import logging
@@ -211,16 +211,9 @@ def authenticate() -> Dict[str, str]:
         username = user_info.get('username') or user_info.get('sub') or ''
         logger.debug("Retrieved user info: %s", user_info)
 
-        refresh_token = tokens.get('refresh_token')
-
         # Delegate secure storage to centralized auth_storage which will
         # choose the appropriate backend (DPAPI on Windows, keyring on
-        # other platforms). This keeps storage policy in one place.
-        try:
-            save_refresh_token(refresh_token, username)
-        except Exception:
-            logger.exception("Failed to save refresh token via auth_storage (non-fatal)")
-
+        # other platforms). Persist the full token blob (contains refresh token).
         try:
             save_tokens_full(tokens, username)
         except Exception:

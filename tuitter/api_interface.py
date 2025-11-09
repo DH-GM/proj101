@@ -174,18 +174,28 @@ class RealAPI(APIInterface):
                 logger.info("API 401 received for %s %s - attempting refresh", method, path)
                 try:
                     stored = load_tokens()
-                    refresh = stored.get('refresh_token') if stored else None
+                    refresh = None
+                    username = None
+                    if stored:
+                        username = stored.get('username')
+                        # legacy top-level refresh_token
+                        if stored.get('refresh_token'):
+                            refresh = stored.get('refresh_token')
+                        # new blob shape: tokens may contain refresh_token
+                        elif isinstance(stored.get('tokens'), dict):
+                            refresh = stored['tokens'].get('refresh_token')
+
                     if refresh:
                         new_tokens = refresh_tokens(refresh)
                         # Strict: only accept access_token for backend API authorization
                         if new_tokens and isinstance(new_tokens, dict) and new_tokens.get('access_token'):
-                            # Update in-memory token and persist refreshed tokens
+                            # Update in-memory token and persist refreshed tokens (preserve username when available)
                             try:
                                 self.set_token(new_tokens['access_token'])
                             except Exception:
                                 pass
                             try:
-                                save_tokens_full(new_tokens)
+                                save_tokens_full(new_tokens, username)
                             except Exception:
                                 logger.debug("Failed to persist refreshed tokens (non-fatal)")
 
@@ -212,7 +222,15 @@ class RealAPI(APIInterface):
                 logger.info("HTTPError 401; attempting refresh and retry after exception path for %s %s", method, path)
                 try:
                     stored = load_tokens()
-                    refresh = stored.get('refresh_token') if stored else None
+                    refresh = None
+                    username = None
+                    if stored:
+                        username = stored.get('username')
+                        if stored.get('refresh_token'):
+                            refresh = stored.get('refresh_token')
+                        elif isinstance(stored.get('tokens'), dict):
+                            refresh = stored['tokens'].get('refresh_token')
+
                     if refresh:
                         new_tokens = refresh_tokens(refresh)
                         # Strict: only accept access_token for backend API authorization
@@ -222,7 +240,7 @@ class RealAPI(APIInterface):
                             except Exception:
                                 pass
                             try:
-                                save_tokens_full(new_tokens)
+                                save_tokens_full(new_tokens, username)
                             except Exception:
                                 logger.debug("Failed to persist refreshed tokens (non-fatal)")
 
