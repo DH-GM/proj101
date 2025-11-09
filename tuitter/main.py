@@ -36,6 +36,7 @@ serviceKeyring = "tuitter"
 
 # Service name for keyring storage
 
+
 # Custom message for draft updates
 class DraftsUpdated(Message):
     """Posted when drafts are updated."""
@@ -149,7 +150,9 @@ class MainUIScreen(Screen):
 
     def compose(self) -> ComposeResult:
         username = keyring.get_password(serviceKeyring, "username") or "yourname"
-        yield Static(f"tuitter [{self.starting_view}] @{username}", id="app-header", markup=False)
+        yield Static(
+            f"tuitter [{self.starting_view}] @{username}", id="app-header", markup=False
+        )
         yield TopNav(id="top-navbar", current=self.starting_view)
 
         # Show the appropriate content based on starting_view
@@ -166,7 +169,11 @@ class MainUIScreen(Screen):
         else:
             yield TimelineScreen(id="screen-container")
 
-        yield Static("[1-5] Screens [p] Profile [d] Drafts [j/k] Navigate [:n] New Post [:q] Quit", id="app-footer", markup=False)
+        yield Static(
+            "[1-5] Screens [p] Profile [d] Drafts [j/k] Navigate [:n] New Post [:q] Quit",
+            id="app-footer",
+            markup=False,
+        )
         yield Static("", id="command-bar")
 
         # Auth Debug Log - only show if TUITTER_DEBUG environment variable is set
@@ -213,10 +220,17 @@ class AuthScreen(Screen):
         # Minimal auth screen: centered sign-in button
         with Container(id="auth-wrapper"):
             with Container(id="auth-center"):
-                yield Static("Continue in your browser", id="auth-title", classes="signin")
+                yield Static(
+                    "Continue in your browser", id="auth-title", classes="signin"
+                )
                 with Container(id="oauth-signin-container"):
                     # Make this the app's primary button so global Button.-primary styles apply
-                    yield Button("Sign In", id="oauth-signin", variant="primary", classes="signin")
+                    yield Button(
+                        "Sign In",
+                        id="oauth-signin",
+                        variant="primary",
+                        classes="signin",
+                    )
 
         # Status text should appear outside and below the cyan card so it's visually
         # separated from the dialog. Center it horizontally.
@@ -229,6 +243,7 @@ class AuthScreen(Screen):
     def on_mount(self) -> None:
         """Called when the AuthScreen is mounted."""
         import sys
+
         try:
             # Use App-level logging so it respects TUITTER_DEBUG and in-TUI RichLog
             self.app.log_auth_event("AuthScreen.on_mount CALLED")
@@ -265,7 +280,9 @@ class AuthScreen(Screen):
                 restored = False
 
             try:
-                self.app.log_auth_event(f"AuthScreen.on_mount: silent-restore restored={restored}")
+                self.app.log_auth_event(
+                    f"AuthScreen.on_mount: silent-restore restored={restored}"
+                )
             except Exception:
                 pass
 
@@ -276,7 +293,9 @@ class AuthScreen(Screen):
                     return
                 except Exception:
                     try:
-                        self.app.log_auth_event("AuthScreen.on_mount: silent restore failed during show_main_app")
+                        self.app.log_auth_event(
+                            "AuthScreen.on_mount: silent restore failed during show_main_app"
+                        )
                     except Exception:
                         pass
         except Exception:
@@ -286,6 +305,7 @@ class AuthScreen(Screen):
     def on_button_pressed(self, event: Button.Pressed) -> None:
         """Handle sign-in button press."""
         import sys
+
         try:
             self.app.log_auth_event(f"BUTTON PRESSED: {event.button.id}")
         except Exception:
@@ -359,7 +379,9 @@ class AuthScreen(Screen):
             except Exception:
                 pass
         try:
-            self.app.log_auth_event("_start_auth_flow: Method called, about to start worker thread")
+            self.app.log_auth_event(
+                "_start_auth_flow: Method called, about to start worker thread"
+            )
         except Exception:
             try:
                 self.app.log_auth_event("Failed to log start_auth_flow")
@@ -378,7 +400,9 @@ class AuthScreen(Screen):
                 except Exception:
                     # Last-resort: post a message to trigger the UI loop
                     try:
-                        self.app.call_from_thread(lambda: self.post_message(DraftsUpdated()))
+                        self.app.call_from_thread(
+                            lambda: self.post_message(DraftsUpdated())
+                        )
                     except Exception:
                         pass
 
@@ -394,6 +418,7 @@ class AuthScreen(Screen):
                     # despite the exception (keyring errors often still save to fallback)
                     try:
                         from .auth import get_stored_credentials
+
                         creds = get_stored_credentials()
                         if creds and isinstance(creds, dict):
                             result = creds
@@ -411,13 +436,15 @@ class AuthScreen(Screen):
                 # Don't wait for UI thread to process them - this is thread-safe
                 username = ""
                 try:
-                    tokens = result.get('tokens') if isinstance(result, dict) else None
-                    username = result.get('username', '') if isinstance(result, dict) else ''
+                    tokens = result.get("tokens") if isinstance(result, dict) else None
+                    username = (
+                        result.get("username", "") if isinstance(result, dict) else ""
+                    )
 
                     # Require an access_token from the OAuth exchange; do not accept id_token
-                    if tokens and isinstance(tokens, dict) and 'access_token' in tokens:
+                    if tokens and isinstance(tokens, dict) and "access_token" in tokens:
                         # Set access token immediately - this is thread-safe
-                        api.set_token(tokens['access_token'])
+                        api.set_token(tokens["access_token"])
 
                     if username:
                         # Set API handle immediately
@@ -439,7 +466,9 @@ class AuthScreen(Screen):
                     try:
                         # Update status text if widget present
                         try:
-                            self.query_one("#auth-status", Static).update("✓ Successfully signed in!")
+                            self.query_one("#auth-status", Static).update(
+                                "✓ Successfully signed in!"
+                            )
                         except Exception:
                             pass
                         # Ensure tokens are picked up and main UI mounted - pass credentials
@@ -454,17 +483,25 @@ class AuthScreen(Screen):
                 try:
                     # 1) Post AuthenticationCompleted message
                     try:
-                        self.app.call_from_thread(lambda: self.post_message(AuthenticationCompleted(username=username)))
+                        self.app.call_from_thread(
+                            lambda: self.post_message(
+                                AuthenticationCompleted(username=username)
+                            )
+                        )
                     except Exception:
                         try:
                             # Some Textual versions route messages differently; try posting on screen
-                            self.post_message(AuthenticationCompleted(username=username))
+                            self.post_message(
+                                AuthenticationCompleted(username=username)
+                            )
                         except Exception:
                             pass
 
                     # 2) Set reactive flag on App
                     try:
-                        self.app.call_from_thread(lambda: setattr(self.app, "authenticated", True))
+                        self.app.call_from_thread(
+                            lambda: setattr(self.app, "authenticated", True)
+                        )
                     except Exception:
                         try:
                             setattr(self.app, "authenticated", True)
@@ -478,7 +515,9 @@ class AuthScreen(Screen):
                         try:
                             # Schedule show_main_app on the next event loop iteration
                             # This ensures all current event processing is complete first
-                            self.app.call_later(lambda: self.app.show_main_app(credentials=result))
+                            self.app.call_later(
+                                lambda: self.app.show_main_app(credentials=result)
+                            )
                         except Exception:
                             pass
 
@@ -499,11 +538,16 @@ class AuthScreen(Screen):
             except AuthError as e:
                 # Post a message on the UI thread with failure
                 try:
-                    self.app.call_from_thread(lambda: self.post_message(AuthenticationFailed(error=str(e))))
+                    self.app.call_from_thread(
+                        lambda: self.post_message(AuthenticationFailed(error=str(e)))
+                    )
                 except Exception:
+
                     def on_auth_fail():
                         try:
-                            self.query_one("#auth-status", Static).update(f"⚠️ Auth failed: {str(e)}")
+                            self.query_one("#auth-status", Static).update(
+                                f"⚠️ Auth failed: {str(e)}"
+                            )
                         except Exception:
                             pass
                         try:
@@ -515,11 +559,16 @@ class AuthScreen(Screen):
 
             except Exception as e:
                 try:
-                    self.app.call_from_thread(lambda: self.post_message(AuthenticationFailed(error=str(e))))
+                    self.app.call_from_thread(
+                        lambda: self.post_message(AuthenticationFailed(error=str(e)))
+                    )
                 except Exception:
+
                     def on_exc():
                         try:
-                            self.query_one("#auth-status", Static).update("⚠️ An error occurred")
+                            self.query_one("#auth-status", Static).update(
+                                "⚠️ An error occurred"
+                            )
                         except Exception:
                             pass
                         try:
@@ -544,7 +593,9 @@ class AuthScreen(Screen):
         except Exception:
             pass
         try:
-            self.app.log_auth_event("_start_auth_flow: Worker thread created and started")
+            self.app.log_auth_event(
+                "_start_auth_flow: Worker thread created and started"
+            )
         except Exception:
             try:
                 self.app.log_auth_event("Failed to log thread start")
@@ -557,7 +608,9 @@ class AuthScreen(Screen):
         try:
             # Update status - the worker thread already called show_main_app with credentials
             try:
-                self.query_one("#auth-status", Static).update("✓ Successfully signed in!")
+                self.query_one("#auth-status", Static).update(
+                    "✓ Successfully signed in!"
+                )
             except Exception:
                 pass
             # NOTE: Don't call show_main_app() here - it's already being called from the worker
@@ -569,7 +622,9 @@ class AuthScreen(Screen):
         """Handle failed authentication message."""
         try:
             try:
-                self.query_one("#auth-status", Static).update(f"⚠️ Auth failed: {message.error}")
+                self.query_one("#auth-status", Static).update(
+                    f"⚠️ Auth failed: {message.error}"
+                )
             except Exception:
                 pass
             try:
@@ -965,6 +1020,7 @@ class ProfileDisplay(Static):
             username = user.username
         yield Static(f"@{username} • {user.display_name}", classes="profile-username")
 
+
 class ConversationItem(Static):
     def __init__(self, conversation, **kwargs):
         super().__init__(**kwargs)
@@ -976,8 +1032,16 @@ class ConversationItem(Static):
         unread_text = "🔵 unread" if self.conversation.unread else ""
         # Get the other participant's username (first one that's not the current user)
         current_user = keyring.get_password(serviceKeyring, "username") or "yourname"
-        other_participants = [h for h in self.conversation.participant_handles if h != current_user]
-        username = other_participants[0] if other_participants else self.conversation.participant_handles[0] if self.conversation.participant_handles else "unknown"
+        other_participants = [
+            h for h in self.conversation.participant_handles if h != current_user
+        ]
+        username = (
+            other_participants[0]
+            if other_participants
+            else self.conversation.participant_handles[0]
+            if self.conversation.participant_handles
+            else "unknown"
+        )
         return f"{unread_marker}@{username}\n  {self.conversation.last_message_preview}\n  {time_ago} {unread_text}"
 
 
@@ -1142,9 +1206,15 @@ class UserProfileCard(Static):
             with info_container:
                 yield Static(self.display_name, classes="user-card-name")
                 # Resolve current local username once (fall back to the profile's username)
-                current_user = keyring.get_password(serviceKeyring, "username") or self.username
+                current_user = (
+                    keyring.get_password(serviceKeyring, "username") or self.username
+                )
                 # Make username clickable as a button-like widget
-                yield Button(f"@{current_user}", id=f"username-{current_user}", classes="user-card-username-btn")
+                yield Button(
+                    f"@{current_user}",
+                    id=f"username-{current_user}",
+                    classes="user-card-username-btn",
+                )
 
                 yield Static(self.bio, classes="user-card-bio")
 
@@ -1162,9 +1232,21 @@ class UserProfileCard(Static):
                 with buttons_container:
                     # Reuse the resolved current_user to avoid repeated keyring calls
                     buttons_user = current_user
-                    yield Button("Follow", id=f"follow-{buttons_user}", classes="user-card-button")
-                    yield Button("Message", id=f"message-{buttons_user}", classes="user-card-button")
-                    yield Button("View Profile", id=f"view-{buttons_user}", classes="user-card-button")
+                    yield Button(
+                        "Follow",
+                        id=f"follow-{buttons_user}",
+                        classes="user-card-button",
+                    )
+                    yield Button(
+                        "Message",
+                        id=f"message-{buttons_user}",
+                        classes="user-card-button",
+                    )
+                    yield Button(
+                        "View Profile",
+                        id=f"view-{buttons_user}",
+                        classes="user-card-button",
+                    )
                 yield buttons_container
             yield info_container
 
@@ -1595,18 +1677,32 @@ class NewPostDialog(ModalScreen):
 
                 try:
                     # Convert image to ASCII art
-                    img = Image.open(file_path).convert('L')  # Convert to grayscale
+                    img = Image.open(file_path).convert("L")  # Convert to grayscale
 
                     # Calculate new dimensions
                     width = 60  # Desired width in characters
                     aspect_ratio = img.height / img.width
-                    height = int(width * aspect_ratio * 0.5)  # Multiply by 0.5 since characters are taller than wide
+                    height = int(
+                        width * aspect_ratio * 0.5
+                    )  # Multiply by 0.5 since characters are taller than wide
                     img = img.resize((width, height))
 
                     # Convert pixels to ASCII
                     pixels = img.load()
                     # Use reversed density ramp so dark areas map to sparse chars
-                    ascii_chars = ['.', ',', ':', ';', '+', '*', '?', '%', 'S', '#', '@']
+                    ascii_chars = [
+                        ".",
+                        ",",
+                        ":",
+                        ";",
+                        "+",
+                        "*",
+                        "?",
+                        "%",
+                        "S",
+                        "#",
+                        "@",
+                    ]
                     ascii_lines = []
                     for y in range(height):
                         line = ""
@@ -1615,7 +1711,7 @@ class NewPostDialog(ModalScreen):
                             char_index = (pixel_value * (len(ascii_chars) - 1)) // 255
                             line += ascii_chars[char_index]
                         ascii_lines.append(line)
-                    ascii_art = '\n'.join(ascii_lines)
+                    ascii_art = "\n".join(ascii_lines)
 
                     # Store ASCII version instead of original photo
                     self._attachments.append(("ascii_photo", ascii_art))
@@ -1650,23 +1746,14 @@ class NewPostDialog(ModalScreen):
         attachments = []
         for t, p in self._attachments:
             if t == "ascii_photo":
-                attachments.append({
-                    "type": "ascii_photo",
-                    "content": p
-                })
+                attachments.append({"type": "ascii_photo", "content": p})
             else:
-                attachments.append({
-                    "type": t,
-                    "path": p
-                })
+                attachments.append({"type": t, "path": p})
 
         # Call API to create post with attachments properly set
         try:
             # Create post with attachment data included in content
-            post_data = {
-                "content": content,
-                "attachments": attachments
-            }
+            post_data = {"content": content, "attachments": attachments}
             new_post = api.create_post(json.dumps(post_data))
 
             self._show_status("✓ Post published successfully!")
@@ -1679,7 +1766,9 @@ class NewPostDialog(ModalScreen):
             # If first attempt fails, try direct API call with attachments
             try:
                 new_post = api.create_post(content)  # Simple post without attachments
-                setattr(new_post, 'attachments', attachments)  # Add attachments after creation
+                setattr(
+                    new_post, "attachments", attachments
+                )  # Add attachments after creation
                 self._show_status("✓ Post published successfully!")
                 try:
                     self.app.notify("📤 Post published!", severity="success")
@@ -1758,6 +1847,7 @@ class NewPostDialog(ModalScreen):
 
 class DeleteDraftDialog(ModalScreen):
     """Modal dialog for confirming draft deletion."""
+
     cursor_position = reactive(0)  # 0 = Yes, 1 = Cancel
 
     def __init__(self, draft_index: int):
@@ -2647,9 +2737,19 @@ class ConversationsList(VerticalScroll):
             if 0 <= self.cursor_position < len(conversations):
                 conv = conversations[self.cursor_position]
                 # Get the other participant's username
-                current_user = keyring.get_password(serviceKeyring, "username") or "yourname"
-                other_participants = [h for h in conv.participant_handles if h != current_user]
-                username = other_participants[0] if other_participants else conv.participant_handles[0] if conv.participant_handles else "unknown"
+                current_user = (
+                    keyring.get_password(serviceKeyring, "username") or "yourname"
+                )
+                other_participants = [
+                    h for h in conv.participant_handles if h != current_user
+                ]
+                username = (
+                    other_participants[0]
+                    if other_participants
+                    else conv.participant_handles[0]
+                    if conv.participant_handles
+                    else "unknown"
+                )
 
                 # Update the chat view with this conversation
                 chat_view = self.app.query_one("#chat", ChatView)
@@ -2703,7 +2803,9 @@ class ChatView(VerticalScroll):
                 messages = api.get_conversation_messages(self.conversation_id)
             except Exception as e:
                 messages = []
-        yield Static(f"@{self.conversation_username} | conversation", classes="panel-header")
+        yield Static(
+            f"@{self.conversation_username} | conversation", classes="panel-header"
+        )
         for msg in messages:
             yield ChatMessage(msg, classes="chat-message")
         yield Static("-- INSERT --", classes="mode-indicator")
@@ -2793,7 +2895,9 @@ class MessagesScreen(Container):
             # Get or create conversation with this user
             try:
                 conv = api.get_or_create_dm(self.dm_username)
-                yield ChatView(conversation_id=conv.id, username=self.dm_username, id="chat")
+                yield ChatView(
+                    conversation_id=conv.id, username=self.dm_username, id="chat"
+                )
             except Exception:
                 # Fallback if API call fails
                 yield ChatView(conversation_id=0, username=self.dm_username, id="chat")
@@ -2859,7 +2963,9 @@ class SettingsPanel(VerticalScroll):
         )
 
         # Display current ascii avatar if available
-        avatar_text = getattr(settings, "ascii_pic", "") if settings else "(not available)"
+        avatar_text = (
+            getattr(settings, "ascii_pic", "") if settings else "(not available)"
+        )
         yield Static(avatar_text, id="profile-picture-display", classes="ascii-avatar")
 
         # Account information
@@ -2869,7 +2975,10 @@ class SettingsPanel(VerticalScroll):
             username = getattr(settings, "username", "yourname")
         yield Static(f"  Username:\n  @{username}", classes="settings-field")
         if settings:
-            yield Static(f"\n  Display Name:\n  {settings.display_name}", classes="settings-field")
+            yield Static(
+                f"\n  Display Name:\n  {settings.display_name}",
+                classes="settings-field",
+            )
             yield Static(f"\n  Bio:\n  {settings.bio}", classes="settings-field")
         else:
             yield Static("\n  Display Name:\n  (loading)", classes="settings-field")
@@ -2877,23 +2986,77 @@ class SettingsPanel(VerticalScroll):
 
         # OAuth connections - use Buttons so they are navigable
         yield Static("\n→ OAuth Connections", classes="settings-section-header")
-        github_status = "Connected" if settings and getattr(settings, "github_connected", False) else "[:c] Connect"
-        gitlab_status = "Connected" if settings and getattr(settings, "gitlab_connected", False) else "[:c] Connect"
-        google_status = "Connected" if settings and getattr(settings, "google_connected", False) else "[:c] Connect"
-        discord_status = "Connected" if settings and getattr(settings, "discord_connected", False) else "[:c] Connect"
-        yield Button(f"  [🟢] GitHub                                              {github_status}", id="oauth-github", classes="oauth-item")
-        yield Button(f"  [⚪] GitLab                                              {gitlab_status}", id="oauth-gitlab", classes="oauth-item")
-        yield Button(f"  [⚪] Google                                              {google_status}", id="oauth-google", classes="oauth-item")
-        yield Button(f"  [⚪] Discord                                             {discord_status}", id="oauth-discord", classes="oauth-item")
+        github_status = (
+            "Connected"
+            if settings and getattr(settings, "github_connected", False)
+            else "[:c] Connect"
+        )
+        gitlab_status = (
+            "Connected"
+            if settings and getattr(settings, "gitlab_connected", False)
+            else "[:c] Connect"
+        )
+        google_status = (
+            "Connected"
+            if settings and getattr(settings, "google_connected", False)
+            else "[:c] Connect"
+        )
+        discord_status = (
+            "Connected"
+            if settings and getattr(settings, "discord_connected", False)
+            else "[:c] Connect"
+        )
+        yield Button(
+            f"  [🟢] GitHub                                              {github_status}",
+            id="oauth-github",
+            classes="oauth-item",
+        )
+        yield Button(
+            f"  [⚪] GitLab                                              {gitlab_status}",
+            id="oauth-gitlab",
+            classes="oauth-item",
+        )
+        yield Button(
+            f"  [⚪] Google                                              {google_status}",
+            id="oauth-google",
+            classes="oauth-item",
+        )
+        yield Button(
+            f"  [⚪] Discord                                             {discord_status}",
+            id="oauth-discord",
+            classes="oauth-item",
+        )
 
         # Preferences
         yield Static("\n→ Preferences", classes="settings-section-header")
-        email_check = "✅" if settings and getattr(settings, "email_notifications", False) else "⬜"
-        online_check = "✅" if settings and getattr(settings, "show_online_status", False) else "⬜"
-        private_check = "✅" if settings and getattr(settings, "private_account", False) else "⬜"
-        yield Button(f"  {email_check} Email notifications", id="pref-email_notifications", classes="checkbox-item")
-        yield Button(f"  {online_check} Show online status", id="pref-show_online_status", classes="checkbox-item")
-        yield Button(f"  {private_check} Private account", id="pref-private_account", classes="checkbox-item")
+        email_check = (
+            "✅"
+            if settings and getattr(settings, "email_notifications", False)
+            else "⬜"
+        )
+        online_check = (
+            "✅"
+            if settings and getattr(settings, "show_online_status", False)
+            else "⬜"
+        )
+        private_check = (
+            "✅" if settings and getattr(settings, "private_account", False) else "⬜"
+        )
+        yield Button(
+            f"  {email_check} Email notifications",
+            id="pref-email_notifications",
+            classes="checkbox-item",
+        )
+        yield Button(
+            f"  {online_check} Show online status",
+            id="pref-show_online_status",
+            classes="checkbox-item",
+        )
+        yield Button(
+            f"  {private_check} Private account",
+            id="pref-private_account",
+            classes="checkbox-item",
+        )
 
         # Session / Sign out
         yield Static("\n→ Session", classes="settings-section-header")
@@ -2955,25 +3118,33 @@ class SettingsPanel(VerticalScroll):
                 pass
 
             container = self.query_one("#settings-content", Container)
-            container.mount(Static(
-                f"⚠️ Failed to load settings\n\nError: {str(e)}\n\nAPI Handle: {api.handle}",
-                classes="panel-header"
-            ))
-            container.mount(Static(
-                "\nThis is likely a server-side issue. The username was sent correctly.",
-                classes="settings-field"
-            ))
+            container.mount(
+                Static(
+                    f"⚠️ Failed to load settings\n\nError: {str(e)}\n\nAPI Handle: {api.handle}",
+                    classes="panel-header",
+                )
+            )
+            container.mount(
+                Static(
+                    "\nThis is likely a server-side issue. The username was sent correctly.",
+                    classes="settings-field",
+                )
+            )
             container.mount(Static("\n→ Session", classes="settings-section-header"))
             container.mount(Button("Sign Out", id="settings-signout", classes="danger"))
 
             try:
-                self.app.log_auth_event(f"SettingsPanel: ERROR loading settings - {str(e)}")
+                self.app.log_auth_event(
+                    f"SettingsPanel: ERROR loading settings - {str(e)}"
+                )
             except Exception:
                 pass
 
             # Show notification
             try:
-                self.app.notify(f"Failed to load settings: {str(e)}", severity="error", timeout=5)
+                self.app.notify(
+                    f"Failed to load settings: {str(e)}", severity="error", timeout=5
+                )
             except Exception:
                 pass
 
@@ -3207,8 +3378,9 @@ class SettingsPanel(VerticalScroll):
                 # Clear API auth header and reset handle
                 try:
                     from .api_interface import api
+
                     try:
-                        api.session.headers.pop('Authorization', None)
+                        api.session.headers.pop("Authorization", None)
                     except Exception:
                         pass
                     try:
@@ -3219,13 +3391,16 @@ class SettingsPanel(VerticalScroll):
                     pass
 
                 try:
-                    self.app.notify("Signing out and exiting application...", severity="info")
+                    self.app.notify(
+                        "Signing out and exiting application...", severity="info"
+                    )
                 except Exception:
                     pass
 
                 # small sleep to allow any UI notifications to flush
                 try:
                     import time as _time
+
                     _time.sleep(0.05)
                 except Exception:
                     pass
@@ -3235,6 +3410,7 @@ class SettingsPanel(VerticalScroll):
                 except Exception:
                     try:
                         import sys as _sys
+
                         _sys.exit(0)
                     except Exception:
                         pass
@@ -3245,7 +3421,9 @@ class SettingsPanel(VerticalScroll):
         elif btn_id and btn_id.startswith("oauth-"):
             provider = btn_id.split("-", 1)[1]
             try:
-                self.app.notify(f"OAuth action: {provider} (not implemented)", severity="info")
+                self.app.notify(
+                    f"OAuth action: {provider} (not implemented)", severity="info"
+                )
             except Exception:
                 pass
 
@@ -3730,8 +3908,6 @@ class DraftsPanel(VerticalScroll):
             return
         self.selected_action = "delete"
 
-
-
     def on_key(self, event) -> None:
         """Handle g+g key combination for top, enter for actions, and escape for command mode"""
         if event.key == "escape":
@@ -3764,7 +3940,7 @@ class DraftsPanel(VerticalScroll):
             if hasattr(self, "last_g_time") and now - self.last_g_time < 0.5:
                 self.cursor_position = 0
                 event.prevent_default()
-                delattr(self, 'last_g_time')
+                delattr(self, "last_g_time")
             else:
                 self.last_g_time = now
 
@@ -3870,10 +4046,7 @@ class Proj101App(App):
 
     # Use MODES for seamless screen transitions
     # Modes automatically handle initial screen display
-    MODES = {
-        "auth": AuthScreen,
-        "main": MainUIScreen
-    }
+    MODES = {"auth": AuthScreen, "main": MainUIScreen}
 
     BINDINGS = [
         # Basic app controls
@@ -3938,23 +4111,28 @@ class Proj101App(App):
                 if credentials and isinstance(credentials, dict):
                     # Use credentials passed directly from authenticate() - faster and avoids file I/O
                     # NOTE: Token and handle should already be set in the worker thread before this is called
-                    username = credentials.get('username') or "yourname"
-                    tokens = credentials.get('tokens')
+                    username = credentials.get("username") or "yourname"
+                    tokens = credentials.get("tokens")
                     # Require access_token explicitly (do not accept id_token)
-                    if tokens and isinstance(tokens, dict) and 'access_token' in tokens:
+                    if tokens and isinstance(tokens, dict) and "access_token" in tokens:
                         # Double-check token is set (should already be set in worker thread)
                         if not api.token:
-                            api.set_token(tokens['access_token'])
+                            api.set_token(tokens["access_token"])
                 else:
                     # Fallback: read from disk
                     from .auth import get_stored_credentials
+
                     creds = get_stored_credentials()
                     if creds and isinstance(creds, dict):
-                        username = creds.get('username') or "yourname"
-                        tokens = creds.get('tokens')
+                        username = creds.get("username") or "yourname"
+                        tokens = creds.get("tokens")
                         # Require access_token from stored tokens
-                        if tokens and isinstance(tokens, dict) and 'access_token' in tokens:
-                            api.set_token(tokens['access_token'])
+                        if (
+                            tokens
+                            and isinstance(tokens, dict)
+                            and "access_token" in tokens
+                        ):
+                            api.set_token(tokens["access_token"])
 
                 # Ensure API handle is set (should already be set in worker thread for first login)
                 if not api.handle or api.handle == "yourname":
@@ -4006,7 +4184,7 @@ class Proj101App(App):
             self.log_auth_event("show_auth_screen: Switching to auth mode")
 
             # Clear API state
-            api.session.headers.pop('Authorization', None)
+            api.session.headers.pop("Authorization", None)
             api.handle = "yourname"
 
             # Switch to the auth mode
@@ -4050,7 +4228,11 @@ class Proj101App(App):
         """
         try:
             # Resolve username once (prefer the message payload, then keyring, then a default)
-            username = (message.username if getattr(message, 'username', None) else None) or keyring.get_password(serviceKeyring, "username") or "yourname"
+            username = (
+                (message.username if getattr(message, "username", None) else None)
+                or keyring.get_password(serviceKeyring, "username")
+                or "yourname"
+            )
             # If header exists, update it
             try:
                 hdr = self.query_one("#app-header", Static)
@@ -4060,9 +4242,11 @@ class Proj101App(App):
             # NOTE: Don't call show_main_app() here - the worker thread already did it with credentials
         except Exception:
             pass
+
     def on_mount(self) -> None:
         """App startup - decide which mode to show based on stored credentials."""
         import sys
+
         try:
             self.log_auth_event("App.on_mount CALLED")
         except Exception:
@@ -4083,12 +4267,16 @@ class Proj101App(App):
 
             if restored:
                 try:
-                    self.log_auth_event("Session successfully restored; switching to main mode")
+                    self.log_auth_event(
+                        "Session successfully restored; switching to main mode"
+                    )
                 except Exception:
                     pass
                 # Ensure handle is set (may be persisted in keyring by auth flow)
                 try:
-                    api.handle = keyring.get_password(serviceKeyring, "username") or api.handle
+                    api.handle = (
+                        keyring.get_password(serviceKeyring, "username") or api.handle
+                    )
                 except Exception:
                     pass
 
@@ -4686,13 +4874,17 @@ class Proj101App(App):
             # All other keys are already stopped at the top of command_mode block
             return
 
+
 def main():
     logging.debug("inside __main__ guard, about to run app")
     try:
         Proj101App().run()
     except Exception as e:
         import traceback
+
         logging.exception("Exception occurred while running Proj101App:")
+
+
 if __name__ == "__main__":
     pid_file = Path(".main_app_pid")
     pid_file.write_text(str(os.getpid()))

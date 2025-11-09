@@ -169,43 +169,23 @@ class RealAPI(APIInterface):
             else:
                 resp = self.session.post(url, params=params, json=json_payload, timeout=self.timeout)
 
-            # If unauthorized, try refresh once
+            # If unauthorized, try centralized restore once
             if resp.status_code == 401 and retry:
-                logger.info("API 401 received for %s %s - attempting refresh", method, path)
+                logger.info("API 401 received for %s %s - attempting try_restore_session()", method, path)
                 try:
-                    stored = load_tokens()
-                    refresh = None
-                    username = None
-                    if stored:
-                        username = stored.get('username')
-                        # legacy top-level refresh_token
-                        if stored.get('refresh_token'):
-                            refresh = stored.get('refresh_token')
-                        # new blob shape: tokens may contain refresh_token
-                        elif isinstance(stored.get('tokens'), dict):
-                            refresh = stored['tokens'].get('refresh_token')
-
-                    if refresh:
-                        new_tokens = refresh_tokens(refresh)
-                        # Strict: only accept access_token for backend API authorization
-                        if new_tokens and isinstance(new_tokens, dict) and new_tokens.get('access_token'):
-                            # Update in-memory token and persist refreshed tokens (preserve username when available)
-                            try:
-                                self.set_token(new_tokens['access_token'])
-                            except Exception:
-                                pass
-                            try:
-                                save_tokens_full(new_tokens, username)
-                            except Exception:
-                                logger.debug("Failed to persist refreshed tokens (non-fatal)")
-
-                            # Retry the request once
-                            if method.upper() == "GET":
-                                resp = self.session.get(url, params=params, timeout=self.timeout)
-                            else:
-                                resp = self.session.post(url, params=params, json=json_payload, timeout=self.timeout)
+                    restored = False
+                    if hasattr(self, "try_restore_session"):
+                        restored = self.try_restore_session()
+                    if restored:
+                        logger.info("try_restore_session succeeded; retrying original request")
+                        if method.upper() == "GET":
+                            resp = self.session.get(url, params=params, timeout=self.timeout)
+                        else:
+                            resp = self.session.post(url, params=params, json=json_payload, timeout=self.timeout)
+                    else:
+                        logger.debug("try_restore_session returned False; not retrying")
                 except Exception:
-                    logger.debug("Refresh attempt failed (non-fatal) while handling initial 401")
+                    logger.exception("Refresh attempt failed (non-fatal) while handling initial 401")
 
             resp.raise_for_status()
             return resp.json()
@@ -217,39 +197,18 @@ class RealAPI(APIInterface):
             except Exception:
                 pass
 
-            # If we got a 401 and haven't retried yet, try to refresh
+            # If we got a 401 and haven't retried yet, try centralized restore and retry once
             if status == 401 and retry:
-                logger.info("HTTPError 401; attempting refresh and retry after exception path for %s %s", method, path)
+                logger.info("HTTPError 401; attempting try_restore_session() and retry for %s %s", method, path)
                 try:
-                    stored = load_tokens()
-                    refresh = None
-                    username = None
-                    if stored:
-                        username = stored.get('username')
-                        if stored.get('refresh_token'):
-                            refresh = stored.get('refresh_token')
-                        elif isinstance(stored.get('tokens'), dict):
-                            refresh = stored['tokens'].get('refresh_token')
-
-                    if refresh:
-                        new_tokens = refresh_tokens(refresh)
-                        # Strict: only accept access_token for backend API authorization
-                        if new_tokens and isinstance(new_tokens, dict) and new_tokens.get('access_token'):
-                            try:
-                                self.set_token(new_tokens['access_token'])
-                            except Exception:
-                                pass
-                            try:
-                                save_tokens_full(new_tokens, username)
-                            except Exception:
-                                logger.debug("Failed to persist refreshed tokens (non-fatal)")
-
-                            # Retry the original call once
-                            return self._request(method, path, params=params, json_payload=json_payload, retry=False)
+                    if hasattr(self, "try_restore_session") and self.try_restore_session():
+                        logger.info("try_restore_session succeeded from exception path; retrying (no further retry allowed)")
+                        return self._request(method, path, params=params, json_payload=json_payload, retry=False)
+                    logger.debug("try_restore_session did not restore session from exception path")
                 except Exception:
-                    logger.debug("Refresh attempt failed (non-fatal) while handling 401")
+                    logger.exception("Refresh attempt failed (non-fatal) while handling 401 (exception path)")
 
-                        # Re-raise original HTTP error if refresh didn't succeed or cannot be performed
+            # Re-raise original HTTP error if refresh didn't succeed or cannot be performed
             raise
 
     def get_current_user(self) -> User:

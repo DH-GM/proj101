@@ -123,7 +123,7 @@ class AuthServer:
                     self.end_headers()
                     self.wfile.write(b"""
                         <html><body style='font-family: system-ui; padding: 40px; text-align: center;'>
-                            <h1 style='color: #4CAF50;'>✅ Login Successful!</h1>
+                            <h1 style='color: #4CAF50;'>Login Successful!</h1>
                             <p>You can close this window and return to the application.</p>
                         </body></html>
                     """)
