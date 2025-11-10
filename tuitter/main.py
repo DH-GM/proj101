@@ -26,22 +26,23 @@ from rich.text import Text
 import logging
 import time
 import webbrowser
-import keyring
 import os
 import dotenv
+import keyring
 
 dotenv.load_dotenv()
 
 serviceKeyring = "tuitter"
 
-# Service name for keyring storage
-
+# ───────── OAuth Constants ─────────
+COGNITO_AUTH_URL = "https://us-east-2xzzmuowl9.auth.us-east-2.amazoncognito.com/login/continue?client_id=7109b3p9beveapsmr806freqnn&redirect_uri=http%3A%2F%2Flocalhost%3A5173%2Fcallback&response_type=code&scope=email+openid+phone"
 
 # Custom message for draft updates
 class DraftsUpdated(Message):
     """Posted when drafts are updated."""
 
     pass
+
 
 
 class AuthenticationCompleted(Message):
@@ -60,7 +61,7 @@ class AuthenticationFailed(Message):
         self.error = error
 
 
-# Drafts file path
+# File paths
 DRAFTS_FILE = Path.home() / ".proj101_drafts.json"
 
 
@@ -141,13 +142,9 @@ def format_time_ago(dt: datetime) -> str:
 
 
 # ───────── Main UI Screen (not auth) ─────────
-class MainUIScreen(Screen):
-    """The main authenticated app screen with timeline/discover/etc."""
-
-    def __init__(self, starting_view: str = "timeline"):
-        super().__init__()
-        self.starting_view = starting_view
-
+class MainAppScreen(Screen):
+    """Main authenticated app screen with timeline/discover/etc."""
+    
     def compose(self) -> ComposeResult:
         username = keyring.get_password(serviceKeyring, "username") or "yourname"
         yield Static(

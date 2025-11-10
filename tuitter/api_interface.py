@@ -519,9 +519,43 @@ class RealAPI(APIInterface):
             _debug_logger.exception("try_restore_session failed: %s", e)
             logging.getLogger("tuitter.api").exception("try_restore_session failed: %s", e)
             return False
+# Helper to load auth from file
+def _load_auth_file():
+    """Load auth data from file."""
+    from pathlib import Path
+    auth_file = Path.home() / ".proj101_auth.json"
+    if not auth_file.exists():
+        return {}
+    try:
+        with open(auth_file, 'r') as f:
+            return json.load(f)
+    except:
+        return {}
 
 # Global api selection: prefer real backend when BACKEND_URL is set
-_BACKEND_URL = "https://voqbyhcnqe.execute-api.us-east-2.amazonaws.com"
+_backend_url = "https://voqbyhcnqe.execute-api.us-east-2.amazonaws.com"
 
-if _BACKEND_URL:
-    api = RealAPI(base_url=_BACKEND_URL)
+if _backend_url:
+    # Get username from auth file if available, otherwise use default
+    _auth = _load_auth_file()
+    _username = _auth.get("username", "yourname")
+    api = RealAPI(base_url=_backend_url, handle=_username)
+
+    try:
+        oauth_tokens = _auth.get("oauth_tokens")
+        if oauth_tokens and isinstance(oauth_tokens, dict):
+            if "access_token" in oauth_tokens:
+                api.set_token(oauth_tokens["access_token"])
+    except Exception as e:
+        print(f"Warning: Could not load auth token: {e}")
+else:
+    # Fallback to prevent NameError on import
+    # Will fail at runtime with clear error message
+    class _StubAPI:
+        def __getattr__(self, name):
+            raise RuntimeError(
+                f"BACKEND_URL environment variable is not set. "
+                f"Please set BACKEND_URL to your FastAPI backend URL (e.g., 'http://localhost:8000'). "
+                f"Attempted to call: {name}"
+            )
+    api = _StubAPI()
