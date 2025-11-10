@@ -895,11 +895,16 @@ TimelineFeed:focus, DiscoverFeed:focus, NotificationsFeed:focus, ChatView:focus,
     border-title-style: bold;
 }
 
-/* Conversation cursor */
+/* Conversation cursor (border for j/k navigation) */
 .conversation-item.vim-cursor {
+    border: heavy $primary;
+    text-style: bold;
+}
+
+/* Conversation selected (blue background when opened) */
+.conversation-item.selected {
     background: $primary-dark;
     color: $text-primary;
-    border: heavy $primary;
     text-style: bold;
 }
 
@@ -941,24 +946,26 @@ TimelineFeed:focus, DiscoverFeed:focus, NotificationsFeed:focus, ChatView:focus,
 .chat-message {
     width: 100%;
     height: auto;
-    margin: 0 0 1 0;
-    padding: 1 2;
+    margin: 0 0 10 0;
+    padding: 1 1;
 }
 
 .chat-message.received {
-    background: $bg-dark;
-    color: $text-secondary;
+    background: #2a3a2a;
+    color: $text-primary;
     align: left top;
-    margin-right: 15;
-    border: solid $chat-received;
+    margin-right: 20;
+    border: solid $dracula-green;
+    text-align: left;
 }
 
 .chat-message.sent {
-    background: $bg-dark;
-    color: $text-secondary;
+    background: #3a2a4a;
+    color: $text-primary;
     align: right top;
-    margin-left: 15;
-    border: solid $danger-bg-hover;
+    margin-left: 20;
+    border: solid $dracula-purple;
+    text-align: right;
 }
 
 .mode-indicator {
