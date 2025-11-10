@@ -19,10 +19,13 @@ from typing import List, Dict
 from rich.text import Text
 import logging
 import webbrowser
+import keyring
 import os
 import dotenv
 
 dotenv.load_dotenv()
+
+serviceKeyring = "tuiitter"
 
 # ───────── OAuth Constants ─────────
 COGNITO_AUTH_URL = "https://us-east-2xzzmuowl9.auth.us-east-2.amazoncognito.com/login/continue?client_id=7109b3p9beveapsmr806freqnn&redirect_uri=http%3A%2F%2Flocalhost%3A5173%2Fcallback&response_type=code&scope=email+openid+phone"
@@ -192,14 +195,10 @@ class AuthScreen(Container):
 
     def _check_tokens_file(self) -> None:
         try:
-            p = get_auth_value("oauth_tokens")
+            p = keyring.get_password(serviceKeyring, "oauth_tokens.json")
             print(f"p: {p}")
             if p:
-                # Handle both dict and string formats
-                if isinstance(p, str):
-                    data = json.loads(p or "{}")
-                else:
-                    data = p
+                data = json.loads(p or "{}")
                 # Check for valid tokens
                 if isinstance(data, dict) and ("access_token" in data or "id_token" in data):
                     if self._file_timer:
@@ -551,7 +550,7 @@ class ProfileDisplay(Static):
 
     def compose(self) -> ComposeResult:
         user = api.get_current_user()
-        username = get_auth_value("username")
+        username = keyring.get_password(serviceKeyring, "username")
         if username == None:
             username = user.username
         yield Static(f"@{username}", classes="profile-username")
@@ -566,7 +565,7 @@ class ConversationItem(Static):
         time_ago = format_time_ago(self.conversation.last_message_at)
         # unread_text = "🔵 unread" if self.conversation.unread else ""
         # Get the other participant's username (first one that's not the current user)
-        current_user = get_auth_value("username") or "yourname"
+        current_user = keyring.get_password(serviceKeyring, "username") or "yourname"
         other_participants = [h for h in self.conversation.participant_handles if h != current_user]
         username = other_participants[0] if other_participants else self.conversation.participant_handles[0] if self.conversation.participant_handles else "unknown"
         return f"@{username}\n  {self.conversation.last_message_preview}\n  {time_ago}"
@@ -575,7 +574,7 @@ class ConversationItem(Static):
         """Handle click to open the conversation"""
         try:
             # Get the other participant's username
-            current_user = get_auth_value("username") or "yourname"
+            current_user = keyring.get_password(serviceKeyring, "username") or "yourname"
             other_participants = [h for h in self.conversation.participant_handles if h != current_user]
             username = other_participants[0] if other_participants else self.conversation.participant_handles[0] if self.conversation.participant_handles else "unknown"
 
@@ -623,7 +622,7 @@ class ChatMessage(Static):
         self.message = message
         # Get current user from keyring if not provided
         if current_user is None:
-            current_user = get_auth_value("username") or "yourname"
+            current_user = keyring.get_password(serviceKeyring, "username") or "yourname"
 
         # Compare with both sender and sender_handle, case-insensitive
         current_user_lower = current_user.lower()
@@ -748,7 +747,7 @@ class UserProfileCard(Static):
             info_container = Container(classes="user-card-info")
             with info_container:
                 yield Static(self.display_name, classes="user-card-name")
-                username = get_auth_value("username")
+                username = keyring.get_password(serviceKeyring, "username")
                 if username == None:
                     username = self.username
                 # Make username clickable as a button-like widget
@@ -764,7 +763,7 @@ class UserProfileCard(Static):
 
                 buttons_container = Container(classes="user-card-buttons")
                 with buttons_container:
-                    username = get_auth_value("username")
+                    username = keyring.get_password(serviceKeyring, "username")
                     if username == None:
                         username = self.username
                     yield Button("Follow", id=f"follow-{username}", classes="user-card-button")
@@ -2078,7 +2077,7 @@ class ConversationsList(VerticalScroll):
                 self.selected_position = self.cursor_position
 
                 # Get the other participant's username
-                current_user = get_auth_value("username") or "yourname"
+                current_user = keyring.get_password(serviceKeyring, "username") or "yourname"
                 other_participants = [h for h in conv.participant_handles if h != current_user]
                 username = other_participants[0] if other_participants else conv.participant_handles[0] if conv.participant_handles else "unknown"
 
@@ -2383,7 +2382,7 @@ class SettingsPanel(VerticalScroll):
         # yield Static(f"{settings.ascii_pic}", id="profile-picture-display", classes="ascii-avatar")
 
         # yield Static("\n→ Account Information", classes="settings-section-header")
-        # username = get_auth_value("username")
+        # username = keyring.get_password(serviceKeyring, "username")
         # if username == None:
         #     username = settings.username
         # yield Static(f"  Username:\n  @{username}", classes="settings-field")
@@ -2531,8 +2530,8 @@ class SettingsPanel(VerticalScroll):
         elif event.button.id == "settings-signout":
             # Delete tokens and exit
             try:
-                clear_auth()
-                clear_auth()
+                keyring.delete_password(serviceKeyring, "oauth_tokens.json")
+                keyring.delete_password(serviceKeyring, "username")
             except Exception:
                 pass
             try:
@@ -2559,7 +2558,7 @@ class ProfilePanel(VerticalScroll):
 
         with profile_container:
             yield Static(settings.ascii_pic, classes="profile-avatar-large")
-            username = get_auth_value("username")
+            username = keyring.get_password(serviceKeyring, "username")
             if username == None:
                 username = settings.username
             yield Static(f"@{username}", classes="profile-username-display")
@@ -3084,25 +3083,21 @@ class Proj101App(App):
 
     def compose(self) -> ComposeResult:
         # Check if tokens exist - if not, show auth screen
-        token_data = get_auth_value("oauth_tokens")
+        token_data = keyring.get_password(serviceKeyring, "oauth_tokens.json")
         if not token_data or token_data == "":
             yield AuthScreen()
         else:
             # Load token and set it in API
             token_valid = False
             try:
-                # Handle both dict and string formats
-                if isinstance(token_data, str):
-                    tokens = json.loads(token_data)
-                else:
-                    tokens = token_data
+                tokens = json.loads(token_data)
                 if "access_token" in tokens:
                     api.set_token(tokens["access_token"])
             except Exception:
                 pass
 
             # Get current user from backend (auto-creates if doesn't exist)
-            username = get_auth_value("username") or "yourname"
+            username = keyring.get_password(serviceKeyring, "username") or "yourname"
             try:
                 if hasattr(api, 'set_handle'):
                     api.set_handle(username)
@@ -3111,7 +3106,7 @@ class Proj101App(App):
                 # Update username from backend if different
                 if user.username != username:
                     username = user.username
-                    set_auth_value("username", username)
+                    keyring.set_password(serviceKeyring, "username", username)
                     if hasattr(api, 'set_handle'):
                         api.set_handle(username)
                 token_valid = True
@@ -3120,7 +3115,7 @@ class Proj101App(App):
                 if "401" in str(e) or "Unauthorized" in str(e):
                     # Token expired - clear it and show auth screen
                     try:
-                        clear_auth()
+                        keyring.delete_password(serviceKeyring, "oauth_tokens.json")
                     except:
                         pass
                     yield AuthScreen()
@@ -3160,20 +3155,16 @@ class Proj101App(App):
         
         # Load token and set it in API
         try:
-            token_data = get_auth_value("oauth_tokens")
+            token_data = keyring.get_password(serviceKeyring, "oauth_tokens.json")
             if token_data:
-                # Handle both dict and string formats
-                if isinstance(token_data, str):
-                    tokens = json.loads(token_data)
-                else:
-                    tokens = token_data
+                tokens = json.loads(token_data)
                 if "access_token" in tokens:
                     api.set_token(tokens["access_token"])
         except Exception:
             pass
         
         # Get current user from backend (auto-creates if doesn't exist)
-        username = get_auth_value("username") or "yourname"
+        username = keyring.get_password(serviceKeyring, "username") or "yourname"
         try:
             if hasattr(api, 'set_handle'):
                 api.set_handle(username)
@@ -3182,7 +3173,7 @@ class Proj101App(App):
             # Update username from backend if different
             if user.username != username:
                 username = user.username
-                set_auth_value("username", username)
+                keyring.set_password(serviceKeyring, "username", username)
                 if hasattr(api, 'set_handle'):
                     api.set_handle(username)
         except Exception:
