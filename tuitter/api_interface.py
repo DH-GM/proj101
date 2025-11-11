@@ -29,16 +29,21 @@ if not keyring.get_password(serviceKeyring, "username"):
 # File-based debug logger (Textual swallows stdout/stderr in some modes)
 _debug_logfile = Path.home() / ".tuitter_tokens_debug.log"
 _debug_logger = logging.getLogger("tuitter.api.debug")
-if not any(isinstance(h, logging.FileHandler) and getattr(h, "baseFilename", "") == str(_debug_logfile) for h in _debug_logger.handlers):
-    try:
-        fh = logging.FileHandler(_debug_logfile, encoding="utf-8")
-        fh.setLevel(logging.DEBUG)
-        fh.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
-        _debug_logger.addHandler(fh)
-    except Exception:
-        # If file logging fails, fall back to normal logging handlers
-        logging.getLogger("tuitter.api").exception("Failed to create debug logfile %s", _debug_logfile)
-_debug_logger.setLevel(logging.DEBUG)
+# Only enable the file-backed debug logger when TUITTER_DEBUG is explicitly set.
+if os.getenv("TUITTER_DEBUG"):
+    if not any(isinstance(h, logging.FileHandler) and getattr(h, "baseFilename", "") == str(_debug_logfile) for h in _debug_logger.handlers):
+        try:
+            fh = logging.FileHandler(_debug_logfile, encoding="utf-8")
+            fh.setLevel(logging.DEBUG)
+            fh.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
+            _debug_logger.addHandler(fh)
+        except Exception:
+            # If file logging fails, fall back to normal logging handlers
+            logging.getLogger("tuitter.api").exception("Failed to create debug logfile %s", _debug_logfile)
+    _debug_logger.setLevel(logging.DEBUG)
+else:
+    # Ensure debug logger does not emit when TUITTER_DEBUG is not set
+    _debug_logger.setLevel(logging.WARNING)
 
 @dataclass
 class User:

@@ -17,6 +17,7 @@ from __future__ import annotations
 import json
 import platform
 from pathlib import Path
+import os
 import logging
 from typing import Optional
 
@@ -26,21 +27,28 @@ FALLBACK_TOKEN_FILE = Path.home() / ".tuitter_tokens.json"
 
 logger = logging.getLogger("tuitter.auth_storage")
 
-# Ensure auth_storage logger writes to the same debug file used elsewhere
-if not any(isinstance(h, logging.FileHandler) and getattr(h, "baseFilename", "") == str(_DEBUG_FLAG_FILE) for h in logger.handlers):
-    try:
-        fh = logging.FileHandler(str(_DEBUG_FLAG_FILE), encoding="utf-8")
-        fh.setLevel(logging.DEBUG)
-        fh.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
-        logger.addHandler(fh)
-    except Exception:
-        # never fail core logic for logging issues
-        pass
-logger.setLevel(logging.DEBUG)
+# Ensure auth_storage logger writes to the same debug file used elsewhere,
+# but only when TUITTER_DEBUG is enabled.
+if os.getenv("TUITTER_DEBUG"):
+    if not any(isinstance(h, logging.FileHandler) and getattr(h, "baseFilename", "") == str(_DEBUG_FLAG_FILE) for h in logger.handlers):
+        try:
+            fh = logging.FileHandler(str(_DEBUG_FLAG_FILE), encoding="utf-8")
+            fh.setLevel(logging.DEBUG)
+            fh.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
+            logger.addHandler(fh)
+        except Exception:
+            # never fail core logic for logging issues
+            pass
+    logger.setLevel(logging.DEBUG)
+else:
+    logger.setLevel(logging.WARNING)
 
 
 def _write_debug(msg: str) -> None:
     try:
+        # Only write debug traces to the on-disk debug file when debugging is enabled.
+        if not os.getenv("TUITTER_DEBUG"):
+            return
         _DEBUG_FLAG_FILE.parent.mkdir(parents=True, exist_ok=True)
         with _DEBUG_FLAG_FILE.open("a", encoding="utf-8") as _dbg:
             _dbg.write(msg + "\n")
