@@ -126,10 +126,13 @@ class APIInterface:
     def update_user_settings(self, settings: UserSettings) -> bool: ...
     def create_post(self, content: str) -> bool: ...
     def like_post(self, post_id: int) -> bool: ...
+    def unlike_post(self, post_id: int) -> bool: ...
     def repost(self, post_id: int) -> bool: ...
+    def unrepost(self, post_id: int) -> bool: ...
     # comments
     def get_comments(self, post_id: int) -> List[Dict[str, Any]]: ...
     def add_comment(self, post_id: int, text: str) -> Dict[str, Any]: ...
+
 
 
 class RealAPI(APIInterface):
@@ -303,9 +306,34 @@ class RealAPI(APIInterface):
         self._post(f"/posts/{post_id}/like")
         return True
 
+    def unlike_post(self, post_id: int) -> bool:
+        # Backend must support unliking via DELETE or a dedicated endpoint; use a symmetric endpoint here
+        try:
+            self._post(f"/posts/{post_id}/unlike")
+            return True
+        except Exception:
+            # Try a fallback: call the like endpoint with a param 'undo'
+            try:
+                self._post(f"/posts/{post_id}/like", params={"undo": "1"})
+                return True
+            except Exception:
+                raise
+
     def repost(self, post_id: int) -> bool:
         self._post(f"/posts/{post_id}/repost")
         return True
+
+    def unrepost(self, post_id: int) -> bool:
+        try:
+            self._post(f"/posts/{post_id}/unrepost")
+            return True
+        except Exception:
+            try:
+                self._post(f"/posts/{post_id}/repost", params={"undo": "1"})
+                return True
+            except Exception:
+                raise
+
 
     def get_comments(self, post_id: int) -> List[Dict[str, Any]]:
         data = self._get(f"/posts/{post_id}/comments")
