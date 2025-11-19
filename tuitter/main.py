@@ -1147,9 +1147,9 @@ class ChatMessage(Static):
         self.message = message
         is_sent = (message.sender or "").lower() == (current_user or "").lower()
         # Add sent/received class plus a 'me' class for messages from the current user
+        # Add sent/received class; avoid adding a separate 'me' class
+        # as 'sent' is sufficient and avoids duplicate styling rules.
         self.add_class("sent" if is_sent else "received")
-        if is_sent:
-            self.add_class("me")
         # Layout and alignment are handled via TCSS classes in `main.tcss`.
         # Keep widget class markers but avoid programmatic style mutation
         # so styling is centralized in the stylesheet.

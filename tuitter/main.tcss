@@ -80,15 +80,16 @@ $notif-unread: #5A5C7A;
 $notif-unread-hover: $dracula-comment;
 
 /* Chat Message Colors */
-/* Chat Message Colors (Dracula-themed) */
-/* Sent messages (current user) use a darker green with a bright green border */
-$chat-sent: #1E6D3A; /* dark dracula-green variant */
-$chat-sent-border: $dracula-green;
-/* Received/other messages use a teal/cyan-lean darker background */
-$chat-received: #264F52; /* dark cyan/teal */
-$chat-received-border: $dracula-cyan;
-$chat-new: #3C6A3C;
-$chat-new-border: $dracula-green;
+/* Chat Message Colors (Dracula-themed, tuned for aesthetics) */
+/* Sent messages (current user): deep, muted green/teal */
+$chat-sent: #18583a; /* deep muted green */
+$chat-sent-border: $border-green;
+/* Received/other messages: muted indigo/purple to contrast sent */
+$chat-received: #2b3150; /* muted indigo/slate */
+$chat-received-border: $dracula-purple;
+/* New message emphasis - gentle highlight */
+$chat-new: #2f5d3b;
+$chat-new-border: $border-green;
 $chat-new-sent: $dracula-purple;
 
 /* Reusable color variables for non-top-level literals */
@@ -1060,12 +1061,27 @@ TimelineFeed:focus, DiscoverFeed:focus, NotificationsFeed:focus, ChatView:focus,
     border: solid $chat-sent-border;
 }
 
-/* Hover and focus states for messages */
-.chat-message:hover,
+/* Focus state for messages (keyboard focus only). Hover intentionally removed
+   so mouse hover does not visually alter message bubbles. Keep vim-cursor
+   and focus styling distinct and accessible. */
 .chat-message:focus {
-    background: $bg-lighter;
+    background: $bg-focused;
     border: solid $border-hover;
     color: $text-primary;
+}
+
+/* Ensure sent-message hover/focus uses the same visuals as other messages */
+.chat-message.sent:focus {
+    background: $bg-focused;
+    border: solid $border-hover;
+    color: $text-primary;
+}
+
+/* Ensure sent-message vim-cursor matches chat-message.vim-cursor visuals */
+.chat-message.sent.vim-cursor {
+    background: $bg-focused;
+    color: $text-primary;
+    border: solid $border-hover;
 }
 
 /* New/unread message emphasis */
@@ -1096,6 +1112,26 @@ TimelineFeed:focus, DiscoverFeed:focus, NotificationsFeed:focus, ChatView:focus,
 .chat-message.sender-4 {
     background: $sender-bg-4; /* green-lean */
     border: solid $sender-border-4;
+}
+
+/* Ensure current user's messages (sent) always use the sent palette. This
+   override is placed after the per-sender rules so sender-* does not
+   accidentally override the user's own bubble. We do not use a separate
+   `.me` class — `sent` is sufficient.
+*/
+.chat-message.sent {
+    background: $chat-sent;
+    border: solid $chat-sent-border;
+    color: $text-primary;
+}
+
+/* Ensure received messages also win over per-sender rules: place this
+   after the sender-* rules so per-sender backgrounds don't override
+   the intended received palette. */
+.chat-message.received {
+    background: $chat-received;
+    border: solid $chat-received-border;
+    color: $text-primary;
 }
 
 /* Selected/keyboard focus state for messages (vim-mode selection) */
