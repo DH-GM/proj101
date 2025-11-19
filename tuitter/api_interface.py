@@ -188,9 +188,14 @@ class RealAPI(APIInterface):
             else:
                 resp = self.session.post(url, params=params, json=json_payload, timeout=self.timeout)
 
-            # If unauthorized, try centralized restore once
-            if resp.status_code == 401 and retry:
-                logger.info("API 401 received for %s %s - attempting try_restore_session()", method, path)
+            # If we received an auth-related response (400/401/403), try centralized restore once
+            if resp.status_code in (400, 401, 403) and retry:
+                logger.info(
+                    "API auth-failure %s received for %s %s - attempting try_restore_session()",
+                    resp.status_code,
+                    method,
+                    path,
+                )
                 try:
                     restored = False
                     if hasattr(self, "try_restore_session"):
@@ -204,7 +209,7 @@ class RealAPI(APIInterface):
                     else:
                         logger.debug("try_restore_session returned False; not retrying")
                 except Exception:
-                    logger.exception("Refresh attempt failed (non-fatal) while handling initial 401")
+                    logger.exception("Refresh attempt failed (non-fatal) while handling initial auth failure")
 
             resp.raise_for_status()
             return resp.json()
@@ -216,16 +221,21 @@ class RealAPI(APIInterface):
             except Exception:
                 pass
 
-            # If we got a 401 and haven't retried yet, try centralized restore and retry once
-            if status == 401 and retry:
-                logger.info("HTTPError 401; attempting try_restore_session() and retry for %s %s", method, path)
+            # If we got an auth-related HTTP error (400/401/403) and haven't retried yet, try centralized restore and retry once
+            if status in (400, 401, 403) and retry:
+                logger.info(
+                    "HTTPError %s; attempting try_restore_session() and retry for %s %s",
+                    status,
+                    method,
+                    path,
+                )
                 try:
                     if hasattr(self, "try_restore_session") and self.try_restore_session():
                         logger.info("try_restore_session succeeded from exception path; retrying (no further retry allowed)")
                         return self._request(method, path, params=params, json_payload=json_payload, retry=False)
                     logger.debug("try_restore_session did not restore session from exception path")
                 except Exception:
-                    logger.exception("Refresh attempt failed (non-fatal) while handling 401 (exception path)")
+                    logger.exception("Refresh attempt failed (non-fatal) while handling auth error (exception path)")
 
             # Re-raise original HTTP error if refresh didn't succeed or cannot be performed
             raise
