@@ -3127,6 +3127,7 @@ class ChatView(VerticalScroll):
     conversation_id = reactive(0)  # Changed to int to match backend
     conversation_username = reactive("")
     cursor_position = reactive(0)
+    input_active = reactive(False)
 
     def __init__(self, conversation_id: int = 0, username: str = "", **kwargs):
         super().__init__(**kwargs)
@@ -3255,19 +3256,57 @@ class ChatView(VerticalScroll):
 
     def watch_cursor_position(self, old_position: int, new_position: int) -> None:
         """Update the cursor when position changes"""
+        # Treat the input as the final navigable item (index == len(messages))
+        messages = list(self.query(".chat-message"))
+
         # Remove cursor from old position
-        messages = self.query(".chat-message")
-        if old_position < len(messages):
-            old_msg = messages[old_position]
-            if "vim-cursor" in old_msg.classes:
-                old_msg.remove_class("vim-cursor")
+        try:
+            if old_position < len(messages):
+                old_msg = messages[old_position]
+                if "vim-cursor" in old_msg.classes:
+                    old_msg.remove_class("vim-cursor")
+            elif old_position == len(messages):
+                # old position was the input - remove visual indicator
+                try:
+                    inp = self.query_one("#message-input", Input)
+                    inp.remove_class("vim-cursor")
+                    # Only blur if input is not actively in insert mode
+                    if inp.has_focus and not self.input_active:
+                        try:
+                            inp.blur()
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
+        except Exception:
+            pass
 
         # Add cursor to new position
-        if new_position < len(messages):
-            new_msg = messages[new_position]
-            new_msg.add_class("vim-cursor")
-
-            self.scroll_to_widget(new_msg)
+        try:
+            if new_position < len(messages):
+                new_msg = messages[new_position]
+                new_msg.add_class("vim-cursor")
+                # Scroll message into view
+                self.scroll_to_widget(new_msg)
+            elif new_position == len(messages):
+                # Select the input (visual indicator) but do NOT enter insert mode.
+                try:
+                    inp = self.query_one("#message-input", Input)
+                    inp.add_class("vim-cursor")
+                    # Ensure ChatView retains focus so vim keys are handled here
+                    try:
+                        self.focus()
+                    except Exception:
+                        pass
+                    # Ensure input area is visible at the bottom
+                    try:
+                        self.scroll_end(animate=False)
+                    except Exception:
+                        pass
+                except Exception:
+                    pass
+        except Exception:
+            pass
 
     def focus_last_message(self) -> None:
         """Focus and select the last message in the chat after messages have mounted."""
@@ -3303,16 +3342,55 @@ class ChatView(VerticalScroll):
         """Vim-style down navigation"""
         if self.app.command_mode:
             return
-        messages = self.query(".chat-message")
-        if self.cursor_position < len(messages) - 1:
+        messages = list(self.query(".chat-message"))
+        # allow moving into the input (index == len(messages))
+        if self.cursor_position < len(messages):
             self.cursor_position += 1
 
     def key_k(self) -> None:
         """Vim-style up navigation"""
         if self.app.command_mode:
             return
+        # Move up through messages and from the input back into messages
         if self.cursor_position > 0:
+            # If currently on the input and input_active, exit insert mode first
+            if self.cursor_position == len(list(self.query(".chat-message"))) and self.input_active:
+                try:
+                    inp = self.query_one("#message-input", Input)
+                    try:
+                        inp.blur()
+                    except Exception:
+                        pass
+                    self.input_active = False
+                except Exception:
+                    pass
             self.cursor_position -= 1
+
+    def key_i(self) -> None:
+        """Enter insert mode on the input when cursor is over it."""
+        if self.app.command_mode:
+            return
+        messages = list(self.query(".chat-message"))
+        if self.cursor_position == len(messages):
+            try:
+                inp = self.query_one("#message-input", Input)
+                inp.focus()
+                self.input_active = True
+            except Exception:
+                pass
+
+    def key_enter(self) -> None:
+        """If cursor is over input, start input (same as 'i')."""
+        if self.app.command_mode:
+            return
+        messages = list(self.query(".chat-message"))
+        if self.cursor_position == len(messages):
+            try:
+                inp = self.query_one("#message-input", Input)
+                inp.focus()
+                self.input_active = True
+            except Exception:
+                pass
 
     def key_g(self) -> None:
         """Vim-style go to top"""
