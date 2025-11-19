@@ -41,7 +41,7 @@ class Message:
     sender: str
     sender_handle: str  # Denormalized from user table per PostgreSQL schema
     content: str
-    created_at: datetime
+    timestamp: datetime
     is_read: bool = False
 
 

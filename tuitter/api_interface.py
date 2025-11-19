@@ -76,9 +76,9 @@ class Post:
 class Message:
     id: int
     sender: str
-    sender_handle: str 
+    sender_handle: str  # Denormalized from user table per PostgreSQL schema
     content: str
-    created_at: datetime
+    timestamp: datetime
     is_read: bool = False
 
 
@@ -244,7 +244,7 @@ class RealAPI(APIInterface):
 
     def get_conversations(self) -> List[Conversation]:
         data = self._get("/conversations")
-        return [self._convert_conversation(c) for c in data]
+        return [Conversation(**c) for c in data]
 
     def get_conversation_messages(self, conversation_id: int) -> List[Message]:
         data = self._get(f"/conversations/{conversation_id}/messages")
@@ -267,7 +267,7 @@ class RealAPI(APIInterface):
                 "user_b_handle": other_user_handle
             }
         )
-        return self._convert_conversation(data)
+        return Conversation(**data)
 
     def get_notifications(self, unread_only: bool = False) -> List[Notification]:
         # Backend uses 'unread' parameter, not 'unread_only'
@@ -375,38 +375,18 @@ class RealAPI(APIInterface):
             attachments=p.get("attachments", [])  # Add attachments to the post object
         )
         return out
-    
-    def _convert_conversation(self, c: Dict[str, Any]) -> Conversation:
-        """Convert backend conversation response to Conversation dataclass"""
-        # Backend uses 'created_at' but we need 'last_message_at'
-        last_message_at_value = c.get("last_message_at") or c.get("created_at")
-
-        return Conversation(
-            id=int(c.get("id", 0)),
-            participant_handles=c.get("participant_handles") or [],
-            last_message_preview=c.get("last_message_preview") or "",
-            last_message_at=last_message_at_value
-            if isinstance(last_message_at_value, datetime)
-            else datetime.fromisoformat(last_message_at_value)
-            if last_message_at_value
-            else datetime.now(),
-            unread=bool(c.get("unread") or False),
-        )
 
     def _convert_message(self, m: Dict[str, Any]) -> Message:
         """Convert backend message response to Message dataclass"""
-        # Backend uses 'created_at' but our dataclass uses 'timestamp'
-        timestamp_value = m.get("timestamp") or m.get("created_at")
-
         return Message(
             id=int(m.get("id", 0)),
             sender=m.get("sender") or m.get("sender_handle") or self.handle,
             sender_handle=m.get("sender_handle") or m.get("sender") or self.handle,
             content=m.get("content") or "",
-            created_at=timestamp_value
-            if isinstance(timestamp_value, datetime)
-            else datetime.fromisoformat(timestamp_value)
-            if timestamp_value
+            timestamp=m.get("timestamp")
+            if isinstance(m.get("timestamp"), datetime)
+            else datetime.fromisoformat(m.get("timestamp"))
+            if m.get("timestamp")
             else datetime.now(),
             is_read=bool(m.get("is_read") or False),
         )
@@ -539,43 +519,9 @@ class RealAPI(APIInterface):
             _debug_logger.exception("try_restore_session failed: %s", e)
             logging.getLogger("tuitter.api").exception("try_restore_session failed: %s", e)
             return False
-# Helper to load auth from file
-def _load_auth_file():
-    """Load auth data from file."""
-    from pathlib import Path
-    auth_file = Path.home() / ".proj101_auth.json"
-    if not auth_file.exists():
-        return {}
-    try:
-        with open(auth_file, 'r') as f:
-            return json.load(f)
-    except:
-        return {}
 
 # Global api selection: prefer real backend when BACKEND_URL is set
-_backend_url = "https://voqbyhcnqe.execute-api.us-east-2.amazonaws.com"
+_BACKEND_URL = "https://voqbyhcnqe.execute-api.us-east-2.amazonaws.com"
 
-if _backend_url:
-    # Get username from auth file if available, otherwise use default
-    _auth = _load_auth_file()
-    _username = _auth.get("username", "yourname")
-    api = RealAPI(base_url=_backend_url, handle=_username)
-
-    try:
-        oauth_tokens = _auth.get("oauth_tokens")
-        if oauth_tokens and isinstance(oauth_tokens, dict):
-            if "access_token" in oauth_tokens:
-                api.set_token(oauth_tokens["access_token"])
-    except Exception as e:
-        print(f"Warning: Could not load auth token: {e}")
-else:
-    # Fallback to prevent NameError on import
-    # Will fail at runtime with clear error message
-    class _StubAPI:
-        def __getattr__(self, name):
-            raise RuntimeError(
-                f"BACKEND_URL environment variable is not set. "
-                f"Please set BACKEND_URL to your FastAPI backend URL (e.g., 'http://localhost:8000'). "
-                f"Attempted to call: {name}"
-            )
-    api = _StubAPI()
+if _BACKEND_URL:
+    api = RealAPI(base_url=_BACKEND_URL)

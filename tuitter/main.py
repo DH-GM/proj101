@@ -26,23 +26,22 @@ from rich.text import Text
 import logging
 import time
 import webbrowser
+import keyring
 import os
 import dotenv
-import keyring
 
 dotenv.load_dotenv()
 
 serviceKeyring = "tuitter"
 
-# ───────── OAuth Constants ─────────
-COGNITO_AUTH_URL = "https://us-east-2xzzmuowl9.auth.us-east-2.amazoncognito.com/login/continue?client_id=7109b3p9beveapsmr806freqnn&redirect_uri=http%3A%2F%2Flocalhost%3A5173%2Fcallback&response_type=code&scope=email+openid+phone"
+# Service name for keyring storage
+
 
 # Custom message for draft updates
 class DraftsUpdated(Message):
     """Posted when drafts are updated."""
 
     pass
-
 
 
 class AuthenticationCompleted(Message):
@@ -61,47 +60,8 @@ class AuthenticationFailed(Message):
         self.error = error
 
 
-# File paths
+# Drafts file path
 DRAFTS_FILE = Path.home() / ".proj101_drafts.json"
-AUTH_FILE = Path.home() / ".proj101_auth.json"
-
-# ───────── Auth File Helpers ─────────
-def load_auth() -> Dict:
-    """Load authentication data from file."""
-    if not AUTH_FILE.exists():
-        return {}
-    try:
-        with open(AUTH_FILE, 'r') as f:
-            return json.load(f)
-    except Exception:
-        return {}
-
-def save_auth(data: Dict) -> None:
-    """Save authentication data to file."""
-    try:
-        with open(AUTH_FILE, 'w') as f:
-            json.dump(data, f, indent=2)
-    except Exception as e:
-        print(f"Error saving auth: {e}")
-
-def get_auth_value(key: str, default=None):
-    """Get a value from auth file."""
-    auth = load_auth()
-    return auth.get(key, default)
-
-def set_auth_value(key: str, value) -> None:
-    """Set a value in auth file."""
-    auth = load_auth()
-    auth[key] = value
-    save_auth(auth)
-
-def clear_auth() -> None:
-    """Clear all auth data."""
-    try:
-        if AUTH_FILE.exists():
-            AUTH_FILE.unlink()
-    except Exception:
-        pass
 
 
 def load_drafts() -> List[Dict]:
@@ -181,27 +141,80 @@ def format_time_ago(dt: datetime) -> str:
 
 
 # ───────── Main UI Screen (not auth) ─────────
-class MainAppScreen(Screen):
-    """Main authenticated app screen with timeline/discover/etc."""
-    
+class MainUIScreen(Screen):
+    """The main authenticated app screen with timeline/discover/etc."""
+
+    def __init__(self, starting_view: str = "timeline"):
+        super().__init__()
+        self.starting_view = starting_view
+
     def compose(self) -> ComposeResult:
-        # Get username
-        username = get_auth_value("username") or "yourname"
-        
-        yield Static(f"tuitter [timeline] @{username}", id="app-header", markup=False)
-        yield TopNav(id="top-navbar", current="timeline")
-        yield TimelineScreen(id="screen-container")
-        yield Static("[1-5] Screens [p] Profile [d] Drafts [j/k] Navigate [:n] New Post [:q] Quit", id="app-footer", markup=False)
+        username = keyring.get_password(serviceKeyring, "username") or "yourname"
+        yield Static(
+            f"tuitter [{self.starting_view}] @{username}", id="app-header", markup=False
+        )
+        yield TopNav(id="top-navbar", current=self.starting_view)
+
+        # Show the appropriate content based on starting_view
+        if self.starting_view == "timeline":
+            yield TimelineScreen(id="screen-container")
+        elif self.starting_view == "discover":
+            yield DiscoverScreen(id="screen-container")
+        elif self.starting_view == "notifications":
+            yield NotificationsScreen(id="screen-container")
+        elif self.starting_view == "messages":
+            yield MessagesScreen(id="screen-container")
+        elif self.starting_view == "settings":
+            yield SettingsScreen(id="screen-container")
+        else:
+            yield TimelineScreen(id="screen-container")
+
+        yield Static(
+            "[1-5] Screens [p] Profile [d] Drafts [j/k] Navigate [:n] New Post [:q] Quit",
+            id="app-footer",
+            markup=False,
+        )
         yield Static("", id="command-bar")
-    
+
+        # Auth Debug Log - only show if TUITTER_DEBUG environment variable is set
+        if os.getenv("TUITTER_DEBUG"):
+            auth_log = RichLog(id="auth-log", highlight=True, markup=True)
+            auth_log.styles.height = "10"
+            auth_log.styles.border = ("solid", "yellow")
+            auth_log.border_title = "Auth Debug Log"
+            yield auth_log
+
     def on_mount(self) -> None:
-        """Focus the timeline feed when main app screen is mounted."""
-        self.app.call_after_refresh(self.app._focus_initial_content)
+        """When the MainUIScreen is mounted by the mode switch, ensure the
+        initial content (timeline) receives focus. This covers the case where
+        the App.switch_mode('main') path triggers the mode mount and previous
+        scheduling in App.show_main_app was too early.
+        """
+        try:
+            # Schedule focusing after the screen's layout settles
+            try:
+                # Ask the App to focus initial content after refresh
+                self.app.call_after_refresh(self.app._focus_initial_content)
+            except Exception:
+                pass
+
+            # Conservative fallback: small delayed timer to cover slow mounts
+            try:
+                self.app.set_timer(0.05, self.app._focus_initial_content)
+            except Exception:
+                pass
+        except Exception:
+            pass
 
 
 # ───────── Auth Screen ─────────
 class AuthScreen(Screen):
-    """Authentication screen."""
+    """Authentication screen using Textual Screen for auth flow.
+
+    Making this a Screen lets the App push/pop it using native Textual
+    navigation which avoids layout races when switching between auth and
+    main UI.
+    """
 
     def compose(self) -> ComposeResult:
         # Minimal auth screen: centered sign-in button
@@ -229,8 +242,65 @@ class AuthScreen(Screen):
 
     def on_mount(self) -> None:
         """Called when the AuthScreen is mounted."""
-        # Focus the auth screen so keyboard events work
-        self.focus()
+        import sys
+
+        try:
+            # Use App-level logging so it respects TUITTER_DEBUG and in-TUI RichLog
+            self.app.log_auth_event("AuthScreen.on_mount CALLED")
+        except Exception:
+            pass
+        try:
+            button = self.query_one("#oauth-signin", Button)
+            try:
+                self.app.log_auth_event(f"Found button: {button.id}")
+            except Exception:
+                pass
+        except Exception as e:
+            try:
+                self.app.log_auth_event(f"Failed to find button: {e}")
+            except Exception:
+                pass
+
+        try:
+            self.app.log_auth_event("AuthScreen.on_mount: Screen mounted")
+        except Exception:
+            pass
+
+        # Attempt a silent restore here so if tokens are present (written by
+        # another session) we immediately switch to the main UI without
+        # requiring the user to quit/reopen. This mirrors App.on_mount but
+        # runs when the AuthScreen becomes active.
+        try:
+            # Prefer the API's proactive restore which validates the token and
+            # attempts refresh if needed. This avoids switching to the main UI
+            # with an expired token which would crash during compose.
+            try:
+                restored = api.try_restore_session()
+            except Exception:
+                restored = False
+
+            try:
+                self.app.log_auth_event(
+                    f"AuthScreen.on_mount: silent-restore restored={restored}"
+                )
+            except Exception:
+                pass
+
+            if restored:
+                try:
+                    # Let the App mount the main UI; tokens are already set on api
+                    self.app.show_main_app()
+                    return
+                except Exception:
+                    try:
+                        self.app.log_auth_event(
+                            "AuthScreen.on_mount: silent restore failed during show_main_app"
+                        )
+                    except Exception:
+                        pass
+        except Exception:
+            # Don't let silent-restore errors prevent the auth screen from working
+            pass
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         """Handle sign-in button press."""
@@ -945,7 +1015,7 @@ class ProfileDisplay(Static):
 
     def compose(self) -> ComposeResult:
         user = api.get_current_user()
-        username = get_auth_value("username")
+        username = keyring.get_password(serviceKeyring, "username")
         if username == None:
             username = user.username
         yield Static(f"@{username} • {user.display_name}", classes="profile-username")
@@ -957,88 +1027,33 @@ class ConversationItem(Static):
         self.conversation = conversation
 
     def render(self) -> str:
-        # unread_marker = "🔵 " if self.conversation.unread else "  "
+        unread_marker = "🔵 " if self.conversation.unread else "  "
         time_ago = format_time_ago(self.conversation.last_message_at)
-        # unread_text = "🔵 unread" if self.conversation.unread else ""
+        unread_text = "🔵 unread" if self.conversation.unread else ""
         # Get the other participant's username (first one that's not the current user)
-        current_user = get_auth_value("username") or keyring.get_password(serviceKeyring, "username") or "yourname"
-        other_participants = [h for h in self.conversation.participant_handles if h != current_user]
-        username = other_participants[0] if other_participants else self.conversation.participant_handles[0] if self.conversation.participant_handles else "unknown"
-        return f"@{username}\n  {self.conversation.last_message_preview}\n  {time_ago}"
-
-    def on_click(self) -> None:
-        """Handle click to open the conversation"""
-        try:
-            # Get the other participant's username
-            current_user = get_auth_value("username") or keyring.get_password(serviceKeyring, "username") or "yourname"
-            other_participants = [h for h in self.conversation.participant_handles if h != current_user]
-            username = other_participants[0] if other_participants else self.conversation.participant_handles[0] if self.conversation.participant_handles else "unknown"
-
-            # Find the ConversationsList parent
-            conv_list = self.parent
-            if isinstance(conv_list, ConversationsList):
-                # Find which index this conversation is
-                items = list(conv_list.query(".conversation-item"))
-                try:
-                    index = items.index(self)
-                    conv_list.selected_position = index
-                    conv_list.cursor_position = index
-                except ValueError:
-                    pass
-
-            # Get MessagesScreen parent container
-            messages_screen = self.parent
-            while messages_screen is not None:
-                if isinstance(messages_screen, MessagesScreen):
-                    break
-                messages_screen = messages_screen.parent
-
-            if isinstance(messages_screen, MessagesScreen):
-                messages_screen._open_chat_view(self.conversation.id, username)
-
-                # Focus the chat view
-                try:
-                    chat_views = list(messages_screen.query("ChatView"))
-                    if chat_views:
-                        chat_views[0].focus()
-                        # Also focus the input field
-                        try:
-                            msg_input = chat_views[0].query_one("#message-input", Input)
-                            msg_input.focus()
-                        except:
-                            pass
-                except:
-                    pass
-        except Exception:
-            pass
+        current_user = keyring.get_password(serviceKeyring, "username") or "yourname"
+        other_participants = [
+            h for h in self.conversation.participant_handles if h != current_user
+        ]
+        username = (
+            other_participants[0]
+            if other_participants
+            else self.conversation.participant_handles[0]
+            if self.conversation.participant_handles
+            else "unknown"
+        )
+        return f"{unread_marker}@{username}\n  {self.conversation.last_message_preview}\n  {time_ago} {unread_text}"
 
 
 class ChatMessage(Static):
-    def __init__(self, message, current_user: str = None, **kwargs):
+    def __init__(self, message, current_user: str = "yourname", **kwargs):
         super().__init__(**kwargs)
         self.message = message
-        # Get current user from keyring if not provided
-        if current_user is None:
-            current_user = get_auth_value("username") or "yourname"
-
-        # Compare with both sender and sender_handle, case-insensitive
-        current_user_lower = current_user.lower()
-        sender_lower = message.sender.lower() if message.sender else ""
-        sender_handle_lower = message.sender_handle.lower() if message.sender_handle else ""
-
-        is_sent = (sender_lower == current_user_lower or
-                   sender_handle_lower == current_user_lower)
-
-        # Add appropriate class
-        if is_sent:
-            self.add_class("sent")
-        else:
-            self.add_class("received")
+        is_sent = message.sender == current_user
+        self.add_class("sent" if is_sent else "received")
 
     def render(self) -> str:
-        # Show sender for debugging
-        sender_info = f"[{self.message.sender_handle}]"
-        return f"{sender_info} {self.message.content}\n{format_time_ago(self.message.created_at)}"
+        return f"{self.message.content}\n{format_time_ago(self.message.timestamp)}"
 
 
 class PostItem(Static):
@@ -1192,9 +1207,7 @@ class UserProfileCard(Static):
                 yield Static(self.display_name, classes="user-card-name")
                 # Resolve current local username once (fall back to the profile's username)
                 current_user = (
-                    get_auth_value("username") or
-                    keyring.get_password(serviceKeyring, "username") or
-                    self.username
+                    keyring.get_password(serviceKeyring, "username") or self.username
                 )
                 # Make username clickable as a button-like widget
                 yield Button(
@@ -1410,7 +1423,6 @@ class Sidebar(VerticalScroll):
         with commands_container:
             # Show only screen-specific commands to save space
             if self.current_screen == "messages":
-                yield CommandItem(":m", "dm user", classes="command-item")
                 yield CommandItem(":n", "new msg", classes="command-item")
                 yield CommandItem(":r", "reply", classes="command-item")
             elif self.current_screen in ("timeline", "discover"):
@@ -2617,7 +2629,6 @@ class NotificationsScreen(Container):
 
 class ConversationsList(VerticalScroll):
     cursor_position = reactive(0)
-    selected_position = reactive(-1)  # Track which conversation is actually selected/open
     can_focus = True
 
     def compose(self) -> ComposeResult:
@@ -2633,10 +2644,9 @@ class ConversationsList(VerticalScroll):
     def on_mount(self) -> None:
         """Watch for cursor position changes"""
         self.watch(self, "cursor_position", self._update_cursor)
-        self.watch(self, "selected_position", self._update_selected)
 
     def _update_cursor(self) -> None:
-        """Update the cursor position (border highlight for navigation)"""
+        """Update the cursor position"""
         try:
             # Find all conversation items
             items = list(self.query(".conversation-item"))
@@ -2654,26 +2664,9 @@ class ConversationsList(VerticalScroll):
         except Exception:
             pass
 
-    def _update_selected(self) -> None:
-        """Update the selected position (blue background for open conversation)"""
-        try:
-            # Find all conversation items
-            items = list(self.query(".conversation-item"))
-
-            # Remove selected from all items
-            for item in items:
-                item.remove_class("selected")
-
-            # Add selected to the open conversation
-            if 0 <= self.selected_position < len(items):
-                item = items[self.selected_position]
-                item.add_class("selected")
-        except Exception:
-            pass
-
     def on_focus(self) -> None:
         """When the list gets focus"""
-        # Don't reset cursor - keep it on the current conversation
+        self.cursor_position = 0
         self._update_cursor()
 
     def on_blur(self) -> None:
@@ -2743,26 +2736,32 @@ class ConversationsList(VerticalScroll):
             conversations = api.get_conversations()
             if 0 <= self.cursor_position < len(conversations):
                 conv = conversations[self.cursor_position]
-                # Mark this conversation as selected (blue background)
-                self.selected_position = self.cursor_position
-
                 # Get the other participant's username
-                current_user = get_auth_value("username") or keyring.get_password(serviceKeyring, "username") or "yourname"
-                other_participants = [h for h in conv.participant_handles if h != current_user]
-                username = other_participants[0] if other_participants else conv.participant_handles[0] if conv.participant_handles else "unknown"
+                current_user = (
+                    keyring.get_password(serviceKeyring, "username") or "yourname"
+                )
+                other_participants = [
+                    h for h in conv.participant_handles if h != current_user
+                ]
+                username = (
+                    other_participants[0]
+                    if other_participants
+                    else conv.participant_handles[0]
+                    if conv.participant_handles
+                    else "unknown"
+                )
 
-                # Get MessagesScreen parent container
-                messages_screen = self.parent
-                if isinstance(messages_screen, MessagesScreen):
-                    messages_screen._open_chat_view(conv.id, username)
+                # Update the chat view with this conversation
+                chat_view = self.app.query_one("#chat", ChatView)
+                chat_view.conversation_id = conv.id
+                chat_view.conversation_username = username
 
-                    # Focus the chat view
-                    try:
-                        chat_views = list(messages_screen.query("ChatView"))
-                        if chat_views:
-                            chat_views[0].focus()
-                    except:
-                        pass
+                # Reload messages
+                chat_view.remove_children()
+                chat_view.mount_all(chat_view.compose())
+
+                # Focus the chat view
+                chat_view.focus()
         except Exception:
             pass
 
@@ -2787,10 +2786,10 @@ class ConversationsList(VerticalScroll):
 
 class ChatView(VerticalScroll):
     conversation_id = reactive(0)  # Changed to int to match backend
-    conversation_username = reactive("")
+    conversation_username = reactive("alice")
     cursor_position = reactive(0)
 
-    def __init__(self, conversation_id: int = 0, username: str = "", **kwargs):
+    def __init__(self, conversation_id: int = 0, username: str = "alice", **kwargs):
         super().__init__(**kwargs)
         self.conversation_id = conversation_id
         self.conversation_username = username
@@ -2802,72 +2801,24 @@ class ChatView(VerticalScroll):
         if self.conversation_id > 0:
             try:
                 messages = api.get_conversation_messages(self.conversation_id)
-                print(f"DEBUG: Loaded {len(messages)} messages for conversation {self.conversation_id}")
             except Exception as e:
-                print(f"DEBUG: Error loading messages: {e}")
                 messages = []
-        else:
-            print(f"DEBUG: Invalid conversation_id: {self.conversation_id}")
-
-        yield Static(f"@{self.conversation_username} | conversation", classes="panel-header")
+        yield Static(
+            f"@{self.conversation_username} | conversation", classes="panel-header"
+        )
         for msg in messages:
             yield ChatMessage(msg, classes="chat-message")
         yield Static("-- INSERT --", classes="mode-indicator")
-        yield Input(placeholder="Type message and press Enter… (Esc to cancel)",
-                    classes="message-input", id="message-input")
-
-    def _refresh_messages(self) -> None:
-        """Refresh messages while keeping input and mode indicator"""
-        try:
-            messages = api.get_conversation_messages(self.conversation_id)
-            # Remove only chat messages, not input or mode indicator
-            for widget in list(self.query(".chat-message")):
-                widget.remove()
-
-            # Find the mode indicator to insert messages before it (maintains correct order)
-            try:
-                mode_indicator = self.query_one(".mode-indicator")
-                # Mount new messages before the mode indicator
-                for msg in messages:
-                    self.mount(ChatMessage(msg, classes="chat-message"), before=mode_indicator)
-            except:
-                # Fallback: Find the panel header and insert after it
-                try:
-                    panel_header = self.query_one(".panel-header")
-                    # Mount messages one after another to maintain order
-                    last_widget = panel_header
-                    for msg in messages:
-                        chat_msg = ChatMessage(msg, classes="chat-message")
-                        self.mount(chat_msg, after=last_widget)
-                        last_widget = chat_msg
-                except:
-                    # Last resort fallback: just mount at the end
-                    for msg in messages:
-                        self.mount(ChatMessage(msg, classes="chat-message"))
-        except Exception as e:
-            print(e)
-            self.app.notify("Error refreshing messages", timeout=2)
-
-    def _refresh_chat_content(self) -> None:
-        """Refresh entire chat view when switching conversations"""
-        try:
-            # Remove all children one by one to avoid ID conflicts
-            children_to_remove = list(self.children)
-            for widget in children_to_remove:
-                widget.remove()
-
-            # Re-compose with new conversation data
-            for child in self.compose():
-                self.mount(child)
-        except Exception as e:
-            self.app.notify(f"Error refreshing chat: {e}", timeout=2)
+        yield Input(
+            placeholder="Type message and press Enter… (Esc to cancel)",
+            classes="message-input",
+            id="message-input",
+        )
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
         if event.input.id != "message-input":
-            self.app.notify("Invalid input", timeout=2)
             return
         text = event.value.strip()
-
         if not text:
             return
 
@@ -2876,19 +2827,14 @@ class ChatView(VerticalScroll):
             return
 
         try:
-            try:
-                new_msg = api.send_message(self.conversation_id, text)
-            except Exception as e:
-                self.app.notify(f"Error sending message api: {e}", timeout=2)
-                return
-
+            new_msg = api.send_message(self.conversation_id, text)
+            self.mount(ChatMessage(new_msg, classes="chat-message"), before=event.input)
             event.input.value = ""
-            event.input.blur()
-            self._refresh_messages()
+            event.input.focus()
             self.scroll_end(animate=False)
-            self.app.notify("Message sent!", timeout=2)
         except Exception as e:
-            self.app.notify(f"Error sending message: {e}", timeout=2)
+            # Handle error silently or show notification
+            pass
 
     def watch_cursor_position(self, old_position: int, new_position: int) -> None:
         """Update the cursor when position changes"""
@@ -2939,14 +2885,12 @@ class MessagesScreen(Container):
     def __init__(self, username: str = None, **kwargs):
         super().__init__(**kwargs)
         self.dm_username = username
-        self._switching = False  # Flag to prevent concurrent chat switches
 
     def compose(self) -> ComposeResult:
         yield Sidebar(current="messages", id="sidebar")
         yield ConversationsList(id="conversations")
-        
-        # Don't create ChatView by default - only create when conversation is selected
-        # If a specific username is provided (e.g., from :m command), open chat with them
+
+        # If a specific username is provided, open chat with them
         if self.dm_username:
             # Get or create conversation with this user
             try:
@@ -2958,30 +2902,23 @@ class MessagesScreen(Container):
                 # Fallback if API call fails
                 yield ChatView(conversation_id=0, username=self.dm_username, id="chat")
         else:
-            # Show empty state - user needs to select a conversation
-            yield Container(
-                Static("\n\n  Select a conversation from the list\n  and press Enter to open it\n\n  Or use :m username to start a new DM", 
-                       classes="empty-chat-message"),
-                id="chat-empty-state"
-            )
+            yield ChatView(id="chat")
 
     def on_mount(self) -> None:
         """Add border to conversations list and update chat if DM"""
         conversations = self.query_one("#conversations", ConversationsList)
         conversations.border_title = "[6] Messages"
 
-        # If opening a DM (e.g., from :m command), update the chat header
+        # If opening a DM, update the chat header
         if self.dm_username:
             try:
-                chat_views = list(self.query("ChatView"))
-                if chat_views:
-                    chat = chat_views[0]
-                    # Update the header to show we're chatting with this user
-                    header = chat.query_one(".panel-header", Static)
-                    header.update(f"@{self.dm_username} | new conversation")
+                chat = self.query_one("#chat", ChatView)
+                # Update the header to show we're chatting with this user
+                header = chat.query_one(".panel-header", Static)
+                header.update(f"@{self.dm_username} | new conversation")
 
-                    # Focus the message input
-                    self.call_after_refresh(self._focus_message_input)
+                # Focus the message input
+                self.call_after_refresh(self._focus_message_input)
             except:
                 pass
 
@@ -2993,63 +2930,6 @@ class MessagesScreen(Container):
         except:
             pass
 
-    def _mount_new_chat(self, conversation_id: int, username: str) -> None:
-        """Mount a new chat view after old one has been removed"""
-        try:
-            # Remove any existing chat views (should already be gone, but double check)
-            for existing in self.query("ChatView"):
-                existing.remove()
-
-            # Create new chat view with standard "chat" ID for CSS
-            new_chat_view = ChatView(conversation_id=conversation_id, username=username, id="chat")
-            self.mount(new_chat_view)
-            # Scroll to bottom to show latest messages
-            self.call_after_refresh(lambda: new_chat_view.scroll_end(animate=False))
-        except Exception as e:
-            self.app.notify(f"Error creating chat: {e}", timeout=2)
-        finally:
-            # Reset switching flag
-            self._switching = False
-
-    def _open_chat_view(self, conversation_id: int, username: str) -> None:
-        """Open or update the chat view with a specific conversation"""
-        # Prevent concurrent switches
-        if self._switching:
-            return
-
-        try:
-            # Remove empty state if it exists
-            try:
-                empty_state = self.query_one("#chat-empty-state")
-                empty_state.remove()
-            except:
-                pass
-
-            # Check if any chat view already exists
-            existing_chats = list(self.query("ChatView"))
-
-            if existing_chats:
-                # Check if we're already viewing this conversation
-                for chat_view in existing_chats:
-                    if chat_view.conversation_id == conversation_id:
-                        # Already viewing this conversation, do nothing
-                        return
-
-                # Different conversation - need to switch
-                self._switching = True
-                # Remove all existing chat views
-                for chat_view in existing_chats:
-                    chat_view.remove()
-                # Use set_timer with delay to ensure removal completes before mounting
-                self.set_timer(0.1, lambda: self._mount_new_chat(conversation_id, username))
-            else:
-                # No chat view exists, create it
-                chat_view = ChatView(conversation_id=conversation_id, username=username, id="chat")
-                self.mount(chat_view)
-        except Exception as e:
-            # Handle error silently
-            self._switching = False
-            pass
 
 class SettingsPanel(VerticalScroll):
     cursor_position = reactive(0)
@@ -3090,7 +2970,7 @@ class SettingsPanel(VerticalScroll):
 
         # Account information
         yield Static("\n→ Account Information", classes="settings-section-header")
-        username = get_auth_value("username") or keyring.get_password(serviceKeyring, "username")
+        username = keyring.get_password(serviceKeyring, "username")
         if username is None and settings:
             username = getattr(settings, "username", "yourname")
         yield Static(f"  Username:\n  @{username}", classes="settings-field")
@@ -3495,12 +3375,6 @@ class SettingsPanel(VerticalScroll):
                     except Exception:
                         pass
 
-                # Also clear auth file
-                try:
-                    clear_auth()
-                except Exception:
-                    pass
-
                 # Clear API auth header and reset handle
                 try:
                     from .api_interface import api
@@ -3633,7 +3507,7 @@ class ProfilePanel(VerticalScroll):
 
         with profile_container:
             yield Static(settings.ascii_pic, classes="profile-avatar-large")
-            username = get_auth_value("username")
+            username = keyring.get_password(serviceKeyring, "username")
             if username == None:
                 username = settings.username
             yield Static(f"@{username}", classes="profile-username-display")
@@ -4169,13 +4043,10 @@ class Proj101App(App):
 
     # Disable dark mode toggle - we use our own colors
     ENABLE_COMMAND_PALETTE = False
-    
-    # Use MODES for switching between auth and main app screens
-    MODES = {
-        "auth": AuthScreen,
-        "main": MainAppScreen,
-    }
-    DEFAULT_MODE = "auth"
+
+    # Use MODES for seamless screen transitions
+    # Modes automatically handle initial screen display
+    MODES = {"auth": AuthScreen, "main": MainUIScreen}
 
     BINDINGS = [
         # Basic app controls
@@ -4223,116 +4094,104 @@ class Proj101App(App):
         except:
             pass
 
-    def on_mount(self) -> None:
-        """Check for tokens and switch to appropriate mode on startup."""
-        # Check if tokens exist - if yes, switch to main mode
-        token_data = get_auth_value("oauth_tokens")
-        if token_data and token_data != "":
-            try:
-                # Handle both dict and string formats
-                if isinstance(token_data, str):
-                    tokens = json.loads(token_data)
-                else:
-                    tokens = token_data
-                if "access_token" in tokens:
-                    api.set_token(tokens["access_token"])
-                    
-                    # Get current user from backend
-                    username = get_auth_value("username") or "yourname"
-                    try:
-                        if hasattr(api, 'set_handle'):
-                            api.set_handle(username)
-                        # Fetch user from backend to ensure they exist
-                        user = api.get_current_user()
-                        # Update username from backend if different
-                        if user.username != username:
-                            username = user.username
-                            set_auth_value("username", username)
-                            if hasattr(api, 'set_handle'):
-                                api.set_handle(username)
-                    except Exception as e:
-                        # Check if it's a 401 Unauthorized error
-                        if "401" in str(e) or "Unauthorized" in str(e):
-                            # Token expired - clear it and stay on auth screen
-                            try:
-                                clear_auth()
-                                try:
-                                    keyring.delete_password(serviceKeyring, "username")
-                                    keyring.delete_password(serviceKeyring, "refresh_token")
-                                except:
-                                    pass
-                            except:
-                                pass
-                            return
-                    
-                    # Initialize DMs
-                    if username.lower() != "alice":
-                        try:
-                            api.get_or_create_dm("alice")
-                        except Exception:
-                            pass
-                    if username.lower() == "kazakhpunk":
-                        try:
-                            api.get_or_create_dm("jorstors")
-                        except Exception:
-                            pass
-                    
-                    # Switch to main mode
-                    self.switch_mode("main")
-            except Exception:
-                # On error, stay on auth screen
-                pass
-
     def show_main_app(self, credentials=None) -> None:
-        """Transition from auth screen to main app after authentication."""
-        # Use credentials if provided to set up API
-        if credentials and isinstance(credentials, dict):
-            username = credentials.get("username") or "yourname"
-            tokens = credentials.get("tokens")
-            # Token should already be set in worker thread, but double-check
-            if tokens and isinstance(tokens, dict) and "access_token" in tokens:
-                if not api.token:
-                    api.set_token(tokens["access_token"])
-            
-            # Ensure API handle is set
-            if hasattr(api, 'set_handle'):
-                api.set_handle(username)
-            
-            # Fetch user from backend to ensure they exist
+        """Transition to authenticated main UI screen.
+
+        This method is safe to call from threads - it schedules the mode switch
+        on the main thread using call_later.
+
+        Args:
+            credentials: Optional dict with 'username' and 'tokens' from authenticate().
+                        If not provided, will read from disk (slower, may have timing issues).
+        """
+        try:
+            # Use provided credentials or load from disk
+            username = "yourname"
             try:
-                user = api.get_current_user()
-                # Update username from backend if different
-                if user.username != username:
-                    username = user.username
-                    set_auth_value("username", username)
-                    if hasattr(api, 'set_handle'):
-                        api.set_handle(username)
+                if credentials and isinstance(credentials, dict):
+                    # Use credentials passed directly from authenticate() - faster and avoids file I/O
+                    # NOTE: Token and handle should already be set in the worker thread before this is called
+                    username = credentials.get("username") or "yourname"
+                    tokens = credentials.get("tokens")
+                    # Require access_token explicitly (do not accept id_token)
+                    if tokens and isinstance(tokens, dict) and "access_token" in tokens:
+                        # Double-check token is set (should already be set in worker thread)
+                        if not api.token:
+                            api.set_token(tokens["access_token"])
+                else:
+                    # Fallback: read from disk
+                    from .auth import get_stored_credentials
+
+                    creds = get_stored_credentials()
+                    if creds and isinstance(creds, dict):
+                        username = creds.get("username") or "yourname"
+                        tokens = creds.get("tokens")
+                        # Require access_token from stored tokens
+                        if (
+                            tokens
+                            and isinstance(tokens, dict)
+                            and "access_token" in tokens
+                        ):
+                            api.set_token(tokens["access_token"])
+
+                # Ensure API handle is set (should already be set in worker thread for first login)
+                if not api.handle or api.handle == "yourname":
+                    api.handle = username
+
+                # Verify user exists in DB (should already be done in worker thread)
+                try:
+                    user_profile = api.get_current_user()
+                except Exception:
+                    pass
             except Exception:
                 pass
 
-            # Initialize DMs
-            if username.lower() != "alice":
+            # Directly switch mode - thread safety handled by call_from_thread wrapper
+            try:
+                self.switch_mode("main")
+
+                # Force the screen to update by triggering a layout refresh
                 try:
-                    api.get_or_create_dm("alice")
+                    current_screen = self.screen
+                    # Force a refresh
+                    current_screen.refresh(layout=True)
+                    self.refresh(layout=True)
                 except Exception:
                     pass
-            if username.lower() == "kazakhpunk":
+
+                # Final refresh to ensure the UI updates
                 try:
-                    api.get_or_create_dm("jorstors")
+                    self.refresh()
                 except Exception:
                     pass
-        
-        # Switch to main mode - Textual handles the screen transition
-        self.switch_mode("main")
+
+                # Ensure the initial content is focused (timeline feed) so vim navigation works immediately
+                try:
+                    # Schedule focusing after layout settles
+                    self.call_after_refresh(self._focus_initial_content)
+                except Exception:
+                    pass
+
+            except Exception:
+                pass
+
+        except Exception:
+            pass
 
     def show_auth_screen(self) -> None:
         """Transition to unauthenticated auth screen."""
-        # Clear API state
-        api.session.headers.pop("Authorization", None)
-        api.handle = "yourname"
+        try:
+            self.log_auth_event("show_auth_screen: Switching to auth mode")
 
-        # Switch to auth mode - Textual handles the screen transition
-        self.switch_mode("auth")
+            # Clear API state
+            api.session.headers.pop("Authorization", None)
+            api.handle = "yourname"
+
+            # Switch to the auth mode
+            self.switch_mode("auth")
+            self.log_auth_event("show_auth_screen: ✓ Switched to auth mode")
+        except Exception as e:
+            self.log_auth_event(f"show_auth_screen: ERROR - {e}")
 
     def ensure_auth_overlay(self) -> None:
         """Alias for show_auth_screen - used by sign-out."""
@@ -4371,7 +4230,6 @@ class Proj101App(App):
             # Resolve username once (prefer the message payload, then keyring, then a default)
             username = (
                 (message.username if getattr(message, "username", None) else None)
-                or get_auth_value("username")
                 or keyring.get_password(serviceKeyring, "username")
                 or "yourname"
             )
@@ -4385,7 +4243,72 @@ class Proj101App(App):
         except Exception:
             pass
 
-    # on_mount is now handled above to check tokens and switch modes
+    def on_mount(self) -> None:
+        """App startup - decide which mode to show based on stored credentials."""
+        import sys
+
+        try:
+            self.log_auth_event("App.on_mount CALLED")
+        except Exception:
+            pass
+        try:
+            # First, attempt a proactive restore using the API helper which
+            # will attempt refresh if a refresh token is present. This avoids
+            # composing UI with an expired token and prevents 401s from
+            # bubbling into Textual lifecycle methods.
+            restored = False
+            # Try a few quick attempts to restore session to avoid races with
+            # another process writing the fallback token file (small window at startup).
+            for attempt in range(3):
+                try:
+                    restored = api.try_restore_session()
+                except Exception as e:
+                    try:
+                        self.log_auth_event(f"try_restore_session error: {e}")
+                    except Exception:
+                        pass
+                if restored:
+                    break
+                # small backoff between attempts
+                try:
+                    time.sleep(0.1)
+                except Exception:
+                    pass
+
+            if restored:
+                try:
+                    self.log_auth_event(
+                        "Session successfully restored; switching to main mode"
+                    )
+                except Exception:
+                    pass
+                # Ensure handle is set (may be persisted in keyring by auth flow)
+                try:
+                    api.handle = (
+                        keyring.get_password(serviceKeyring, "username") or api.handle
+                    )
+                except Exception:
+                    pass
+
+                self.switch_mode("main")
+                self.log_auth_event("on_mount: Switched to main mode")
+                return
+
+            # If restore failed, fall back to showing the auth screen
+            try:
+                self.log_auth_event("No session to restore; switching to AUTH mode")
+            except Exception:
+                pass
+            self.switch_mode("auth")
+            self.log_auth_event("on_mount: Switched to auth mode")
+
+        except Exception as e:
+            # On error, show auth screen
+            try:
+                self.log_auth_event(f"on_mount: ERROR - {e}, showing auth")
+            except Exception:
+                pass
+            self.switch_mode("auth")
 
     def _focus_initial_content(self) -> None:
         """Helper to focus the timeline feed after initial render"""
@@ -4441,66 +4364,50 @@ class Proj101App(App):
         if screen_name in screen_map:
             self._switching = True  # Set flag to prevent concurrent switches
 
-            # Get the current screen (MainAppScreen) to mount widgets on it
-            current_screen = self.screen
-            
-            # Remove old screen-container
-            for container in current_screen.query("#screen-container"):
+            for container in self.query("#screen-container"):
                 container.remove()
-            
             ScreenClass, footer_text = screen_map[screen_name]
+            self.call_after_refresh(
+                self.mount, ScreenClass(id="screen-container", **kwargs)
+            )
 
-            # Mount new screen after removal completes - mount on the current screen, not the app
-            def mount_new_screen():
-                current_screen.mount(ScreenClass(id="screen-container", **kwargs))
-            
-            self.call_after_refresh(mount_new_screen)
-            
-            # Update UI elements after mounting - query on current screen
-            def update_ui():
-                try:
-                    header = current_screen.query_one("#app-header", Static)
-                    if screen_name == "user_profile" and "username" in kwargs:
-                        header.update(f"tuitter [@{kwargs['username']}] @yourname")
-                    elif screen_name == "messages" and "username" in kwargs:
-                        header.update(f"tuitter [dm:@{kwargs['username']}] @yourname")
-                    else:
-                        header.update(f"tuitter [{screen_name}] @yourname")
-                except Exception:
-                    pass
+            # Update header based on screen (guarded: header may not be mounted yet)
+            try:
+                header = self.query_one("#app-header", Static)
+                if screen_name == "user_profile" and "username" in kwargs:
+                    header.update(f"tuitter [@{kwargs['username']}] @yourname")
+                elif screen_name == "messages" and "username" in kwargs:
+                    header.update(f"tuitter [dm:@{kwargs['username']}] @yourname")
+                else:
+                    header.update(f"tuitter [{screen_name}] @yourname")
+            except Exception:
+                # Header widget isn't present (e.g. main UI not mounted yet) — skip update
+                pass
 
-                # Update footer
-                try:
-                    current_screen.query_one("#app-footer", Static).update(footer_text)
-                except Exception:
-                    pass
+            self.query_one("#app-footer", Static).update(footer_text)
+            self.current_screen_name = screen_name
 
-                # Update top navbar
-                try:
-                    current_screen.query_one("#top-navbar", TopNav).update_active(screen_name)
-                except Exception:
-                    pass
+            # Update top navbar
+            try:
+                self.query_one("#top-navbar", TopNav).update_active(screen_name)
+            except Exception:
+                pass
 
-                # Update sidebar (if it exists)
-                try:
-                    sidebar = current_screen.query_one("#sidebar", Sidebar)
-                    # For user profile view, highlight discover in sidebar
-                    if screen_name == "user_profile":
-                        sidebar.update_active("discover")
-                    elif screen_name == "messages":
-                        sidebar.update_active("messages")
-                    else:
-                        sidebar.update_active(screen_name)
-                except Exception:
-                    pass
-                
-                self.current_screen_name = screen_name
-                
-                # Focus the main content area after screen switch
-                self._focus_main_content_for_screen(screen_name)
-            
-            # Schedule UI updates after the new screen is mounted
-            self.call_after_refresh(update_ui)
+            # Update sidebar (if it exists)
+            try:
+                sidebar = self.query_one("#sidebar", Sidebar)
+                # For user profile view, highlight discover in sidebar
+                if screen_name == "user_profile":
+                    sidebar.update_active("discover")
+                elif screen_name == "messages":
+                    sidebar.update_active("messages")
+                else:
+                    sidebar.update_active(screen_name)
+            except Exception:
+                pass
+
+            # Focus the main content area after screen switch
+            self.call_after_refresh(self._focus_main_content_for_screen, screen_name)
 
             # Reset the switching flag after a brief delay
             self.set_timer(0.1, lambda: setattr(self, "_switching", False))
@@ -4508,9 +4415,6 @@ class Proj101App(App):
     def _focus_main_content_for_screen(self, screen_name: str) -> None:
         """Focus the main content feed/panel for the current screen"""
         try:
-            # Get the current screen to query widgets on it
-            current_screen = self.screen
-            
             # Map screen names to their main content widget IDs
             content_map = {
                 "timeline": "#timeline-feed",
@@ -4525,7 +4429,7 @@ class Proj101App(App):
 
             if screen_name in content_map:
                 widget_id = content_map[screen_name]
-                widget = current_screen.query_one(widget_id)
+                widget = self.query_one(widget_id)
                 widget.focus()
 
                 # Reset cursor position to 0 for feeds with cursor navigation
@@ -4836,12 +4740,6 @@ class Proj101App(App):
                     # Don't do anything for other screens (like drafts)
                 elif command.upper() == "D":
                     self.action_show_drafts()
-                elif command.upper() == "m":
-                    conv = api.get_or_create_dm(command[1:])
-                    if conv:
-                        self.action_open_dm(conv.participant_handles[0])
-                    else:
-                        self.notify("Failed to create DM", severity="error")
                 elif command == "l":
                     # Like the currently focused post in timeline or discover
                     if self.current_screen_name == "timeline":

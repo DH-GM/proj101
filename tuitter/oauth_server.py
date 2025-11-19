@@ -13,29 +13,27 @@ import sys
 import signal
 import subprocess
 import os
+import keyring
 
 serviceKeyring = "tuitter"
 
-# Auth file path
-AUTH_FILE = Path.home() / ".proj101_auth.json"
+def get_token(username: str) -> str:
+    return keyring.get_password(serviceKeyring, username)
 
-def load_auth():
-    """Load auth data from file."""
-    if not AUTH_FILE.exists():
-        return {}
-    try:
-        with open(AUTH_FILE, 'r') as f:
-            return json.load(f)
-    except:
-        return {}
+def set_token(username: str, token: str) -> None:
+    return keyring.set_password(serviceKeyring, username, token)
 
-def save_auth(data):
-    """Save auth data to file."""
-    try:
-        with open(AUTH_FILE, 'w') as f:
-            json.dump(data, f, indent=2)
-    except Exception as e:
-        print(f"Error saving auth: {e}", file=sys.stderr)
+def delete_token(username: str) -> None:
+    return keyring.delete_password(serviceKeyring, username)
+
+def get_user_name(username: str) -> str:
+    return keyring.get_password(serviceKeyring, username)
+
+def set_user_name(username: str, user_name: str) -> None:
+    return keyring.set_password(serviceKeyring, username, user_name)
+
+def delete_user_name(username: str) -> None:
+    return keyring.delete_password(serviceKeyring, username)
 
 COGNITO_TOKEN_URL = "https://us-east-2xzzmuowl9.auth.us-east-2.amazoncognito.com/oauth2/token"
 COGNITO_USERNAME_URL = "https://us-east-2xzzmuowl9.auth.us-east-2.amazoncognito.com/oauth2/userInfo"
@@ -75,10 +73,9 @@ class OAuthCallbackHandler(BaseHTTPRequestHandler):
 
                     if resp.ok:
                         tokens = resp.json()
-                        # Save tokens to auth file
-                        auth = load_auth()
-                        auth["oauth_tokens"] = tokens
-                        save_auth(auth)
+                        # Path("oauth_tokens.json").write_text(json.dumps(tokens, indent=2) + "\n")
+
+                        set_token("oauth_tokens.json", json.dumps(tokens, indent=2) + "\n")
                         print("✅ Tokens saved", file=sys.stderr, flush=True)
 
                         # Signal wrapper script to restart main.py
@@ -117,12 +114,10 @@ class OAuthCallbackHandler(BaseHTTPRequestHandler):
                         resp = requests.get(COGNITO_USERNAME_URL, headers={"Authorization": f"Bearer {tokens['access_token']}"})
                         print(f"{resp.json()}", file=sys.stderr, flush=True)
                         user_name = resp.json()["username"]
+                        # Path("oauth_tokens.json").open("a").write(json.dumps({"user_name": user_name}, indent=2) + "\n")
                         print(f"✅ User name: {user_name}", file=sys.stderr, flush=True)
                         print(f"{json.dumps(resp.json(), indent=2)}", file=sys.stderr, flush=True)
-                        # Save username to auth file
-                        auth = load_auth()
-                        auth["username"] = user_name
-                        save_auth(auth)
+                        set_user_name("username", user_name)
                         print(f"✅ Tokens verified: {resp}", file=sys.stderr, flush=True)
                     except Exception as e:
                         print(f"❌ Tokens verification failed: {e}", file=sys.stderr, flush=True)
