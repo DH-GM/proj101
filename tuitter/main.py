@@ -3316,13 +3316,12 @@ class ChatView(VerticalScroll):
                     msgs = list(self.query(".chat-message"))
                     if not msgs:
                         return
-                    last_idx = max(0, len(msgs) - 1)
-                    # Set cursor position which triggers visual update and scrolling
-                    self.cursor_position = last_idx
-                    try:
-                        msgs[last_idx].focus()
-                    except Exception:
-                        pass
+                    # Instead of focusing the last message, select the input
+                    # which is positioned after the last message (index == len(msgs)).
+                    inp_idx = len(msgs)
+                    # Set cursor position which triggers the watch_cursor_position
+                    # logic to visually mark the input without entering insert mode.
+                    self.cursor_position = inp_idx
                 except Exception:
                     pass
 
