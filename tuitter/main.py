@@ -1093,6 +1093,45 @@ class ConversationItem(Static):
                 chat_view.focus()
             except Exception:
                 pass
+
+            # Mark this conversation as read locally, persist to server, and refresh the item text and header
+            try:
+                if getattr(self.conversation, "unread", False):
+                    # Persist read state to the server if possible
+                    try:
+                        api.mark_conversation_read(int(self.conversation.id))
+                    except Exception:
+                        # Non-fatal if server call fails; continue to update UI locally
+                        pass
+
+                    # Update local model so UI shows it as read immediately
+                    self.conversation.unread = False
+
+                    # Refresh this item's rendered text
+                    try:
+                        self.update(self.render())
+                    except Exception:
+                        pass
+
+                    # Update conversations header unread count if present
+                    try:
+                        convs_list = self.app.query_one("#conversations", ConversationsList)
+                        if hasattr(convs_list, "_conversations") and convs_list._conversations is not None:
+                            # update the corresponding conversation object in stored list
+                            for c in convs_list._conversations:
+                                if int(c.id) == int(self.conversation.id):
+                                    c.unread = False
+                                    break
+                            unread_count = len([c for c in convs_list._conversations if getattr(c, "unread", False)])
+                            try:
+                                header = convs_list.query_one(".panel-header", Static)
+                                header.update(f"conversations | {unread_count} unread")
+                            except Exception:
+                                pass
+                    except Exception:
+                        pass
+            except Exception:
+                pass
         except Exception:
             pass
 
@@ -1101,8 +1140,11 @@ class ChatMessage(Static):
     def __init__(self, message, current_user: str = "", **kwargs):
         super().__init__(**kwargs)
         self.message = message
-        is_sent = message.sender == current_user
+        is_sent = (message.sender or "").lower() == (current_user or "").lower()
+        # Add sent/received class plus a 'me' class for messages from the current user
         self.add_class("sent" if is_sent else "received")
+        if is_sent:
+            self.add_class("me")
 
     def render(self) -> str:
         return f"{self.message.content}\n{format_time_ago(self.message.created_at)}"
@@ -1897,6 +1939,72 @@ class NewPostDialog(ModalScreen):
             pass
 
 
+class NewMessageDialog(ModalScreen):
+    """Modal dialog to prompt for a username to start a DM with.
+
+    The dialog will validate the username by calling `api.get_or_create_dm`.
+    On success it will dismiss with the chosen username; on failure it will
+    display an inline error and keep the dialog open.
+    """
+
+    def compose(self) -> ComposeResult:
+        with Container(id="dialog-container"):
+            yield Static("💬 New Message", id="dialog-title")
+            yield Input(placeholder="Enter recipient handle (without @)", id="dm-username-input")
+            yield Static("", id="dm-status", classes="status-message")
+            with Container(id="action-buttons"):
+                yield Button("Open", variant="primary", id="dm-open")
+                yield Button("Cancel", id="dm-cancel")
+
+    def on_mount(self) -> None:
+        try:
+            inp = self.query_one("#dm-username-input", Input)
+            inp.focus()
+        except Exception:
+            pass
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "dm-cancel":
+            # Dismiss with falsy value
+            self.dismiss(False)
+            return
+        if event.button.id == "dm-open":
+            self._try_open()
+
+    def key_enter(self) -> None:
+        if self.app.command_mode:
+            return
+        self._try_open()
+
+    def _try_open(self) -> None:
+        try:
+            inp = self.query_one("#dm-username-input", Input)
+            status = self.query_one("#dm-status", Static)
+            handle = (inp.value or "").strip().lstrip("@")
+            if not handle:
+                status.update("Please enter a username")
+                return
+
+            # Attempt to get or create a DM - backend will 404 if user not found
+            try:
+                conv = api.get_or_create_dm(handle)
+            except Exception:
+                # Show friendly error (don't dismiss)
+                try:
+                    status.update(f"User '@{handle}' not found")
+                except Exception:
+                    pass
+                return
+
+            # Success - dismiss and return the username to caller
+            self.dismiss(handle)
+        except Exception:
+            try:
+                self.dismiss(False)
+            except Exception:
+                pass
+
+
 class DeleteDraftDialog(ModalScreen):
     """Modal dialog for confirming draft deletion."""
 
@@ -2684,18 +2792,36 @@ class ConversationsList(VerticalScroll):
     can_focus = True
 
     def compose(self) -> ComposeResult:
+        # Fetch conversations and sort most-recent-first by last_message_at
         conversations = api.get_conversations()
+        try:
+            conversations = sorted(conversations, key=lambda c: c.last_message_at, reverse=True)
+        except Exception:
+            # Fallback: leave order as-is
+            pass
+
+        # Store the ordered list so keyboard actions refer to the same ordering
+        self._conversations = conversations
+
         unread_count = len([c for c in conversations if c.unread])
         yield Static(f"conversations | {unread_count} unread", classes="panel-header")
         for i, conv in enumerate(conversations):
             item = ConversationItem(conv, classes="conversation-item", id=f"conv-{i}")
-            if i == 0:
-                item.add_class("vim-cursor")
             yield item
 
     def on_mount(self) -> None:
         """Watch for cursor position changes"""
         self.watch(self, "cursor_position", self._update_cursor)
+        # Ensure first conversation is focused and visible when the list mounts
+        try:
+            # Default to first item
+            self.cursor_position = 0
+            # Update visuals immediately
+            self._update_cursor()
+            # Give focus to the conversations list so keyboard navigation works right away
+            self.focus()
+        except Exception:
+            pass
 
     def _update_cursor(self) -> None:
         """Update the cursor position"""
@@ -2785,9 +2911,12 @@ class ConversationsList(VerticalScroll):
         if self.app.command_mode:
             return
         try:
-            conversations = api.get_conversations()
-            if 0 <= self.cursor_position < len(conversations):
-                conv = conversations[self.cursor_position]
+            convs = getattr(self, "_conversations", None)
+            if convs is None:
+                convs = api.get_conversations()
+
+            if 0 <= self.cursor_position < len(convs):
+                conv = convs[self.cursor_position]
                 # Get the other participant's username
                 current_user = (
                     keyring.get_password(serviceKeyring, "username") or "yourname"
@@ -2845,6 +2974,11 @@ class ChatView(VerticalScroll):
         super().__init__(**kwargs)
         self.conversation_id = conversation_id
         self.conversation_username = username
+        # Use an app-level sender map so colors remain stable across views
+        if not hasattr(self.app, "_sender_map_global"):
+            # store as {lower_handle: index}
+            setattr(self.app, "_sender_map_global", {})
+            setattr(self.app, "_sender_map_next_idx", 0)
 
     def compose(self) -> ComposeResult:
         self.border_title = "[0] Chat"
@@ -2866,9 +3000,57 @@ class ChatView(VerticalScroll):
         except Exception:
             messages = []
 
+        # Resolve current user once for use in message rendering
+        current_user = keyring.get_password(serviceKeyring, "username") or api.handle or "yourname"
+
+        # Build a sender->index resolver using a global map on the app so colors persist
+        def _sender_idx(sender: str) -> int:
+            s = (sender or "").lower()
+            global_map = getattr(self.app, "_sender_map_global", {})
+            if s in global_map:
+                return global_map[s]
+            next_idx = getattr(self.app, "_sender_map_next_idx", 0)
+            idx = next_idx % 5
+            global_map[s] = idx
+            setattr(self.app, "_sender_map_global", global_map)
+            setattr(self.app, "_sender_map_next_idx", next_idx + 1)
+            return idx
+
+        # Persist read-state for this conversation (centralized so all open flows mark read)
+        if getattr(self, "conversation_id", 0):
+            try:
+                # Tell backend this conversation was read by current user
+                try:
+                    api.mark_conversation_read(int(self.conversation_id))
+                except Exception:
+                    # Non-fatal: if the API call fails, continue and still update UI locally
+                    pass
+
+                # Also update the locally-stored conversations list so the header/unread dot refreshes
+                try:
+                    convs_list = self.app.query_one("#conversations", ConversationsList)
+                    if hasattr(convs_list, "_conversations") and convs_list._conversations is not None:
+                        for c in convs_list._conversations:
+                            if int(c.id) == int(self.conversation_id):
+                                c.unread = False
+                                break
+                        unread_count = len([c for c in convs_list._conversations if getattr(c, "unread", False)])
+                        try:
+                            header = convs_list.query_one(".panel-header", Static)
+                            header.update(f"conversations | {unread_count} unread")
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
+            except Exception:
+                pass
+
         yield Static(f"@{self.conversation_username} | conversation", classes="panel-header")
         for msg in messages:
-            yield ChatMessage(msg, classes="chat-message")
+            idx = _sender_idx(msg.sender)
+            sender_class = f"sender-{idx}"
+            cls = f"chat-message {sender_class}"
+            yield ChatMessage(msg, current_user=current_user, classes=cls)
         yield Static("-- INSERT --", classes="mode-indicator")
         yield Input(
             placeholder="Type message and press Enter… (Esc to cancel)",
@@ -2889,7 +3071,23 @@ class ChatView(VerticalScroll):
 
         try:
             new_msg = api.send_message(self.conversation_id, text)
-            self.mount(ChatMessage(new_msg, classes="chat-message"), before=event.input)
+            # Determine sender class for the new message (use app-global map)
+            current_user = keyring.get_password(serviceKeyring, "username") or api.handle or "yourname"
+            sender = (new_msg.sender or new_msg.sender_handle or current_user)
+            # Ensure global map exists
+            if not hasattr(self.app, "_sender_map_global"):
+                setattr(self.app, "_sender_map_global", {})
+                setattr(self.app, "_sender_map_next_idx", 0)
+            global_map = getattr(self.app, "_sender_map_global")
+            if sender.lower() not in global_map:
+                next_idx = getattr(self.app, "_sender_map_next_idx", 0)
+                global_map[sender.lower()] = next_idx % 5
+                setattr(self.app, "_sender_map_next_idx", next_idx + 1)
+                setattr(self.app, "_sender_map_global", global_map)
+            idx = global_map[sender.lower()]
+            sender_class = f"sender-{idx}"
+            classes = f"chat-message sent {sender_class}"
+            self.mount(ChatMessage(new_msg, current_user=current_user, classes=classes), before=event.input)
             event.input.value = ""
             event.input.focus()
             self.scroll_end(animate=False)
@@ -2981,6 +3179,21 @@ class MessagesScreen(Container):
                 # Focus the message input
                 self.call_after_refresh(self._focus_message_input)
             except:
+                pass
+        else:
+            # No DM open: focus the conversations list and ensure first item selected
+            try:
+                # Use call_after_refresh to avoid races with initial compose
+                def _focus_conversations():
+                    try:
+                        conversations.cursor_position = 0
+                        conversations._update_cursor()
+                        conversations.focus()
+                    except Exception:
+                        pass
+
+                self.call_after_refresh(_focus_conversations)
+            except Exception:
                 pass
 
     def _focus_message_input(self):
@@ -4792,12 +5005,25 @@ class Proj101App(App):
                     if self.current_screen_name in ["timeline", "discover"]:
                         self.action_new_post()
                     elif self.current_screen_name == "messages":
-                        # Focus message input in messages screen
+                        # Open dialog to prompt for a username to message
                         try:
-                            msg_input = self.query_one("#message-input", Input)
-                            msg_input.focus()
-                        except:
-                            pass
+                            def _after(result):
+                                # result is the username string on success, False/None otherwise
+                                try:
+                                    if result:
+                                        # Switch to messages with that username (action_open_dm handles notification)
+                                        self.action_open_dm(result)
+                                except Exception:
+                                    pass
+
+                            self.push_screen(NewMessageDialog(), _after)
+                        except Exception:
+                            # Fallback: focus message input
+                            try:
+                                msg_input = self.query_one("#message-input", Input)
+                                msg_input.focus()
+                            except:
+                                pass
                     # Don't do anything for other screens (like drafts)
                 elif command.upper() == "D":
                     self.action_show_drafts()

@@ -505,12 +505,11 @@ TimelineScreen, DiscoverScreen, NotificationsScreen, MessagesScreen, SettingsScr
     color: $text-primary;
 }
 
-/* Chat message cursor */
+/* Chat message cursor: use a subtle focused background and border (no bright side bars) */
 .chat-message.vim-cursor {
-    background: $primary-dark;
+    background: $bg-focused;
     color: $text-primary;
-    border-left: heavy $primary;
-    border-right: heavy $primary;
+    border: solid $border-hover;
 }
 
 /* Search input cursor (visual indicator only, not focused) */
@@ -723,6 +722,30 @@ TimelineFeed:focus, DiscoverFeed:focus, NotificationsFeed:focus, ChatView:focus,
     text-style: italic;
 }
 
+/* Modal dialog container styling - center dialogs on screen and provide consistent sizing */
+#dialog-container {
+    /* Prefer centered overlay rather than filling the screen */
+    align: center middle;
+    content-align: center middle;
+    width: 60%;
+    height: auto;
+    padding: 2 3;
+    background: $bg-dark;
+    border: round $primary;
+}
+
+#dialog-title {
+    text-align: center;
+    text-style: bold;
+    margin-bottom: 1;
+}
+
+.status-message {
+    margin-top: 1;
+    color: $text-subtle;
+    text-align: center;
+}
+
 /* Commands Section Box - Yellow */
 .commands-box {
     border: round $color-yellow;
@@ -926,6 +949,29 @@ TimelineFeed:focus, DiscoverFeed:focus, NotificationsFeed:focus, ChatView:focus,
     border: solid $border-hover;
 }
 
+/* Better hover / focus / selected visuals for conversation items */
+.conversation-item:hover,
+.conversation-item:focus {
+    background: $bg-lighter;
+    color: $text-primary;
+    border: solid $border-hover;
+}
+
+/* Selected state (when opened) */
+.conversation-item.selected {
+    background: $primary-dark;
+    color: $text-primary;
+    text-style: bold;
+    border: heavy $primary;
+}
+
+/* Make vim-cursor visually consistent */
+.conversation-item.vim-cursor {
+    background: $bg-highlight;
+    color: $text-primary;
+    border: heavy $primary;
+}
+
 /* Chat View */
 #chat {
     width: 1fr;
@@ -941,7 +987,8 @@ TimelineFeed:focus, DiscoverFeed:focus, NotificationsFeed:focus, ChatView:focus,
 .chat-message {
     width: 100%;
     height: auto;
-    margin: 0 0 1 0;
+    /* Increase bottom margin to create visible gaps between messages */
+    margin: 0 0 2 0;
     padding: 1 2;
 }
 
@@ -956,9 +1003,56 @@ TimelineFeed:focus, DiscoverFeed:focus, NotificationsFeed:focus, ChatView:focus,
 .chat-message.sent {
     background: $bg-dark;
     color: $text-secondary;
-    align: right top;
-    margin-left: 15;
+    /* Left-align sent messages to match received messages; keep color for distinction */
+    align: left top;
+    margin-right: 15;
     border: solid $danger-bg-hover;
+}
+
+/* Hover and focus states for messages */
+.chat-message:hover,
+.chat-message:focus {
+    background: $bg-lighter;
+    border: solid $border-hover;
+    color: $text-primary;
+}
+
+/* New/unread message emphasis */
+.chat-message.message-new {
+    background: $chat-new;
+    border: solid $chat-new-border;
+    color: $text-primary;
+}
+
+/* Per-sender variants (cycle through a small palette). These classes are added
+   at runtime by ChatView to tag messages with sender indices (sender-0..sender-4). */
+.chat-message.sender-0 {
+    background: #2b2f36; /* subtle dark */
+    border: solid rgba(75, 114, 130, 0.15);
+}
+.chat-message.sender-1 {
+    background: #27343a; /* slightly teal */
+    border: solid rgba(59, 155, 163, 0.12);
+}
+.chat-message.sender-2 {
+    background: #2b3038; /* slate */
+    border: solid rgba(139, 233, 253, 0.08);
+}
+.chat-message.sender-3 {
+    background: #2c2a36; /* purple-lean */
+    border: solid rgba(189, 147, 249, 0.08);
+}
+.chat-message.sender-4 {
+    background: #283033; /* green-lean */
+    border: solid rgba(80, 250, 123, 0.08);
+}
+
+/* Selected/keyboard focus state for messages (vim-mode selection) */
+.chat-message.vim-cursor {
+    /* Use a less abrasive selection color (dracula-themed) */
+    background: $bg-focused;
+    color: $text-primary;
+    border: solid $border-hover;
 }
 
 .mode-indicator {

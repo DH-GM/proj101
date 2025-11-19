@@ -281,6 +281,11 @@ class RealAPI(APIInterface):
         self._post(f"/notifications/{notification_id}/read")
         return True
 
+    def mark_conversation_read(self, conversation_id: int) -> bool:
+        """Notify backend that the current user has read the conversation."""
+        self._post(f"/conversations/{conversation_id}/read")
+        return True
+
     def get_user_settings(self) -> UserSettings:
         data = self._get("/settings")
         return UserSettings(**data)
@@ -390,7 +395,12 @@ class RealAPI(APIInterface):
             else datetime.fromisoformat(last_message_at_value)
             if last_message_at_value
             else datetime.now(),
-            unread=bool(c.get("unread") or False),
+            # Normalize 'unread' which may be boolean, numeric or string
+            unread=(
+                (c.get("unread") is True)
+                if isinstance(c.get("unread"), bool)
+                else (str(c.get("unread")).lower() in ("true", "1", "yes"))
+            ),
         )
 
     def _convert_message(self, m: Dict[str, Any]) -> Message:
