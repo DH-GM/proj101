@@ -1068,7 +1068,9 @@ class ConversationItem(Static):
             if self.conversation.participant_handles
             else "unknown"
         )
-        return f"@{username}\n  {self.conversation.last_message_preview}\n  {unread_text}"
+        return (
+            f"@{username}\n  {self.conversation.last_message_preview}\n  {unread_text}"
+        )
 
     def on_click(self) -> None:
         """Open this conversation when clicked with the mouse."""
@@ -1084,7 +1086,7 @@ class ConversationItem(Static):
                 pass
 
             # Determine username to display (other participant)
-            current_user = (get_username() or "yourname")
+            current_user = get_username() or "yourname"
             other_participants = [
                 h for h in self.conversation.participant_handles if h != current_user
             ]
@@ -1193,7 +1195,6 @@ class PostItem(Static):
     like_count = reactive(0)
     repost_count = reactive(0)
     comment_count = reactive(0)
-
 
     def __init__(self, post, reposted_by_you=False, **kwargs):
         super().__init__(**kwargs)
@@ -1398,7 +1399,7 @@ class UserProfileCard(Static):
             with info_container:
                 yield Static(self.display_name, classes="user-card-name")
                 # Resolve current local username once (fall back to the profile's username)
-                current_user = (get_username() or self.username)
+                current_user = get_username() or self.username
                 # Make username clickable as a button-like widget
                 yield Button(
                     f"@{current_user}",
@@ -1635,7 +1636,7 @@ class Sidebar(VerticalScroll):
                 yield CommandItem(":n", "new post", classes="command-item")
                 yield CommandItem(":l", "like", classes="command-item")
                 yield CommandItem(":rt", "repost", classes="command-item")
-                yield CommandItem(":c", "comment", classes="command-item")
+                yield CommandItem("<Enter>", "comments", classes="command-item")
             elif self.current_screen == "notifications":
                 yield CommandItem(":m", "mark read", classes="command-item")
                 yield CommandItem(":ma", "mark all", classes="command-item")
@@ -1649,7 +1650,6 @@ class Sidebar(VerticalScroll):
             # Common commands (limited to save space)
             yield CommandItem("p", "profile", classes="command-item")
             yield CommandItem("d", "drafts", classes="command-item")
-            yield CommandItem("0", "main", classes="command-item")
         yield commands_container
 
     def update_active(self, screen_name: str):
@@ -3181,7 +3181,7 @@ class ConversationsList(VerticalScroll):
             if 0 <= self.cursor_position < len(convs):
                 conv = convs[self.cursor_position]
                 # Get the other participant's username
-                current_user = (get_username() or "yourname")
+                current_user = get_username() or "yourname"
                 other_participants = [
                     h for h in conv.participant_handles if h != current_user
                 ]
@@ -3269,7 +3269,7 @@ class ChatView(VerticalScroll):
             messages = []
 
         # Resolve current user once for use in message rendering
-        current_user = (get_username() or api.handle or "yourname")
+        current_user = get_username() or api.handle or "yourname"
 
         # Build a sender->index resolver using a global map on the app so colors persist
         def _sender_idx(sender: str) -> int:
@@ -3351,7 +3351,7 @@ class ChatView(VerticalScroll):
         try:
             new_msg = api.send_message(self.conversation_id, text)
             # Determine sender class for the new message (use app-global map)
-            current_user = (get_username() or api.handle or "")
+            current_user = get_username() or api.handle or ""
             sender = new_msg.sender or new_msg.sender_handle or current_user
             # Ensure global map exists
             if not hasattr(self.app, "_sender_map_global"):
@@ -4033,23 +4033,24 @@ class SettingsPanel(VerticalScroll):
                 try:
                     clear_credentials()
                 except Exception:
-                        # best-effort fallback: try centralized clear_tokens, then legacy deletes
+                    # best-effort fallback: try centralized clear_tokens, then legacy deletes
+                    try:
+                        from .auth_storage import clear_tokens
+
+                        clear_tokens()
+                    except Exception:
                         try:
-                            from .auth_storage import clear_tokens
-                            clear_tokens()
+                            keyring.delete_password(serviceKeyring, "refresh_token")
                         except Exception:
-                            try:
-                                keyring.delete_password(serviceKeyring, "refresh_token")
-                            except Exception:
-                                pass
-                            try:
-                                keyring.delete_password(serviceKeyring, "username")
-                            except Exception:
-                                pass
-                            try:
-                                keyring.delete_password(serviceKeyring, "oauth_tokens.json")
-                            except Exception:
-                                pass
+                            pass
+                        try:
+                            keyring.delete_password(serviceKeyring, "username")
+                        except Exception:
+                            pass
+                        try:
+                            keyring.delete_password(serviceKeyring, "oauth_tokens.json")
+                        except Exception:
+                            pass
 
                 # Clear API auth header and reset handle
                 try:
@@ -4964,7 +4965,7 @@ class Proj101App(App):
                     pass
                 # Ensure handle is set (may be persisted in keyring by auth flow)
                 try:
-                    api.handle = (get_username() or api.handle)
+                    api.handle = get_username() or api.handle
                 except Exception:
                     pass
 
@@ -5440,28 +5441,39 @@ class Proj101App(App):
                                 post = getattr(post_item, "post", None)
                                 if post:
                                     try:
-                                        currently_liked = bool(getattr(post_item, "liked_by_user", False) or getattr(post, "liked_by_user", False))
+                                        currently_liked = bool(
+                                            getattr(post_item, "liked_by_user", False)
+                                            or getattr(post, "liked_by_user", False)
+                                        )
                                         if currently_liked:
                                             # Unlike
                                             try:
                                                 api.unlike_post(post.id)
                                             except Exception:
-                                                logging.exception("api.unlike_post failed")
+                                                logging.exception(
+                                                    "api.unlike_post failed"
+                                                )
                                             try:
                                                 post_item.liked_by_user = False
                                             except Exception:
                                                 pass
-                                            self.notify("Post unliked!", severity="success")
+                                            self.notify(
+                                                "Post unliked!", severity="success"
+                                            )
                                         else:
                                             try:
                                                 api.like_post(post.id)
                                             except Exception:
-                                                logging.exception("api.like_post failed")
+                                                logging.exception(
+                                                    "api.like_post failed"
+                                                )
                                             try:
                                                 post_item.liked_by_user = True
                                             except Exception:
                                                 pass
-                                            self.notify("Post liked!", severity="success")
+                                            self.notify(
+                                                "Post liked!", severity="success"
+                                            )
                                     except Exception:
                                         logging.exception("Error toggling like")
                         except Exception:
@@ -5476,27 +5488,38 @@ class Proj101App(App):
                                 post = getattr(post_item, "post", None)
                                 if post:
                                     try:
-                                        currently_liked = bool(getattr(post_item, "liked_by_user", False) or getattr(post, "liked_by_user", False))
+                                        currently_liked = bool(
+                                            getattr(post_item, "liked_by_user", False)
+                                            or getattr(post, "liked_by_user", False)
+                                        )
                                         if currently_liked:
                                             try:
                                                 api.unlike_post(post.id)
                                             except Exception:
-                                                logging.exception("api.unlike_post failed")
+                                                logging.exception(
+                                                    "api.unlike_post failed"
+                                                )
                                             try:
                                                 post_item.liked_by_user = False
                                             except Exception:
                                                 pass
-                                            self.notify("Post unliked!", severity="success")
+                                            self.notify(
+                                                "Post unliked!", severity="success"
+                                            )
                                         else:
                                             try:
                                                 api.like_post(post.id)
                                             except Exception:
-                                                logging.exception("api.like_post failed")
+                                                logging.exception(
+                                                    "api.like_post failed"
+                                                )
                                             try:
                                                 post_item.liked_by_user = True
                                             except Exception:
                                                 pass
-                                            self.notify("Post liked!", severity="success")
+                                            self.notify(
+                                                "Post liked!", severity="success"
+                                            )
                                     except Exception:
                                         logging.exception("Error toggling like")
                         except Exception:
@@ -5556,7 +5579,12 @@ class Proj101App(App):
                                 post = getattr(post_item, "post", None)
                                 if post:
                                     try:
-                                        currently_reposted = bool(getattr(post_item, "reposted_by_user", False) or getattr(post, "reposted_by_user", False))
+                                        currently_reposted = bool(
+                                            getattr(
+                                                post_item, "reposted_by_user", False
+                                            )
+                                            or getattr(post, "reposted_by_user", False)
+                                        )
                                         if currently_reposted:
                                             try:
                                                 api.unrepost(post.id)
@@ -5566,7 +5594,9 @@ class Proj101App(App):
                                                 post_item.reposted_by_user = False
                                             except Exception:
                                                 pass
-                                            self.notify("Post unreposted!", severity="success")
+                                            self.notify(
+                                                "Post unreposted!", severity="success"
+                                            )
                                         else:
                                             try:
                                                 api.repost(post.id)
@@ -5589,7 +5619,9 @@ class Proj101App(App):
                                                     timeline_feed, "reposted_posts", []
                                                 )
                                             ]
-                                            self.notify("Post reposted!", severity="success")
+                                            self.notify(
+                                                "Post reposted!", severity="success"
+                                            )
                                     except Exception:
                                         logging.exception("Error toggling repost")
                         except Exception:
@@ -5604,7 +5636,12 @@ class Proj101App(App):
                                 post = getattr(post_item, "post", None)
                                 if post:
                                     try:
-                                        currently_reposted = bool(getattr(post_item, "reposted_by_user", False) or getattr(post, "reposted_by_user", False))
+                                        currently_reposted = bool(
+                                            getattr(
+                                                post_item, "reposted_by_user", False
+                                            )
+                                            or getattr(post, "reposted_by_user", False)
+                                        )
                                         if currently_reposted:
                                             try:
                                                 api.unrepost(post.id)
@@ -5614,7 +5651,9 @@ class Proj101App(App):
                                                 post_item.reposted_by_user = False
                                             except Exception:
                                                 pass
-                                            self.notify("Post unreposted!", severity="success")
+                                            self.notify(
+                                                "Post unreposted!", severity="success"
+                                            )
                                         else:
                                             try:
                                                 api.repost(post.id)
@@ -5624,7 +5663,9 @@ class Proj101App(App):
                                                 post_item.reposted_by_user = True
                                             except Exception:
                                                 pass
-                                            self.notify("Post reposted!", severity="success")
+                                            self.notify(
+                                                "Post reposted!", severity="success"
+                                            )
                                     except Exception:
                                         logging.exception("Error toggling repost")
                         except Exception:
