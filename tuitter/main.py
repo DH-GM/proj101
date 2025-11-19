@@ -1188,11 +1188,31 @@ class ChatMessage(Static):
 class PostItem(Static):
     """Simple non-interactive post display."""
 
+    liked_by_user = reactive(False)
+    reposted_by_user = reactive(False)
+    like_count = reactive(0)
+    repost_count = reactive(0)
+    comment_count = reactive(0)
+
+
     def __init__(self, post, reposted_by_you=False, **kwargs):
         super().__init__(**kwargs)
         self.post = post
         self.reposted_by_you = reposted_by_you
         self.has_video = hasattr(post, "video_path") and post.video_path
+
+        # Initialize reactive counters from the post model
+        try:
+            self.liked_by_user = bool(getattr(post, "liked_by_user", False))
+            self.like_count = int(getattr(post, "likes", 0) or 0)
+            self.repost_count = int(getattr(post, "reposts", 0) or 0)
+            self.comment_count = int(getattr(post, "comments", 0) or 0)
+        except Exception:
+            # Fallbacks if model attributes are missing or malformed
+            self.liked_by_user = False
+            self.like_count = 0
+            self.repost_count = 0
+            self.comment_count = 0
 
         # Check for ASCII art attachments in both the post.attachments property and dict
         attachments = getattr(post, "attachments", None)
@@ -1206,8 +1226,8 @@ class PostItem(Static):
     def compose(self) -> ComposeResult:
         """Compose compact post."""
         time_ago = format_time_ago(self.post.timestamp)
-        like_symbol = "❤️" if self.post.liked_by_user else "🤍"
-        repost_symbol = "🔁" if self.post.reposted_by_user else "🔁"
+        like_symbol = "❤️" if self.liked_by_user else "🤍"
+        repost_symbol = "🔁" if self.reposted_by_user else "🔁"
 
         # Repost banner if this is a reposted post by you (either client-injected or backend-marked)
         if getattr(self, "reposted_by_you", False) or getattr(
@@ -1215,7 +1235,7 @@ class PostItem(Static):
         ):
             yield Static("🔁 Reposted by you", classes="repost-banner", markup=False)
 
-        # Post header and content
+        # Post header and reactive stats
         yield Static(
             f"@{self.post.author} • {time_ago}\n{self.post.content}",
             classes="post-text",
@@ -1247,9 +1267,9 @@ class PostItem(Static):
                 classes="post-video",
             )
 
-        # Post stats - non-interactive
+        # Post stats - use reactive fields so updates are instant
         yield Static(
-            f"{like_symbol} {self.post.likes}  {repost_symbol} {self.post.reposts}  💬 {self.post.comments}",
+            f"{like_symbol} {self.like_count}  {repost_symbol} {self.repost_count}  💬 {self.comment_count}",
             classes="post-stats",
             markup=False,
         )
@@ -1264,6 +1284,49 @@ class PostItem(Static):
             # We don't have cursor focus
             self.border = ""
             self.styles.background = ""
+
+    def _update_stats_widget(self) -> None:
+        """Update the post-stats Static text if mounted."""
+        try:
+            stats_widget = self.query_one(".post-stats", Static)
+            like_symbol = "❤️" if self.liked_by_user else "🤍"
+            repost_symbol = "🔁" if self.reposted_by_user else "🔁"
+            stats_widget.update(
+                f"{like_symbol} {self.like_count}  {repost_symbol} {self.repost_count}  💬 {self.comment_count}"
+            )
+        except Exception:
+            # If not found, force a refresh as fallback
+            try:
+                self.refresh()
+            except Exception:
+                pass
+
+    def watch_liked_by_user(self, liked: bool) -> None:
+        """Update like count when liked_by_user changes"""
+        if liked:
+            self.like_count += 1
+        else:
+            self.like_count = max(0, self.like_count - 1)
+        # Keep underlying model consistent
+        try:
+            self.post.liked_by_user = liked
+            self.post.likes = self.like_count
+        except Exception:
+            pass
+        self._update_stats_widget()
+
+    def watch_reposted_by_user(self, reposted: bool) -> None:
+        """Update repost count when reposted_by_user changes"""
+        if reposted:
+            self.repost_count += 1
+        else:
+            self.repost_count = max(0, self.repost_count - 1)
+        try:
+            self.post.reposted_by_user = reposted
+            self.post.reposts = self.repost_count
+        except Exception:
+            pass
+        self._update_stats_widget()
 
     def on_click(self) -> None:
         """Handle click to open comment screen"""
@@ -5346,26 +5409,12 @@ class Proj101App(App):
                     if self.current_screen_name in ["timeline", "discover"]:
                         self.action_new_post()
                     elif self.current_screen_name == "messages":
-                        # Open dialog to prompt for a username to message
+                        # Focus message input in messages screen
                         try:
-
-                            def _after(result):
-                                # result is the username string on success, False/None otherwise
-                                try:
-                                    if result:
-                                        # Switch to messages with that username (action_open_dm handles notification)
-                                        self.action_open_dm(result)
-                                except Exception:
-                                    pass
-
-                            self.push_screen(NewMessageDialog(), _after)
-                        except Exception:
-                            # Fallback: focus message input
-                            try:
-                                msg_input = self.query_one("#message-input", Input)
-                                msg_input.focus()
-                            except:
-                                pass
+                            msg_input = self.query_one("#message-input", Input)
+                            msg_input.focus()
+                        except:
+                            pass
                     # Don't do anything for other screens (like drafts)
                 elif command.upper() == "D":
                     self.action_show_drafts()
@@ -5380,10 +5429,31 @@ class Proj101App(App):
                                 post_item = items[idx]
                                 post = getattr(post_item, "post", None)
                                 if post:
-                                    api.like_post(post.id)
-                                    self.notify("Post liked!", severity="success")
-                                    # Refresh timeline
-                                    self.switch_screen("timeline")
+                                    try:
+                                        currently_liked = bool(getattr(post_item, "liked_by_user", False) or getattr(post, "liked_by_user", False))
+                                        if currently_liked:
+                                            # Unlike
+                                            try:
+                                                api.unlike_post(post.id)
+                                            except Exception:
+                                                logging.exception("api.unlike_post failed")
+                                            try:
+                                                post_item.liked_by_user = False
+                                            except Exception:
+                                                pass
+                                            self.notify("Post unliked!", severity="success")
+                                        else:
+                                            try:
+                                                api.like_post(post.id)
+                                            except Exception:
+                                                logging.exception("api.like_post failed")
+                                            try:
+                                                post_item.liked_by_user = True
+                                            except Exception:
+                                                pass
+                                            self.notify("Post liked!", severity="success")
+                                    except Exception:
+                                        logging.exception("Error toggling like")
                         except Exception:
                             pass
                     elif self.current_screen_name == "discover":
@@ -5395,10 +5465,30 @@ class Proj101App(App):
                                 post_item = items[idx]
                                 post = getattr(post_item, "post", None)
                                 if post:
-                                    api.like_post(post.id)
-                                    self.notify("Post liked!", severity="success")
-                                    # Refresh discover
-                                    self.switch_screen("discover")
+                                    try:
+                                        currently_liked = bool(getattr(post_item, "liked_by_user", False) or getattr(post, "liked_by_user", False))
+                                        if currently_liked:
+                                            try:
+                                                api.unlike_post(post.id)
+                                            except Exception:
+                                                logging.exception("api.unlike_post failed")
+                                            try:
+                                                post_item.liked_by_user = False
+                                            except Exception:
+                                                pass
+                                            self.notify("Post unliked!", severity="success")
+                                        else:
+                                            try:
+                                                api.like_post(post.id)
+                                            except Exception:
+                                                logging.exception("api.like_post failed")
+                                            try:
+                                                post_item.liked_by_user = True
+                                            except Exception:
+                                                pass
+                                            self.notify("Post liked!", severity="success")
+                                    except Exception:
+                                        logging.exception("Error toggling like")
                         except Exception:
                             pass
                 elif command == "c":
@@ -5455,24 +5545,43 @@ class Proj101App(App):
                                 post_item = items[idx]
                                 post = getattr(post_item, "post", None)
                                 if post:
-                                    api.repost(post.id)
-                                    # Insert a reposted copy at the top of the timeline
-                                    from copy import deepcopy
+                                    try:
+                                        currently_reposted = bool(getattr(post_item, "reposted_by_user", False) or getattr(post, "reposted_by_user", False))
+                                        if currently_reposted:
+                                            try:
+                                                api.unrepost(post.id)
+                                            except Exception:
+                                                logging.exception("api.unrepost failed")
+                                            try:
+                                                post_item.reposted_by_user = False
+                                            except Exception:
+                                                pass
+                                            self.notify("Post unreposted!", severity="success")
+                                        else:
+                                            try:
+                                                api.repost(post.id)
+                                            except Exception:
+                                                logging.exception("api.repost failed")
+                                            try:
+                                                post_item.reposted_by_user = True
+                                            except Exception:
+                                                pass
+                                            # Also insert a reposted copy at the top of the timeline for visibility
+                                            from copy import deepcopy
 
-                                    repost_copy = deepcopy(post)
-                                    repost_copy.timestamp = datetime.now()
-                                    # Add to reposted_posts in TimelineFeed
-                                    timeline_feed.reposted_posts = [
-                                        (repost_copy, repost_copy.timestamp)
-                                    ] + [
-                                        p
-                                        for p in getattr(
-                                            timeline_feed, "reposted_posts", []
-                                        )
-                                    ]
-                                    self.notify("Post reposted!", severity="success")
-                                    # Refresh timeline
-                                    self.switch_screen("timeline")
+                                            repost_copy = deepcopy(post)
+                                            repost_copy.timestamp = datetime.now()
+                                            timeline_feed.reposted_posts = [
+                                                (repost_copy, repost_copy.timestamp)
+                                            ] + [
+                                                p
+                                                for p in getattr(
+                                                    timeline_feed, "reposted_posts", []
+                                                )
+                                            ]
+                                            self.notify("Post reposted!", severity="success")
+                                    except Exception:
+                                        logging.exception("Error toggling repost")
                         except Exception:
                             pass
                     elif self.current_screen_name == "discover":
@@ -5484,9 +5593,30 @@ class Proj101App(App):
                                 post_item = items[idx]
                                 post = getattr(post_item, "post", None)
                                 if post:
-                                    api.repost(post.id)
-                                    # Refresh discover
-                                    self.switch_screen("discover")
+                                    try:
+                                        currently_reposted = bool(getattr(post_item, "reposted_by_user", False) or getattr(post, "reposted_by_user", False))
+                                        if currently_reposted:
+                                            try:
+                                                api.unrepost(post.id)
+                                            except Exception:
+                                                logging.exception("api.unrepost failed")
+                                            try:
+                                                post_item.reposted_by_user = False
+                                            except Exception:
+                                                pass
+                                            self.notify("Post unreposted!", severity="success")
+                                        else:
+                                            try:
+                                                api.repost(post.id)
+                                            except Exception:
+                                                logging.exception("api.repost failed")
+                                            try:
+                                                post_item.reposted_by_user = True
+                                            except Exception:
+                                                pass
+                                            self.notify("Post reposted!", severity="success")
+                                    except Exception:
+                                        logging.exception("Error toggling repost")
                         except Exception:
                             pass
                 elif command.startswith("o") and len(command) > 1:
