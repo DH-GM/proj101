@@ -1526,7 +1526,6 @@ class Sidebar(VerticalScroll):
             # Show only screen-specific commands to save space
             if self.current_screen == "messages":
                 yield CommandItem(":n", "new msg", classes="command-item")
-                yield CommandItem(":r", "reply", classes="command-item")
             elif self.current_screen in ("timeline", "discover"):
                 yield CommandItem(":n", "new post", classes="command-item")
                 yield CommandItem(":l", "like", classes="command-item")
