@@ -5405,11 +5405,21 @@ class Proj101App(App):
                 elif command.upper() == "P":
                     self.switch_screen("profile")
                 elif command == "n":
-                    # Handle :n differently based on screen
-                    if self.current_screen_name in ["timeline", "discover"]:
-                        self.action_new_post()
-                    elif self.current_screen_name == "messages":
-                        # Focus message input in messages screen
+                    # Open dialog to prompt for a username to message
+                    try:
+
+                        def _after(result):
+                            # result is the username string on success, False/None otherwise
+                            try:
+                                if result:
+                                    # Switch to messages with that username (action_open_dm handles notification)
+                                    self.action_open_dm(result)
+                            except Exception:
+                                pass
+
+                        self.push_screen(NewMessageDialog(), _after)
+                    except Exception:
+                        # Fallback: focus message input
                         try:
                             msg_input = self.query_one("#message-input", Input)
                             msg_input.focus()
