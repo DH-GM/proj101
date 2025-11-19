@@ -353,3 +353,28 @@ def clear_tokens() -> None:
         logger.exception("auth_storage: unexpected error while clearing keyring entries")
         raise
 
+
+def get_username() -> Optional[str]:
+    """Return the canonical stored username (or None).
+
+    This prefers the canonical token store (which may contain a username
+    alongside tokens) but falls back to the legacy per-key 'username'
+    entry in keyring for compatibility.
+    """
+    try:
+        found = load_tokens()
+        if found and isinstance(found, dict):
+            uname = found.get("username")
+            if uname:
+                return uname
+    except Exception:
+        # proceed to legacy keyring lookup
+        pass
+
+    try:
+        import keyring
+
+        return keyring.get_password(SERVICE_NAME, "username")
+    except Exception:
+        return None
+

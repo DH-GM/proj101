@@ -12,7 +12,7 @@ import keyring
 import requests
 from dotenv import load_dotenv
 from requests import Session
-from .auth_storage import load_tokens, save_tokens_full
+from .auth_storage import load_tokens, save_tokens_full, get_username
 from .auth import refresh_tokens
 
 # === lightweight data objects used by the UI ===
@@ -22,9 +22,23 @@ serviceKeyring = "tuitter"
 
 load_dotenv(override=True)
 
-# Make sure keyring service has default values
-if not keyring.get_password(serviceKeyring, "username"):
-    keyring.set_password(serviceKeyring, "username", "")
+# Make sure keyring service has default values. Prefer canonical store.
+try:
+    if not get_username():
+        try:
+            keyring.set_password(serviceKeyring, "username", "")
+        except Exception:
+            pass
+except Exception:
+    # Fallback: try direct keyring lookup if auth_storage import failed or errored
+    try:
+        if not keyring.get_password(serviceKeyring, "username"):
+            try:
+                keyring.set_password(serviceKeyring, "username", "")
+            except Exception:
+                pass
+    except Exception:
+        pass
 
 # File-based debug logger (Textual swallows stdout/stderr in some modes)
 _debug_logfile = Path.home() / ".tuitter_tokens_debug.log"

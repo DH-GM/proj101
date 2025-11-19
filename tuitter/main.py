@@ -34,6 +34,20 @@ dotenv.load_dotenv()
 
 serviceKeyring = "tuitter"
 
+# Prefer canonical username lookup from auth_storage which handles
+# chunked tokens and centralized storage (falls back to legacy keyring).
+try:
+    from .auth_storage import get_username
+except Exception:
+    # Import-time failures should not break the UI; fall back to a no-op getter.
+    def get_username():
+        try:
+            import keyring
+
+            return keyring.get_password(serviceKeyring, "username")
+        except Exception:
+            return None
+
 # Service name for keyring storage
 
 
@@ -162,7 +176,7 @@ class MainUIScreen(Screen):
         self.starting_view = starting_view
 
     def compose(self) -> ComposeResult:
-        username = keyring.get_password(serviceKeyring, "username") or "yourname"
+        username = get_username() or "yourname"
         yield Static(
             f"tuitter [{self.starting_view}] @{username}", id="app-header", markup=False
         )
@@ -1028,7 +1042,7 @@ class ProfileDisplay(Static):
 
     def compose(self) -> ComposeResult:
         user = api.get_current_user()
-        username = user.display_name
+        username = get_username()
         if username == None:
             username = user.username
         yield Static(f"@{username}", classes="profile-username")
@@ -1043,7 +1057,7 @@ class ConversationItem(Static):
         time_ago = format_time_ago(self.conversation.last_message_at)
         unread_text = "🔵 unread" if self.conversation.unread else ""
         # Get the other participant's username (first one that's not the current user)
-        current_user = keyring.get_password(serviceKeyring, "username") or "yourname"
+        current_user = get_username() or "yourname"
         other_participants = [
             h for h in self.conversation.participant_handles if h != current_user
         ]
@@ -1054,9 +1068,7 @@ class ConversationItem(Static):
             if self.conversation.participant_handles
             else "unknown"
         )
-        return (
-            f"@{username}\n  {self.conversation.last_message_preview}\n  {unread_text}"
-        )
+        return f"@{username}\n  {self.conversation.last_message_preview}\n  {unread_text}"
 
     def on_click(self) -> None:
         """Open this conversation when clicked with the mouse."""
@@ -1072,9 +1084,7 @@ class ConversationItem(Static):
                 pass
 
             # Determine username to display (other participant)
-            current_user = (
-                keyring.get_password(serviceKeyring, "username") or "yourname"
-            )
+            current_user = (get_username() or "yourname")
             other_participants = [
                 h for h in self.conversation.participant_handles if h != current_user
             ]
@@ -1325,9 +1335,7 @@ class UserProfileCard(Static):
             with info_container:
                 yield Static(self.display_name, classes="user-card-name")
                 # Resolve current local username once (fall back to the profile's username)
-                current_user = (
-                    keyring.get_password(serviceKeyring, "username") or self.username
-                )
+                current_user = (get_username() or self.username)
                 # Make username clickable as a button-like widget
                 yield Button(
                     f"@{current_user}",
@@ -3110,9 +3118,7 @@ class ConversationsList(VerticalScroll):
             if 0 <= self.cursor_position < len(convs):
                 conv = convs[self.cursor_position]
                 # Get the other participant's username
-                current_user = (
-                    keyring.get_password(serviceKeyring, "username") or "yourname"
-                )
+                current_user = (get_username() or "yourname")
                 other_participants = [
                     h for h in conv.participant_handles if h != current_user
                 ]
@@ -3200,9 +3206,7 @@ class ChatView(VerticalScroll):
             messages = []
 
         # Resolve current user once for use in message rendering
-        current_user = (
-            keyring.get_password(serviceKeyring, "username") or api.handle or "yourname"
-        )
+        current_user = (get_username() or api.handle or "yourname")
 
         # Build a sender->index resolver using a global map on the app so colors persist
         def _sender_idx(sender: str) -> int:
@@ -3284,11 +3288,7 @@ class ChatView(VerticalScroll):
         try:
             new_msg = api.send_message(self.conversation_id, text)
             # Determine sender class for the new message (use app-global map)
-            current_user = (
-                keyring.get_password(serviceKeyring, "username")
-                or api.handle
-                or "yourname"
-            )
+            current_user = (get_username() or api.handle or "")
             sender = new_msg.sender or new_msg.sender_handle or current_user
             # Ensure global map exists
             if not hasattr(self.app, "_sender_map_global"):
@@ -3573,7 +3573,7 @@ class SettingsPanel(VerticalScroll):
 
         # Account information
         yield Static("\n→ Account Information", classes="settings-section-header")
-        username = keyring.get_password(serviceKeyring, "username")
+        username = get_username()
         if username is None and settings:
             username = getattr(settings, "username", "yourname")
         yield Static(f"  Username:\n  @{username}", classes="settings-field")
@@ -4120,8 +4120,8 @@ class ProfilePanel(VerticalScroll):
 
         with profile_container:
             yield Static(settings.ascii_pic, classes="profile-avatar-large")
-            username = keyring.get_password(serviceKeyring, "username")
-            if username == None:
+            username = get_username()
+            if username is None:
                 username = settings.username
             yield Static(f"@{username}", classes="profile-username-display")
 
@@ -4843,7 +4843,7 @@ class Proj101App(App):
             # Resolve username once (prefer the message payload, then keyring, then a default)
             username = (
                 (message.username if getattr(message, "username", None) else None)
-                or keyring.get_password(serviceKeyring, "username")
+                or get_username()
                 or "yourname"
             )
             # If header exists, update it
@@ -4901,9 +4901,7 @@ class Proj101App(App):
                     pass
                 # Ensure handle is set (may be persisted in keyring by auth flow)
                 try:
-                    api.handle = (
-                        keyring.get_password(serviceKeyring, "username") or api.handle
-                    )
+                    api.handle = (get_username() or api.handle)
                 except Exception:
                     pass
 
