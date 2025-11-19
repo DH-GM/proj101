@@ -1040,7 +1040,6 @@ class ConversationItem(Static):
         self.conversation = conversation
 
     def render(self) -> str:
-        unread_marker = "🔵 " if self.conversation.unread else "  "
         time_ago = format_time_ago(self.conversation.last_message_at)
         unread_text = "🔵 unread" if self.conversation.unread else ""
         # Get the other participant's username (first one that's not the current user)
@@ -1055,7 +1054,7 @@ class ConversationItem(Static):
             if self.conversation.participant_handles
             else "unknown"
         )
-        return f"{unread_marker}@{username}\n  {self.conversation.last_message_preview}\n  {time_ago} {unread_text}"
+        return f"@{username}\n  {self.conversation.last_message_preview}\n  {unread_text}"
 
     def on_click(self) -> None:
         """Open this conversation when clicked with the mouse."""
@@ -1151,6 +1150,9 @@ class ChatMessage(Static):
         self.add_class("sent" if is_sent else "received")
         if is_sent:
             self.add_class("me")
+        # Layout and alignment are handled via TCSS classes in `main.tcss`.
+        # Keep widget class markers but avoid programmatic style mutation
+        # so styling is centralized in the stylesheet.
 
     def render(self) -> str:
         return f"{self.message.content}\n{format_time_ago(self.message.created_at)}"

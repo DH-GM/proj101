@@ -985,6 +985,7 @@ TimelineFeed:focus, DiscoverFeed:focus, NotificationsFeed:focus, ChatView:focus,
 }
 
 .chat-message {
+    /* Make messages appear as narrower bubbles rather than full-width rows */
     width: 100%;
     height: auto;
     /* Increase bottom margin to create visible gaps between messages */
@@ -995,17 +996,32 @@ TimelineFeed:focus, DiscoverFeed:focus, NotificationsFeed:focus, ChatView:focus,
 .chat-message.received {
     background: $bg-dark;
     color: $text-secondary;
-    align: left top;
-    margin-right: 15;
+    /* Align content to the left side of the full-width message row */
+    content-align: left middle;
+    text-align: left;
+     /* position the bubble to the left: give a large right margin (in cells)
+         so the narrower bubble visually sits on the left side. Use integer
+         cell values (top right bottom left). */
+     margin: 0 20 2 0;
+    /* give more room on the right so the bubble reads as left-sided */
+    padding-left: 2;
+    padding-right: 18;
     border: solid $chat-received;
 }
 
 .chat-message.sent {
     background: $bg-dark;
     color: $text-secondary;
-    /* Left-align sent messages to match received messages; keep color for distinction */
-    align: left top;
-    margin-right: 15;
+    /* Align content to the right side of the full-width message row */
+    content-align: right middle;
+    text-align: right;
+     /* position the bubble to the right: give a large left margin (in cells)
+         so the narrower bubble visually sits on the right side. Use integer
+         cell values (top right bottom left). */
+     margin: 0 0 2 20;
+    /* give more room on the left so the bubble reads as right-sided */
+    padding-right: 2;
+    padding-left: 18;
     border: solid $danger-bg-hover;
 }
 
