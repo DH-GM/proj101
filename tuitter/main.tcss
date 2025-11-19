@@ -80,11 +80,46 @@ $notif-unread: #5A5C7A;
 $notif-unread-hover: $dracula-comment;
 
 /* Chat Message Colors */
-$chat-received: #3C5A3C;
-$chat-sent: #5A3C5A;
+/* Chat Message Colors (Dracula-themed) */
+/* Sent messages (current user) use a darker green with a bright green border */
+$chat-sent: #1E6D3A; /* dark dracula-green variant */
+$chat-sent-border: $dracula-green;
+/* Received/other messages use a teal/cyan-lean darker background */
+$chat-received: #264F52; /* dark cyan/teal */
+$chat-received-border: $dracula-cyan;
 $chat-new: #3C6A3C;
 $chat-new-border: $dracula-green;
 $chat-new-sent: $dracula-purple;
+
+/* Reusable color variables for non-top-level literals */
+$muted-hover-bg: #585858; /* used for small hover states */
+$muted-hover-color: #FFFFFF;
+$upload-profile-bg: #989393; /* upload-profile-picture background */
+$upload-profile-color: #000000;
+
+/* Per-sender bubble palette (dracula-leaning) */
+$sender-bg-0: #2b2f36;
+$sender-border-0: rgba(75, 114, 130, 0.15);
+$sender-bg-1: #27343a;
+$sender-border-1: rgba(59, 155, 163, 0.12);
+$sender-bg-2: #2b3038;
+$sender-border-2: rgba(139, 233, 253, 0.08);
+$sender-bg-3: #2c2a36;
+$sender-border-3: rgba(189, 147, 249, 0.08);
+$sender-bg-4: #283033;
+$sender-border-4: rgba(80, 250, 123, 0.08);
+
+/* ASCII video accent */
+$ascii-video-green: #00ff00;
+
+/* Follow button variants */
+$follow-text: #88ff88;
+$follow-bg-hover: #3a5a3a;
+$follow-border: #5aaa5a;
+$follow-text-2: #aaffaa;
+
+/* User-card hover */
+$user-card-username-hover: #2a3a4a;
 
 /* Scrollbar Colors */
 $scrollbar: $dracula-current-line;
@@ -801,8 +836,8 @@ TimelineFeed:focus, DiscoverFeed:focus, NotificationsFeed:focus, ChatView:focus,
 
 .upload-profile-picture:hover {
     margin-top: 1;
-    background: rgb(88, 88, 88);
-    color: rgb(255, 255, 255);
+    background: $muted-hover-bg;
+    color: $muted-hover-color;
 }
 
 .ascii-avatar {
@@ -811,8 +846,8 @@ TimelineFeed:focus, DiscoverFeed:focus, NotificationsFeed:focus, ChatView:focus,
 
 .upload-profile-picture {
     margin-top: 1;
-    background: rgb(152, 147, 147);
-    color: rgb(0, 0, 0);
+    background: $upload-profile-bg;
+    color: $upload-profile-color;
 }
 
 /* Timeline Feed Container */
@@ -994,8 +1029,8 @@ TimelineFeed:focus, DiscoverFeed:focus, NotificationsFeed:focus, ChatView:focus,
 }
 
 .chat-message.received {
-    background: $bg-dark;
-    color: $text-secondary;
+    background: $chat-received;
+    color: $text-primary;
     /* Align content to the left side of the full-width message row */
     content-align: left middle;
     text-align: left;
@@ -1006,12 +1041,12 @@ TimelineFeed:focus, DiscoverFeed:focus, NotificationsFeed:focus, ChatView:focus,
     /* give more room on the right so the bubble reads as left-sided */
     padding-left: 2;
     padding-right: 18;
-    border: solid $chat-received;
+    border: solid $chat-received-border;
 }
 
 .chat-message.sent {
-    background: $bg-dark;
-    color: $text-secondary;
+    background: $chat-sent;
+    color: $text-primary;
     /* Align content to the right side of the full-width message row */
     content-align: right middle;
     text-align: right;
@@ -1022,7 +1057,7 @@ TimelineFeed:focus, DiscoverFeed:focus, NotificationsFeed:focus, ChatView:focus,
     /* give more room on the left so the bubble reads as right-sided */
     padding-right: 2;
     padding-left: 18;
-    border: solid $danger-bg-hover;
+    border: solid $chat-sent-border;
 }
 
 /* Hover and focus states for messages */
@@ -1043,24 +1078,24 @@ TimelineFeed:focus, DiscoverFeed:focus, NotificationsFeed:focus, ChatView:focus,
 /* Per-sender variants (cycle through a small palette). These classes are added
    at runtime by ChatView to tag messages with sender indices (sender-0..sender-4). */
 .chat-message.sender-0 {
-    background: #2b2f36; /* subtle dark */
-    border: solid rgba(75, 114, 130, 0.15);
+    background: $sender-bg-0; /* subtle dark */
+    border: solid $sender-border-0;
 }
 .chat-message.sender-1 {
-    background: #27343a; /* slightly teal */
-    border: solid rgba(59, 155, 163, 0.12);
+    background: $sender-bg-1; /* slightly teal */
+    border: solid $sender-border-1;
 }
 .chat-message.sender-2 {
-    background: #2b3038; /* slate */
-    border: solid rgba(139, 233, 253, 0.08);
+    background: $sender-bg-2; /* slate */
+    border: solid $sender-border-2;
 }
 .chat-message.sender-3 {
-    background: #2c2a36; /* purple-lean */
-    border: solid rgba(189, 147, 249, 0.08);
+    background: $sender-bg-3; /* purple-lean */
+    border: solid $sender-border-3;
 }
 .chat-message.sender-4 {
-    background: #283033; /* green-lean */
-    border: solid rgba(80, 250, 123, 0.08);
+    background: $sender-bg-4; /* green-lean */
+    border: solid $sender-border-4;
 }
 
 /* Selected/keyboard focus state for messages (vim-mode selection) */
@@ -1194,14 +1229,14 @@ VerticalScroll {
 /* ASCII Video Player */
 .ascii-video {
     background: $bg-dark;
-    color: #00ff00;
-    border: solid #00ff00;
+    color: $ascii-video-green;
+    border: solid $ascii-video-green;
     padding: 1 2;
     margin: 1 2;
 }
 
 .ascii-video:hover {
-    border: solid #00ff00;
+    border: solid $ascii-video-green;
 }
 
 .post-author {
@@ -1355,14 +1390,14 @@ Input:focus {
 /* Following state - when button shows "Following" */
 #follow-user-btn.following {
     background: $chat-new;
-    color: #88ff88;
+    color: $follow-text;
     border: solid $accent-green;
 }
 
 #follow-user-btn.following:hover {
-    background: #3a5a3a;
-    border: heavy #5aaa5a;
-    color: #aaffaa;
+    background: $follow-bg-hover;
+    border: heavy $follow-border;
+    color: $follow-text-2;
 }
 
 /* Messages Container */
@@ -1469,14 +1504,14 @@ Input:focus {
 }
 
 .user-card-username-btn:hover {
-    background: #2a3a4a;
+    background: $user-card-username-hover;
     color: $primary-hover;
     text-style: bold underline;
     border: none;
 }
 
 .user-card-username-btn:focus {
-    background: #2a3a4a;
+    background: $user-card-username-hover;
     color: $primary-hover;
     border: solid $primary;
 }
