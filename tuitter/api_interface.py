@@ -78,7 +78,7 @@ class Message:
     sender: str
     sender_handle: str  # Denormalized from user table per PostgreSQL schema
     content: str
-    timestamp: datetime
+    created_at: datetime
     is_read: bool = False
 
 
@@ -188,9 +188,14 @@ class RealAPI(APIInterface):
             else:
                 resp = self.session.post(url, params=params, json=json_payload, timeout=self.timeout)
 
-            # If unauthorized, try centralized restore once
-            if resp.status_code == 401 and retry:
-                logger.info("API 401 received for %s %s - attempting try_restore_session()", method, path)
+            # If we received an auth-related response (400/401/403), try centralized restore once
+            if resp.status_code in (400, 401, 403) and retry:
+                logger.info(
+                    "API auth-failure %s received for %s %s - attempting try_restore_session()",
+                    resp.status_code,
+                    method,
+                    path,
+                )
                 try:
                     restored = False
                     if hasattr(self, "try_restore_session"):
@@ -204,7 +209,7 @@ class RealAPI(APIInterface):
                     else:
                         logger.debug("try_restore_session returned False; not retrying")
                 except Exception:
-                    logger.exception("Refresh attempt failed (non-fatal) while handling initial 401")
+                    logger.exception("Refresh attempt failed (non-fatal) while handling initial auth failure")
 
             resp.raise_for_status()
             return resp.json()
@@ -216,16 +221,21 @@ class RealAPI(APIInterface):
             except Exception:
                 pass
 
-            # If we got a 401 and haven't retried yet, try centralized restore and retry once
-            if status == 401 and retry:
-                logger.info("HTTPError 401; attempting try_restore_session() and retry for %s %s", method, path)
+            # If we got an auth-related HTTP error (400/401/403) and haven't retried yet, try centralized restore and retry once
+            if status in (400, 401, 403) and retry:
+                logger.info(
+                    "HTTPError %s; attempting try_restore_session() and retry for %s %s",
+                    status,
+                    method,
+                    path,
+                )
                 try:
                     if hasattr(self, "try_restore_session") and self.try_restore_session():
                         logger.info("try_restore_session succeeded from exception path; retrying (no further retry allowed)")
                         return self._request(method, path, params=params, json_payload=json_payload, retry=False)
                     logger.debug("try_restore_session did not restore session from exception path")
                 except Exception:
-                    logger.exception("Refresh attempt failed (non-fatal) while handling 401 (exception path)")
+                    logger.exception("Refresh attempt failed (non-fatal) while handling auth error (exception path)")
 
             # Re-raise original HTTP error if refresh didn't succeed or cannot be performed
             raise
@@ -244,7 +254,7 @@ class RealAPI(APIInterface):
 
     def get_conversations(self) -> List[Conversation]:
         data = self._get("/conversations")
-        return [Conversation(**c) for c in data]
+        return [self._convert_conversation(c) for c in data]
 
     def get_conversation_messages(self, conversation_id: int) -> List[Message]:
         data = self._get(f"/conversations/{conversation_id}/messages")
@@ -267,7 +277,7 @@ class RealAPI(APIInterface):
                 "user_b_handle": other_user_handle
             }
         )
-        return Conversation(**data)
+        return self._convert_conversation(data)
 
     def get_notifications(self, unread_only: bool = False) -> List[Notification]:
         # Backend uses 'unread' parameter, not 'unread_only'
@@ -279,6 +289,11 @@ class RealAPI(APIInterface):
 
     def mark_notification_read(self, notification_id: int) -> bool:
         self._post(f"/notifications/{notification_id}/read")
+        return True
+
+    def mark_conversation_read(self, conversation_id: int) -> bool:
+        """Notify backend that the current user has read the conversation."""
+        self._post(f"/conversations/{conversation_id}/read")
         return True
 
     def get_user_settings(self) -> UserSettings:
@@ -376,18 +391,65 @@ class RealAPI(APIInterface):
         )
         return out
 
+    def _convert_conversation(self, c: Dict[str, Any]) -> Conversation:
+        """Convert backend conversation response to Conversation dataclass"""
+        # Backend uses 'created_at' but we need 'last_message_at'
+        last_message_at_value = c.get("last_message_at") or c.get("created_at")
+
+        return Conversation(
+            id=int(c.get("id", 0)),
+            participant_handles=c.get("participant_handles") or [],
+            last_message_preview=c.get("last_message_preview") or "",
+            last_message_at=last_message_at_value
+            if isinstance(last_message_at_value, datetime)
+            else datetime.fromisoformat(last_message_at_value)
+            if last_message_at_value
+            else datetime.now(),
+            # Normalize 'unread' which may be boolean, numeric or string
+            unread=(
+                (c.get("unread") is True)
+                if isinstance(c.get("unread"), bool)
+                else (str(c.get("unread")).lower() in ("true", "1", "yes"))
+            ),
+        )
+
     def _convert_message(self, m: Dict[str, Any]) -> Message:
         """Convert backend message response to Message dataclass"""
+        # Normalize timestamp into a local naive datetime using same rules as posts
+        ts_raw = m.get("timestamp") or m.get("created_at")
+
+        created_at = None
+        try:
+            if isinstance(ts_raw, datetime):
+                created_at = ts_raw
+            elif isinstance(ts_raw, str):
+                try:
+                    s = ts_raw
+                    # If the string contains an explicit timezone (Z or ±HH:MM), parse
+                    # it as an aware datetime. If it lacks timezone info, assume the
+                    # server returned UTC and convert to local time.
+                    has_tz = s.endswith("Z") or ("+" in s[10:] or "-" in s[10:])
+                    if has_tz:
+                        dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
+                    else:
+                        dt = datetime.fromisoformat(s)
+                        dt = dt.replace(tzinfo=timezone.utc)
+
+                    # Convert to local timezone and return naive local datetime
+                    created_at = dt.astimezone().replace(tzinfo=None)
+                except Exception:
+                    created_at = datetime.now()
+            else:
+                created_at = datetime.now()
+        except Exception:
+            created_at = datetime.now()
+
         return Message(
             id=int(m.get("id", 0)),
             sender=m.get("sender") or m.get("sender_handle") or self.handle,
             sender_handle=m.get("sender_handle") or m.get("sender") or self.handle,
             content=m.get("content") or "",
-            timestamp=m.get("timestamp")
-            if isinstance(m.get("timestamp"), datetime)
-            else datetime.fromisoformat(m.get("timestamp"))
-            if m.get("timestamp")
-            else datetime.now(),
+            created_at=created_at,
             is_read=bool(m.get("is_read") or False),
         )
 

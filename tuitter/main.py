@@ -129,15 +129,28 @@ def delete_draft(index: int) -> None:
 
 def format_time_ago(dt: datetime) -> str:
     """Format datetime as 'time ago' string."""
-    now = datetime.now()
-    diff = now - dt
-    if diff.days > 0:
-        return f"{diff.days}d ago"
-    if diff.seconds < 60:
+    # Normalize 'now' to the same tz-awareness as dt to avoid incorrect deltas
+    if dt is None:
         return "just now"
-    if diff.seconds < 3600:
-        return f"{diff.seconds // 60}m ago"
-    return f"{diff.seconds // 3600}h ago"
+    try:
+        now = datetime.now(dt.tzinfo) if dt.tzinfo else datetime.now()
+    except Exception:
+        now = datetime.now()
+
+    delta = now - dt
+    total_seconds = int(delta.total_seconds())
+    if total_seconds < 10:
+        return "just now"
+    if total_seconds < 60:
+        return f"{total_seconds}s ago"
+    minutes = total_seconds // 60
+    if minutes < 60:
+        return f"{minutes}m ago"
+    hours = minutes // 60
+    if hours < 24:
+        return f"{hours}h ago"
+    days = hours // 24
+    return f"{days}d ago"
 
 
 # ───────── Main UI Screen (not auth) ─────────
@@ -1027,7 +1040,6 @@ class ConversationItem(Static):
         self.conversation = conversation
 
     def render(self) -> str:
-        unread_marker = "🔵 " if self.conversation.unread else "  "
         time_ago = format_time_ago(self.conversation.last_message_at)
         unread_text = "🔵 unread" if self.conversation.unread else ""
         # Get the other participant's username (first one that's not the current user)
@@ -1042,18 +1054,108 @@ class ConversationItem(Static):
             if self.conversation.participant_handles
             else "unknown"
         )
-        return f"{unread_marker}@{username}\n  {self.conversation.last_message_preview}\n  {time_ago} {unread_text}"
+        return f"@{username}\n  {self.conversation.last_message_preview}\n  {unread_text}"
+
+    def on_click(self) -> None:
+        """Open this conversation when clicked with the mouse."""
+        try:
+            # If there's a conversations list, update its cursor_position so
+            # the clicked item becomes visually focused (matches keyboard nav).
+            try:
+                convs_list = self.app.query_one("#conversations", ConversationsList)
+                items = list(convs_list.query(".conversation-item"))
+                if self in items:
+                    convs_list.cursor_position = items.index(self)
+            except Exception:
+                pass
+
+            # Determine username to display (other participant)
+            current_user = keyring.get_password(serviceKeyring, "username") or "yourname"
+            other_participants = [h for h in self.conversation.participant_handles if h != current_user]
+            username = (
+                other_participants[0]
+                if other_participants
+                else self.conversation.participant_handles[0]
+                if self.conversation.participant_handles
+                else "unknown"
+            )
+
+            # Update chat view
+            try:
+                chat_view = self.app.query_one("#chat", ChatView)
+                chat_view.conversation_id = self.conversation.id
+                chat_view.conversation_username = username
+
+                # Reload messages in the chat view
+                chat_view.remove_children()
+                chat_view.mount_all(chat_view.compose())
+                try:
+                    chat_view.focus_last_message()
+                except Exception:
+                    try:
+                        chat_view.focus()
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+
+            # Mark this conversation as read locally, persist to server, and refresh the item text and header
+            try:
+                if getattr(self.conversation, "unread", False):
+                    # Persist read state to the server if possible
+                    try:
+                        api.mark_conversation_read(int(self.conversation.id))
+                    except Exception:
+                        # Non-fatal if server call fails; continue to update UI locally
+                        pass
+
+                    # Update local model so UI shows it as read immediately
+                    self.conversation.unread = False
+
+                    # Refresh this item's rendered text
+                    try:
+                        self.update(self.render())
+                    except Exception:
+                        pass
+
+                    # Update conversations header unread count if present
+                    try:
+                        convs_list = self.app.query_one("#conversations", ConversationsList)
+                        if hasattr(convs_list, "_conversations") and convs_list._conversations is not None:
+                            # update the corresponding conversation object in stored list
+                            for c in convs_list._conversations:
+                                if int(c.id) == int(self.conversation.id):
+                                    c.unread = False
+                                    break
+                            unread_count = len([c for c in convs_list._conversations if getattr(c, "unread", False)])
+                            try:
+                                header = convs_list.query_one(".panel-header", Static)
+                                header.update(f"conversations | {unread_count} unread")
+                            except Exception:
+                                pass
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+        except Exception:
+            pass
 
 
 class ChatMessage(Static):
-    def __init__(self, message, current_user: str = "yourname", **kwargs):
+    def __init__(self, message, current_user: str = "", **kwargs):
         super().__init__(**kwargs)
         self.message = message
-        is_sent = message.sender == current_user
+        is_sent = (message.sender or "").lower() == (current_user or "").lower()
+        # Add sent/received class plus a 'me' class for messages from the current user
+        # Add sent/received class; avoid adding a separate 'me' class
+        # as 'sent' is sufficient and avoids duplicate styling rules.
         self.add_class("sent" if is_sent else "received")
+        # Layout and alignment are handled via TCSS classes in `main.tcss`.
+        # Keep widget class markers but avoid programmatic style mutation
+        # so styling is centralized in the stylesheet.
 
     def render(self) -> str:
-        return f"{self.message.content}\n{format_time_ago(self.message.timestamp)}"
+        return f"{self.message.content}\n{format_time_ago(self.message.created_at)}"
 
 
 class PostItem(Static):
@@ -1424,7 +1526,6 @@ class Sidebar(VerticalScroll):
             # Show only screen-specific commands to save space
             if self.current_screen == "messages":
                 yield CommandItem(":n", "new msg", classes="command-item")
-                yield CommandItem(":r", "reply", classes="command-item")
             elif self.current_screen in ("timeline", "discover"):
                 yield CommandItem(":n", "new post", classes="command-item")
                 yield CommandItem(":l", "like", classes="command-item")
@@ -1843,6 +1944,207 @@ class NewPostDialog(ModalScreen):
             self.set_timer(3, lambda: widget.update(""))
         except Exception:
             pass
+
+
+class NewMessageDialog(ModalScreen):
+    """Modal dialog to prompt for a username to start a DM with.
+
+    The dialog will validate the username by calling `api.get_or_create_dm`.
+    On success it will dismiss with the chosen username; on failure it will
+    display an inline error and keep the dialog open.
+    """
+
+    # 0 = Open, 1 = Cancel
+    cursor_position = reactive(0)
+    in_input = reactive(True)
+
+    def compose(self) -> ComposeResult:
+        with Container(id="dialog-container"):
+            yield Static("💬 New Message", id="dialog-title")
+            yield Input(placeholder="Enter recipient handle (without @)", id="dm-username-input")
+            yield Static("", id="dm-status", classes="status-message")
+            # Small hint for vim-style input/selection controls
+            yield Static("\\[i] edit  |  \\[esc] navigate", id="dm-hint", classes="input-hint")
+            with Container(id="action-buttons"):
+                open_btn = Button("Open", variant="primary", id="dm-open")
+                cancel_btn = Button("Cancel", id="dm-cancel")
+                # Apply visual selection based on cursor position
+                if self.cursor_position == 0:
+                    open_btn.add_class("selected")
+                else:
+                    cancel_btn.add_class("selected")
+                yield open_btn
+                yield cancel_btn
+
+    def on_mount(self) -> None:
+        try:
+            inp = self.query_one("#dm-username-input", Input)
+            inp.focus()
+        except Exception:
+            pass
+
+    def key_i(self) -> None:
+        """Enter insert mode: focus the input box."""
+        if self.app.command_mode:
+            return
+        try:
+            self.in_input = True
+            inp = self.query_one("#dm-username-input", Input)
+            inp.focus()
+        except Exception:
+            pass
+
+    def key_escape(self) -> None:
+        """Exit input and focus buttons for h/l navigation."""
+        if self.app.command_mode:
+            return
+        try:
+            # If currently in input, move to button navigation
+            if getattr(self, "in_input", False):
+                self.in_input = False
+                # Focus the currently-selected button
+                btns = list(self.query("#action-buttons Button"))
+                if not btns:
+                    return
+                sel = max(0, min(self.cursor_position, len(btns) - 1))
+                try:
+                    btns[sel].focus()
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+    def key_h(self) -> None:
+        """Move selection left (Open)."""
+        if self.app.command_mode:
+            return
+        # Only navigate buttons when not in input
+        if getattr(self, "in_input", True):
+            return
+        try:
+            self.cursor_position = 0
+        except Exception:
+            pass
+
+    def key_l(self) -> None:
+        """Move selection right (Cancel)."""
+        if self.app.command_mode:
+            return
+        if getattr(self, "in_input", True):
+            return
+        try:
+            self.cursor_position = 1
+        except Exception:
+            pass
+
+    def watch_cursor_position(self, old_position: int, new_position: int) -> None:
+        """Update button selection visuals when cursor changes."""
+        try:
+            btns = list(self.query("#action-buttons Button"))
+            for i, b in enumerate(btns):
+                if i == new_position:
+                    if "selected" not in b.classes:
+                        b.add_class("selected")
+                    if "vim-cursor" not in b.classes:
+                        b.add_class("vim-cursor")
+                else:
+                    if "selected" in b.classes:
+                        b.remove_class("selected")
+                    if "vim-cursor" in b.classes:
+                        b.remove_class("vim-cursor")
+                # ensure focus follows the selected button when not in input
+                if not getattr(self, "in_input", True) and i == new_position:
+                    try:
+                        b.focus()
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+
+    def watch_in_input(self, old: bool, new: bool) -> None:
+        """When entering/exiting input mode, update button visuals accordingly."""
+        try:
+            btns = list(self.query("#action-buttons Button"))
+            if new:
+                # Entering input: remove selection visuals
+                for b in btns:
+                    if "selected" in b.classes:
+                        b.remove_class("selected")
+                    if "vim-cursor" in b.classes:
+                        b.remove_class("vim-cursor")
+            else:
+                # Leaving input: ensure the selected button has visuals and focus
+                sel = max(0, min(self.cursor_position, len(btns) - 1))
+                for i, b in enumerate(btns):
+                    if i == sel:
+                        if "selected" not in b.classes:
+                            b.add_class("selected")
+                        if "vim-cursor" not in b.classes:
+                            b.add_class("vim-cursor")
+                        try:
+                            b.focus()
+                        except Exception:
+                            pass
+                    else:
+                        if "selected" in b.classes:
+                            b.remove_class("selected")
+                        if "vim-cursor" in b.classes:
+                            b.remove_class("vim-cursor")
+        except Exception:
+            pass
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "dm-cancel":
+            # Dismiss with falsy value
+            self.dismiss(False)
+            return
+        if event.button.id == "dm-open":
+            self._try_open()
+
+    def key_enter(self) -> None:
+        if self.app.command_mode:
+            return
+        # If currently in input, attempt to open; otherwise activate selected button
+        if getattr(self, "in_input", True):
+            self._try_open()
+            return
+
+        # Button navigation: 0 = Open, 1 = Cancel
+        try:
+            if self.cursor_position == 0:
+                self._try_open()
+            else:
+                self.dismiss(False)
+        except Exception:
+            pass
+
+    def _try_open(self) -> None:
+        try:
+            inp = self.query_one("#dm-username-input", Input)
+            status = self.query_one("#dm-status", Static)
+            handle = (inp.value or "").strip().lstrip("@")
+            if not handle:
+                status.update("Please enter a username")
+                return
+
+            # Attempt to get or create a DM - backend will 404 if user not found
+            try:
+                conv = api.get_or_create_dm(handle)
+            except Exception:
+                # Show friendly error (don't dismiss)
+                try:
+                    status.update(f"User '@{handle}' not found")
+                except Exception:
+                    pass
+                return
+
+            # Success - dismiss and return the username to caller
+            self.dismiss(handle)
+        except Exception:
+            try:
+                self.dismiss(False)
+            except Exception:
+                pass
 
 
 class DeleteDraftDialog(ModalScreen):
@@ -2630,20 +2932,45 @@ class NotificationsScreen(Container):
 class ConversationsList(VerticalScroll):
     cursor_position = reactive(0)
     can_focus = True
+    # Track whether the list has performed its initial mount setup
+    has_initialized = False
 
     def compose(self) -> ComposeResult:
+        # Fetch conversations and sort most-recent-first by last_message_at
         conversations = api.get_conversations()
+        try:
+            conversations = sorted(conversations, key=lambda c: c.last_message_at, reverse=True)
+        except Exception:
+            # Fallback: leave order as-is
+            pass
+
+        # Store the ordered list so keyboard actions refer to the same ordering
+        self._conversations = conversations
+
         unread_count = len([c for c in conversations if c.unread])
         yield Static(f"conversations | {unread_count} unread", classes="panel-header")
         for i, conv in enumerate(conversations):
             item = ConversationItem(conv, classes="conversation-item", id=f"conv-{i}")
-            if i == 0:
-                item.add_class("vim-cursor")
             yield item
 
     def on_mount(self) -> None:
         """Watch for cursor position changes"""
         self.watch(self, "cursor_position", self._update_cursor)
+        # Only perform initial focus and cursor setup the first time the list mounts.
+        try:
+            if not getattr(self, "has_initialized", False):
+                # Default to first item only on first mount
+                self.cursor_position = 0
+                # Update visuals immediately
+                self._update_cursor()
+                # Give focus to the conversations list so keyboard navigation works right away
+                try:
+                    self.focus()
+                except Exception:
+                    pass
+                self.has_initialized = True
+        except Exception:
+            pass
 
     def _update_cursor(self) -> None:
         """Update the cursor position"""
@@ -2666,8 +2993,11 @@ class ConversationsList(VerticalScroll):
 
     def on_focus(self) -> None:
         """When the list gets focus"""
-        self.cursor_position = 0
-        self._update_cursor()
+        # Don't override the user's cursor_position when focusing; just refresh visuals
+        try:
+            self._update_cursor()
+        except Exception:
+            pass
 
     def on_blur(self) -> None:
         """When list loses focus"""
@@ -2733,9 +3063,12 @@ class ConversationsList(VerticalScroll):
         if self.app.command_mode:
             return
         try:
-            conversations = api.get_conversations()
-            if 0 <= self.cursor_position < len(conversations):
-                conv = conversations[self.cursor_position]
+            convs = getattr(self, "_conversations", None)
+            if convs is None:
+                convs = api.get_conversations()
+
+            if 0 <= self.cursor_position < len(convs):
+                conv = convs[self.cursor_position]
                 # Get the other participant's username
                 current_user = (
                     keyring.get_password(serviceKeyring, "username") or "yourname"
@@ -2760,8 +3093,14 @@ class ConversationsList(VerticalScroll):
                 chat_view.remove_children()
                 chat_view.mount_all(chat_view.compose())
 
-                # Focus the chat view
-                chat_view.focus()
+                # Focus the chat view and select the last message
+                try:
+                    chat_view.focus_last_message()
+                except Exception:
+                    try:
+                        chat_view.focus()
+                    except Exception:
+                        pass
         except Exception:
             pass
 
@@ -2786,28 +3125,91 @@ class ConversationsList(VerticalScroll):
 
 class ChatView(VerticalScroll):
     conversation_id = reactive(0)  # Changed to int to match backend
-    conversation_username = reactive("alice")
+    conversation_username = reactive("")
     cursor_position = reactive(0)
+    input_active = reactive(False)
 
-    def __init__(self, conversation_id: int = 0, username: str = "alice", **kwargs):
+    def __init__(self, conversation_id: int = 0, username: str = "", **kwargs):
         super().__init__(**kwargs)
         self.conversation_id = conversation_id
         self.conversation_username = username
+        # Use an app-level sender map so colors remain stable across views
+        if not hasattr(self.app, "_sender_map_global"):
+            # store as {lower_handle: index}
+            setattr(self.app, "_sender_map_global", {})
+            setattr(self.app, "_sender_map_next_idx", 0)
 
     def compose(self) -> ComposeResult:
         self.border_title = "[0] Chat"
+
+        # If no conversation is selected, show a friendly placeholder
+        if not self.conversation_id or self.conversation_id <= 0:
+            yield Static("Select a conversation", classes="panel-header")
+            yield Static(
+                "\nSelect a conversation from the list on the left to view messages.",
+                classes="help-text",
+                markup=False,
+            )
+            return
+
         # Only fetch messages if conversation_id is valid (> 0)
         messages = []
-        if self.conversation_id > 0:
+        try:
+            messages = api.get_conversation_messages(self.conversation_id)
+        except Exception:
+            messages = []
+
+        # Resolve current user once for use in message rendering
+        current_user = keyring.get_password(serviceKeyring, "username") or api.handle or "yourname"
+
+        # Build a sender->index resolver using a global map on the app so colors persist
+        def _sender_idx(sender: str) -> int:
+            s = (sender or "").lower()
+            global_map = getattr(self.app, "_sender_map_global", {})
+            if s in global_map:
+                return global_map[s]
+            next_idx = getattr(self.app, "_sender_map_next_idx", 0)
+            idx = next_idx % 5
+            global_map[s] = idx
+            setattr(self.app, "_sender_map_global", global_map)
+            setattr(self.app, "_sender_map_next_idx", next_idx + 1)
+            return idx
+
+        # Persist read-state for this conversation (centralized so all open flows mark read)
+        if getattr(self, "conversation_id", 0):
             try:
-                messages = api.get_conversation_messages(self.conversation_id)
-            except Exception as e:
-                messages = []
-        yield Static(
-            f"@{self.conversation_username} | conversation", classes="panel-header"
-        )
+                # Tell backend this conversation was read by current user
+                try:
+                    api.mark_conversation_read(int(self.conversation_id))
+                except Exception:
+                    # Non-fatal: if the API call fails, continue and still update UI locally
+                    pass
+
+                # Also update the locally-stored conversations list so the header/unread dot refreshes
+                try:
+                    convs_list = self.app.query_one("#conversations", ConversationsList)
+                    if hasattr(convs_list, "_conversations") and convs_list._conversations is not None:
+                        for c in convs_list._conversations:
+                            if int(c.id) == int(self.conversation_id):
+                                c.unread = False
+                                break
+                        unread_count = len([c for c in convs_list._conversations if getattr(c, "unread", False)])
+                        try:
+                            header = convs_list.query_one(".panel-header", Static)
+                            header.update(f"conversations | {unread_count} unread")
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
+            except Exception:
+                pass
+
+        yield Static(f"@{self.conversation_username} | conversation", classes="panel-header")
         for msg in messages:
-            yield ChatMessage(msg, classes="chat-message")
+            idx = _sender_idx(msg.sender)
+            sender_class = f"sender-{idx}"
+            cls = f"chat-message {sender_class}"
+            yield ChatMessage(msg, current_user=current_user, classes=cls)
         yield Static("-- INSERT --", classes="mode-indicator")
         yield Input(
             placeholder="Type message and press Enter… (Esc to cancel)",
@@ -2828,7 +3230,23 @@ class ChatView(VerticalScroll):
 
         try:
             new_msg = api.send_message(self.conversation_id, text)
-            self.mount(ChatMessage(new_msg, classes="chat-message"), before=event.input)
+            # Determine sender class for the new message (use app-global map)
+            current_user = keyring.get_password(serviceKeyring, "username") or api.handle or "yourname"
+            sender = (new_msg.sender or new_msg.sender_handle or current_user)
+            # Ensure global map exists
+            if not hasattr(self.app, "_sender_map_global"):
+                setattr(self.app, "_sender_map_global", {})
+                setattr(self.app, "_sender_map_next_idx", 0)
+            global_map = getattr(self.app, "_sender_map_global")
+            if sender.lower() not in global_map:
+                next_idx = getattr(self.app, "_sender_map_next_idx", 0)
+                global_map[sender.lower()] = next_idx % 5
+                setattr(self.app, "_sender_map_next_idx", next_idx + 1)
+                setattr(self.app, "_sender_map_global", global_map)
+            idx = global_map[sender.lower()]
+            sender_class = f"sender-{idx}"
+            classes = f"chat-message sent {sender_class}"
+            self.mount(ChatMessage(new_msg, current_user=current_user, classes=classes), before=event.input)
             event.input.value = ""
             event.input.focus()
             self.scroll_end(animate=False)
@@ -2838,34 +3256,140 @@ class ChatView(VerticalScroll):
 
     def watch_cursor_position(self, old_position: int, new_position: int) -> None:
         """Update the cursor when position changes"""
+        # Treat the input as the final navigable item (index == len(messages))
+        messages = list(self.query(".chat-message"))
+
         # Remove cursor from old position
-        messages = self.query(".chat-message")
-        if old_position < len(messages):
-            old_msg = messages[old_position]
-            if "vim-cursor" in old_msg.classes:
-                old_msg.remove_class("vim-cursor")
+        try:
+            if old_position < len(messages):
+                old_msg = messages[old_position]
+                if "vim-cursor" in old_msg.classes:
+                    old_msg.remove_class("vim-cursor")
+            elif old_position == len(messages):
+                # old position was the input - remove visual indicator
+                try:
+                    inp = self.query_one("#message-input", Input)
+                    inp.remove_class("vim-cursor")
+                    # Only blur if input is not actively in insert mode
+                    if inp.has_focus and not self.input_active:
+                        try:
+                            inp.blur()
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
+        except Exception:
+            pass
 
         # Add cursor to new position
-        if new_position < len(messages):
-            new_msg = messages[new_position]
-            new_msg.add_class("vim-cursor")
+        try:
+            if new_position < len(messages):
+                new_msg = messages[new_position]
+                new_msg.add_class("vim-cursor")
+                # Scroll message into view
+                self.scroll_to_widget(new_msg)
+            elif new_position == len(messages):
+                # Select the input (visual indicator) but do NOT enter insert mode.
+                try:
+                    inp = self.query_one("#message-input", Input)
+                    inp.add_class("vim-cursor")
+                    # Ensure ChatView retains focus so vim keys are handled here
+                    try:
+                        self.focus()
+                    except Exception:
+                        pass
+                    # Ensure input area is visible at the bottom
+                    try:
+                        self.scroll_end(animate=False)
+                    except Exception:
+                        pass
+                except Exception:
+                    pass
+        except Exception:
+            pass
 
-            self.scroll_to_widget(new_msg)
+    def focus_last_message(self) -> None:
+        """Focus and select the last message in the chat after messages have mounted."""
+        try:
+            def _do_focus_last():
+                try:
+                    msgs = list(self.query(".chat-message"))
+                    if not msgs:
+                        return
+                    # Instead of focusing the last message, select the input
+                    # which is positioned after the last message (index == len(msgs)).
+                    inp_idx = len(msgs)
+                    # Set cursor position which triggers the watch_cursor_position
+                    # logic to visually mark the input without entering insert mode.
+                    self.cursor_position = inp_idx
+                except Exception:
+                    pass
+
+            # Schedule after the layout refresh so children exist
+            try:
+                self.call_after_refresh(_do_focus_last)
+            except Exception:
+                # Fallback small timer
+                try:
+                    self.set_timer(0.02, _do_focus_last)
+                except Exception:
+                    _do_focus_last()
+        except Exception:
+            pass
 
     def key_j(self) -> None:
         """Vim-style down navigation"""
         if self.app.command_mode:
             return
-        messages = self.query(".chat-message")
-        if self.cursor_position < len(messages) - 1:
+        messages = list(self.query(".chat-message"))
+        # allow moving into the input (index == len(messages))
+        if self.cursor_position < len(messages):
             self.cursor_position += 1
 
     def key_k(self) -> None:
         """Vim-style up navigation"""
         if self.app.command_mode:
             return
+        # Move up through messages and from the input back into messages
         if self.cursor_position > 0:
+            # If currently on the input and input_active, exit insert mode first
+            if self.cursor_position == len(list(self.query(".chat-message"))) and self.input_active:
+                try:
+                    inp = self.query_one("#message-input", Input)
+                    try:
+                        inp.blur()
+                    except Exception:
+                        pass
+                    self.input_active = False
+                except Exception:
+                    pass
             self.cursor_position -= 1
+
+    def key_i(self) -> None:
+        """Enter insert mode on the input when cursor is over it."""
+        if self.app.command_mode:
+            return
+        messages = list(self.query(".chat-message"))
+        if self.cursor_position == len(messages):
+            try:
+                inp = self.query_one("#message-input", Input)
+                inp.focus()
+                self.input_active = True
+            except Exception:
+                pass
+
+    def key_enter(self) -> None:
+        """If cursor is over input, start input (same as 'i')."""
+        if self.app.command_mode:
+            return
+        messages = list(self.query(".chat-message"))
+        if self.cursor_position == len(messages):
+            try:
+                inp = self.query_one("#message-input", Input)
+                inp.focus()
+                self.input_active = True
+            except Exception:
+                pass
 
     def key_g(self) -> None:
         """Vim-style go to top"""
@@ -2920,6 +3444,21 @@ class MessagesScreen(Container):
                 # Focus the message input
                 self.call_after_refresh(self._focus_message_input)
             except:
+                pass
+        else:
+            # No DM open: focus the conversations list and ensure first item selected
+            try:
+                # Use call_after_refresh to avoid races with initial compose
+                def _focus_conversations():
+                    try:
+                        conversations.cursor_position = 0
+                        conversations._update_cursor()
+                        conversations.focus()
+                    except Exception:
+                        pass
+
+                self.call_after_refresh(_focus_conversations)
+            except Exception:
                 pass
 
     def _focus_message_input(self):
@@ -4540,9 +5079,6 @@ class Proj101App(App):
                 conversations.border_title = "[6] Messages"
                 conversations.add_class("vim-mode-active")
                 conversations.focus()
-                # Reset cursor position to ensure it's visible
-                conversations.cursor_position = 0
-                conversations._update_cursor()
         except Exception:
             pass
 
@@ -4731,12 +5267,25 @@ class Proj101App(App):
                     if self.current_screen_name in ["timeline", "discover"]:
                         self.action_new_post()
                     elif self.current_screen_name == "messages":
-                        # Focus message input in messages screen
+                        # Open dialog to prompt for a username to message
                         try:
-                            msg_input = self.query_one("#message-input", Input)
-                            msg_input.focus()
-                        except:
-                            pass
+                            def _after(result):
+                                # result is the username string on success, False/None otherwise
+                                try:
+                                    if result:
+                                        # Switch to messages with that username (action_open_dm handles notification)
+                                        self.action_open_dm(result)
+                                except Exception:
+                                    pass
+
+                            self.push_screen(NewMessageDialog(), _after)
+                        except Exception:
+                            # Fallback: focus message input
+                            try:
+                                msg_input = self.query_one("#message-input", Input)
+                                msg_input.focus()
+                            except:
+                                pass
                     # Don't do anything for other screens (like drafts)
                 elif command.upper() == "D":
                     self.action_show_drafts()
