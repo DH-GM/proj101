@@ -76,9 +76,9 @@ class Post:
 class Message:
     id: int
     sender: str
-    sender_handle: str  # Denormalized from user table per PostgreSQL schema
+    sender_handle: str 
     content: str
-    timestamp: datetime
+    created_at: datetime
     is_read: bool = False
 
 
@@ -244,7 +244,7 @@ class RealAPI(APIInterface):
 
     def get_conversations(self) -> List[Conversation]:
         data = self._get("/conversations")
-        return [Conversation(**c) for c in data]
+        return [self._convert_conversation(c) for c in data]
 
     def get_conversation_messages(self, conversation_id: int) -> List[Message]:
         data = self._get(f"/conversations/{conversation_id}/messages")
@@ -267,7 +267,7 @@ class RealAPI(APIInterface):
                 "user_b_handle": other_user_handle
             }
         )
-        return Conversation(**data)
+        return self._convert_conversation(data)
 
     def get_notifications(self, unread_only: bool = False) -> List[Notification]:
         # Backend uses 'unread' parameter, not 'unread_only'
@@ -375,18 +375,38 @@ class RealAPI(APIInterface):
             attachments=p.get("attachments", [])  # Add attachments to the post object
         )
         return out
+    
+    def _convert_conversation(self, c: Dict[str, Any]) -> Conversation:
+        """Convert backend conversation response to Conversation dataclass"""
+        # Backend uses 'created_at' but we need 'last_message_at'
+        last_message_at_value = c.get("last_message_at") or c.get("created_at")
+
+        return Conversation(
+            id=int(c.get("id", 0)),
+            participant_handles=c.get("participant_handles") or [],
+            last_message_preview=c.get("last_message_preview") or "",
+            last_message_at=last_message_at_value
+            if isinstance(last_message_at_value, datetime)
+            else datetime.fromisoformat(last_message_at_value)
+            if last_message_at_value
+            else datetime.now(),
+            unread=bool(c.get("unread") or False),
+        )
 
     def _convert_message(self, m: Dict[str, Any]) -> Message:
         """Convert backend message response to Message dataclass"""
+        # Backend uses 'created_at' but our dataclass uses 'timestamp'
+        timestamp_value = m.get("timestamp") or m.get("created_at")
+
         return Message(
             id=int(m.get("id", 0)),
             sender=m.get("sender") or m.get("sender_handle") or self.handle,
             sender_handle=m.get("sender_handle") or m.get("sender") or self.handle,
             content=m.get("content") or "",
-            timestamp=m.get("timestamp")
-            if isinstance(m.get("timestamp"), datetime)
-            else datetime.fromisoformat(m.get("timestamp"))
-            if m.get("timestamp")
+            created_at=timestamp_value
+            if isinstance(timestamp_value, datetime)
+            else datetime.fromisoformat(timestamp_value)
+            if timestamp_value
             else datetime.now(),
             is_read=bool(m.get("is_read") or False),
         )
