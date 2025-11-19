@@ -129,15 +129,28 @@ def delete_draft(index: int) -> None:
 
 def format_time_ago(dt: datetime) -> str:
     """Format datetime as 'time ago' string."""
-    now = datetime.now()
-    diff = now - dt
-    if diff.days > 0:
-        return f"{diff.days}d ago"
-    if diff.seconds < 60:
+    # Normalize 'now' to the same tz-awareness as dt to avoid incorrect deltas
+    if dt is None:
         return "just now"
-    if diff.seconds < 3600:
-        return f"{diff.seconds // 60}m ago"
-    return f"{diff.seconds // 3600}h ago"
+    try:
+        now = datetime.now(dt.tzinfo) if dt.tzinfo else datetime.now()
+    except Exception:
+        now = datetime.now()
+
+    delta = now - dt
+    total_seconds = int(delta.total_seconds())
+    if total_seconds < 10:
+        return "just now"
+    if total_seconds < 60:
+        return f"{total_seconds}s ago"
+    minutes = total_seconds // 60
+    if minutes < 60:
+        return f"{minutes}m ago"
+    hours = minutes // 60
+    if hours < 24:
+        return f"{hours}h ago"
+    days = hours // 24
+    return f"{days}d ago"
 
 
 # ───────── Main UI Screen (not auth) ─────────
@@ -1044,16 +1057,55 @@ class ConversationItem(Static):
         )
         return f"{unread_marker}@{username}\n  {self.conversation.last_message_preview}\n  {time_ago} {unread_text}"
 
+    def on_click(self) -> None:
+        """Open this conversation when clicked with the mouse."""
+        try:
+            # If there's a conversations list, update its cursor_position so
+            # the clicked item becomes visually focused (matches keyboard nav).
+            try:
+                convs_list = self.app.query_one("#conversations", ConversationsList)
+                items = list(convs_list.query(".conversation-item"))
+                if self in items:
+                    convs_list.cursor_position = items.index(self)
+            except Exception:
+                pass
+
+            # Determine username to display (other participant)
+            current_user = keyring.get_password(serviceKeyring, "username") or "yourname"
+            other_participants = [h for h in self.conversation.participant_handles if h != current_user]
+            username = (
+                other_participants[0]
+                if other_participants
+                else self.conversation.participant_handles[0]
+                if self.conversation.participant_handles
+                else "unknown"
+            )
+
+            # Update chat view
+            try:
+                chat_view = self.app.query_one("#chat", ChatView)
+                chat_view.conversation_id = self.conversation.id
+                chat_view.conversation_username = username
+
+                # Reload messages in the chat view
+                chat_view.remove_children()
+                chat_view.mount_all(chat_view.compose())
+                chat_view.focus()
+            except Exception:
+                pass
+        except Exception:
+            pass
+
 
 class ChatMessage(Static):
-    def __init__(self, message, current_user: str = "yourname", **kwargs):
+    def __init__(self, message, current_user: str = "", **kwargs):
         super().__init__(**kwargs)
         self.message = message
         is_sent = message.sender == current_user
         self.add_class("sent" if is_sent else "received")
 
     def render(self) -> str:
-        return f"{self.message.content}\n{format_time_ago(self.message.timestamp)}"
+        return f"{self.message.content}\n{format_time_ago(self.message.created_at)}"
 
 
 class PostItem(Static):
@@ -2786,26 +2838,35 @@ class ConversationsList(VerticalScroll):
 
 class ChatView(VerticalScroll):
     conversation_id = reactive(0)  # Changed to int to match backend
-    conversation_username = reactive("alice")
+    conversation_username = reactive("")
     cursor_position = reactive(0)
 
-    def __init__(self, conversation_id: int = 0, username: str = "alice", **kwargs):
+    def __init__(self, conversation_id: int = 0, username: str = "", **kwargs):
         super().__init__(**kwargs)
         self.conversation_id = conversation_id
         self.conversation_username = username
 
     def compose(self) -> ComposeResult:
         self.border_title = "[0] Chat"
+
+        # If no conversation is selected, show a friendly placeholder
+        if not self.conversation_id or self.conversation_id <= 0:
+            yield Static("Select a conversation", classes="panel-header")
+            yield Static(
+                "\nSelect a conversation from the list on the left to view messages.",
+                classes="help-text",
+                markup=False,
+            )
+            return
+
         # Only fetch messages if conversation_id is valid (> 0)
         messages = []
-        if self.conversation_id > 0:
-            try:
-                messages = api.get_conversation_messages(self.conversation_id)
-            except Exception as e:
-                messages = []
-        yield Static(
-            f"@{self.conversation_username} | conversation", classes="panel-header"
-        )
+        try:
+            messages = api.get_conversation_messages(self.conversation_id)
+        except Exception:
+            messages = []
+
+        yield Static(f"@{self.conversation_username} | conversation", classes="panel-header")
         for msg in messages:
             yield ChatMessage(msg, classes="chat-message")
         yield Static("-- INSERT --", classes="mode-indicator")
