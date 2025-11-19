@@ -1947,19 +1947,142 @@ class NewMessageDialog(ModalScreen):
     display an inline error and keep the dialog open.
     """
 
+    # 0 = Open, 1 = Cancel
+    cursor_position = reactive(0)
+    in_input = reactive(True)
+
     def compose(self) -> ComposeResult:
         with Container(id="dialog-container"):
             yield Static("💬 New Message", id="dialog-title")
             yield Input(placeholder="Enter recipient handle (without @)", id="dm-username-input")
             yield Static("", id="dm-status", classes="status-message")
+            # Small hint for vim-style input/selection controls
+            yield Static("\\[i] edit  |  \\[esc] navigate", id="dm-hint", classes="input-hint")
             with Container(id="action-buttons"):
-                yield Button("Open", variant="primary", id="dm-open")
-                yield Button("Cancel", id="dm-cancel")
+                open_btn = Button("Open", variant="primary", id="dm-open")
+                cancel_btn = Button("Cancel", id="dm-cancel")
+                # Apply visual selection based on cursor position
+                if self.cursor_position == 0:
+                    open_btn.add_class("selected")
+                else:
+                    cancel_btn.add_class("selected")
+                yield open_btn
+                yield cancel_btn
 
     def on_mount(self) -> None:
         try:
             inp = self.query_one("#dm-username-input", Input)
             inp.focus()
+        except Exception:
+            pass
+
+    def key_i(self) -> None:
+        """Enter insert mode: focus the input box."""
+        if self.app.command_mode:
+            return
+        try:
+            self.in_input = True
+            inp = self.query_one("#dm-username-input", Input)
+            inp.focus()
+        except Exception:
+            pass
+
+    def key_escape(self) -> None:
+        """Exit input and focus buttons for h/l navigation."""
+        if self.app.command_mode:
+            return
+        try:
+            # If currently in input, move to button navigation
+            if getattr(self, "in_input", False):
+                self.in_input = False
+                # Focus the currently-selected button
+                btns = list(self.query("#action-buttons Button"))
+                if not btns:
+                    return
+                sel = max(0, min(self.cursor_position, len(btns) - 1))
+                try:
+                    btns[sel].focus()
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+    def key_h(self) -> None:
+        """Move selection left (Open)."""
+        if self.app.command_mode:
+            return
+        # Only navigate buttons when not in input
+        if getattr(self, "in_input", True):
+            return
+        try:
+            self.cursor_position = 0
+        except Exception:
+            pass
+
+    def key_l(self) -> None:
+        """Move selection right (Cancel)."""
+        if self.app.command_mode:
+            return
+        if getattr(self, "in_input", True):
+            return
+        try:
+            self.cursor_position = 1
+        except Exception:
+            pass
+
+    def watch_cursor_position(self, old_position: int, new_position: int) -> None:
+        """Update button selection visuals when cursor changes."""
+        try:
+            btns = list(self.query("#action-buttons Button"))
+            for i, b in enumerate(btns):
+                if i == new_position:
+                    if "selected" not in b.classes:
+                        b.add_class("selected")
+                    if "vim-cursor" not in b.classes:
+                        b.add_class("vim-cursor")
+                else:
+                    if "selected" in b.classes:
+                        b.remove_class("selected")
+                    if "vim-cursor" in b.classes:
+                        b.remove_class("vim-cursor")
+                # ensure focus follows the selected button when not in input
+                if not getattr(self, "in_input", True) and i == new_position:
+                    try:
+                        b.focus()
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+
+    def watch_in_input(self, old: bool, new: bool) -> None:
+        """When entering/exiting input mode, update button visuals accordingly."""
+        try:
+            btns = list(self.query("#action-buttons Button"))
+            if new:
+                # Entering input: remove selection visuals
+                for b in btns:
+                    if "selected" in b.classes:
+                        b.remove_class("selected")
+                    if "vim-cursor" in b.classes:
+                        b.remove_class("vim-cursor")
+            else:
+                # Leaving input: ensure the selected button has visuals and focus
+                sel = max(0, min(self.cursor_position, len(btns) - 1))
+                for i, b in enumerate(btns):
+                    if i == sel:
+                        if "selected" not in b.classes:
+                            b.add_class("selected")
+                        if "vim-cursor" not in b.classes:
+                            b.add_class("vim-cursor")
+                        try:
+                            b.focus()
+                        except Exception:
+                            pass
+                    else:
+                        if "selected" in b.classes:
+                            b.remove_class("selected")
+                        if "vim-cursor" in b.classes:
+                            b.remove_class("vim-cursor")
         except Exception:
             pass
 
@@ -1974,7 +2097,19 @@ class NewMessageDialog(ModalScreen):
     def key_enter(self) -> None:
         if self.app.command_mode:
             return
-        self._try_open()
+        # If currently in input, attempt to open; otherwise activate selected button
+        if getattr(self, "in_input", True):
+            self._try_open()
+            return
+
+        # Button navigation: 0 = Open, 1 = Cancel
+        try:
+            if self.cursor_position == 0:
+                self._try_open()
+            else:
+                self.dismiss(False)
+        except Exception:
+            pass
 
     def _try_open(self) -> None:
         try:

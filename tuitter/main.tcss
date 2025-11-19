@@ -1549,7 +1549,7 @@ Button.-error:hover {
 
 /* ========== NEW POST DIALOG STYLES ========== */
 
-NewPostDialog, DeleteDraftDialog {
+NewPostDialog, DeleteDraftDialog, NewMessageDialog {
     align: center middle;
 }
 
@@ -1599,6 +1599,29 @@ NewPostDialog, DeleteDraftDialog {
     color: $text-muted;
     text-align: center;
     text-style: italic;
+}
+
+/* Input hint for dialogs (e.g. [i] edit | [esc] navigate) */
+.input-hint {
+    width: 100%;
+    height: auto;
+    margin: 0 1;
+    padding: 0 1;
+    color: $text-muted;
+    text-align: center;
+    text-style: italic;
+}
+
+/* Selected state for action buttons inside dialogs */
+#action-buttons Button.selected {
+    background: $primary-dark;
+    border: heavy $primary;
+    color: $text-primary;
+}
+
+#action-buttons Button.selected:hover {
+    background: $primary-hover;
+    border: heavy $primary-hover;
 }
 
 /* Attachments List */
