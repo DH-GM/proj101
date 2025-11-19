@@ -1028,10 +1028,10 @@ class ProfileDisplay(Static):
 
     def compose(self) -> ComposeResult:
         user = api.get_current_user()
-        username = keyring.get_password(serviceKeyring, "username")
+        username = user.display_name
         if username == None:
             username = user.username
-        yield Static(f"@{username} • {user.display_name}", classes="profile-username")
+        yield Static(f"@{username}", classes="profile-username")
 
 
 class ConversationItem(Static):
@@ -3970,13 +3970,23 @@ class SettingsPanel(VerticalScroll):
                 try:
                     clear_credentials()
                 except Exception:
-                    # best-effort fallback to remove legacy keys
-                    try:
-                        keyring.delete_password(serviceKeyring, "refresh_token")
-                        keyring.delete_password(serviceKeyring, "username")
-                        keyring.delete_password(serviceKeyring, "oauth_tokens.json")
-                    except Exception:
-                        pass
+                        # best-effort fallback: try centralized clear_tokens, then legacy deletes
+                        try:
+                            from .auth_storage import clear_tokens
+                            clear_tokens()
+                        except Exception:
+                            try:
+                                keyring.delete_password(serviceKeyring, "refresh_token")
+                            except Exception:
+                                pass
+                            try:
+                                keyring.delete_password(serviceKeyring, "username")
+                            except Exception:
+                                pass
+                            try:
+                                keyring.delete_password(serviceKeyring, "oauth_tokens.json")
+                            except Exception:
+                                pass
 
                 # Clear API auth header and reset handle
                 try:
@@ -4862,7 +4872,11 @@ class Proj101App(App):
             restored = False
             # Try a few quick attempts to restore session to avoid races with
             # another process writing the fallback token file (small window at startup).
-            for attempt in range(3):
+
+            # Clock to limit total restore time, and try to restore during that range
+            allow_restore_time = 2.0  # seconds
+            start_time = time.time()
+            while time.time() - start_time < allow_restore_time:
                 try:
                     restored = api.try_restore_session()
                 except Exception as e:

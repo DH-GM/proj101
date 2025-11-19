@@ -105,14 +105,11 @@ def authenticate() -> Dict[str, str]:
     if not logger.handlers:
         level = logging.DEBUG if os.getenv("TUITTER_DEBUG") else logging.WARNING
         logger.setLevel(level)
-        stream = logging.StreamHandler(sys.stderr)
-        stream.setLevel(level)
         fmt = logging.Formatter("[%(name)s] %(levelname)s: %(message)s")
-        stream.setFormatter(fmt)
-        logger.addHandler(stream)
 
-        # Also write to a debug file when debugging is enabled so Textual's
-        # stdout/stderr capturing doesn't hide messages. File: ~/.tuitter_debug.log
+        # Only write to a debug file when debugging is enabled. Do NOT add
+        # a console/stream handler — logs should go to the file only when
+        # TUITTER_DEBUG is set.
         if os.getenv("TUITTER_DEBUG"):
             try:
                 log_file = Path.home() / ".tuitter_debug.log"
@@ -121,6 +118,7 @@ def authenticate() -> Dict[str, str]:
                 fh.setFormatter(fmt)
                 logger.addHandler(fh)
             except Exception:
+                # Never fail auth because logging setup couldn't write the file
                 pass
 
     handler_class = _make_handler(auth_event, auth_response)
@@ -306,24 +304,27 @@ def refresh_tokens(refresh_token: str) -> Dict[str, str]:
 def clear_credentials():
     """Clear stored credentials from system keyring."""
     try:
-        # Remove refresh token, username, and any legacy full-token key
+        # Delegate clearing to centralized helper which also removes chunked parts
         try:
-            keyring.delete_password(SERVICE_NAME, 'refresh_token')
+            clear_tokens()
         except Exception:
-            pass
-        try:
-            keyring.delete_password(SERVICE_NAME, 'username')
-        except Exception:
-            pass
-        try:
-            keyring.delete_password(SERVICE_NAME, 'oauth_tokens.json')
-        except Exception:
-            pass
-        # Remove fallback file if present
-        try:
-            if FALLBACK_TOKEN_FILE.exists():
-                FALLBACK_TOKEN_FILE.unlink()
-        except Exception:
-            pass
+            # best-effort fallback: attempt to remove legacy keys
+            try:
+                keyring.delete_password(SERVICE_NAME, 'refresh_token')
+            except Exception:
+                pass
+            try:
+                keyring.delete_password(SERVICE_NAME, 'username')
+            except Exception:
+                pass
+            try:
+                keyring.delete_password(SERVICE_NAME, 'oauth_tokens.json')
+            except Exception:
+                pass
+            try:
+                if FALLBACK_TOKEN_FILE.exists():
+                    FALLBACK_TOKEN_FILE.unlink()
+            except Exception:
+                pass
     except:
         pass  # Ignore errors deleting from keyring

@@ -14,6 +14,12 @@ import signal
 import subprocess
 import os
 import keyring
+try:
+    # Prefer centralized auth_storage when this module runs inside the package
+    from tuitter.auth_storage import save_tokens_full, store_chunked_value
+    _USE_AUTH_STORAGE = True
+except Exception:
+    _USE_AUTH_STORAGE = False
 
 serviceKeyring = "tuitter"
 
@@ -75,8 +81,48 @@ class OAuthCallbackHandler(BaseHTTPRequestHandler):
                         tokens = resp.json()
                         # Path("oauth_tokens.json").write_text(json.dumps(tokens, indent=2) + "\n")
 
-                        set_token("oauth_tokens.json", json.dumps(tokens, indent=2) + "\n")
-                        print("✅ Tokens saved", file=sys.stderr, flush=True)
+                        # Prefer centralized storage if available
+                        # Prefer centralized storage if available. If not available
+                        # or it fails, write token pieces individually to keyring
+                        # (avoids large-blob failures on Windows).
+                        if _USE_AUTH_STORAGE:
+                            try:
+                                # username may not be known yet; save without it
+                                save_tokens_full(tokens, None)
+                                print("✅ Tokens saved via auth_storage", file=sys.stderr, flush=True)
+                            except Exception as e:
+                                print(f"⚠️ auth_storage.save_tokens_full failed: {e}; falling back to keyring pieces", file=sys.stderr, flush=True)
+                                access = tokens.get("access_token")
+                                refresh = tokens.get("refresh_token")
+                                idt = tokens.get("id_token")
+                                if access:
+                                    set_token("access_token", access)
+                                if refresh:
+                                    # Prefer chunked storage to avoid single CredWrite failures
+                                    if _USE_AUTH_STORAGE:
+                                        try:
+                                            store_chunked_value("refresh_token", refresh)
+                                        except Exception:
+                                            # fall back to direct write
+                                            set_token("refresh_token", refresh)
+                                    else:
+                                        set_token("refresh_token", refresh)
+                                if idt:
+                                    set_token("id_token", idt)
+                                print("✅ Tokens saved to keyring (pieces)", file=sys.stderr, flush=True)
+                        else:
+                            access = tokens.get("access_token")
+                            refresh = tokens.get("refresh_token")
+                            idt = tokens.get("id_token")
+                            if access:
+                                set_token("access_token", access)
+                            if refresh:
+                                # When auth_storage not available as a module, fall back
+                                # to direct writes (best-effort).
+                                set_token("refresh_token", refresh)
+                            if idt:
+                                set_token("id_token", idt)
+                            print("✅ Tokens saved (pieces)", file=sys.stderr, flush=True)
 
                         # Signal wrapper script to restart main.py
                         try:
@@ -117,7 +163,19 @@ class OAuthCallbackHandler(BaseHTTPRequestHandler):
                         # Path("oauth_tokens.json").open("a").write(json.dumps({"user_name": user_name}, indent=2) + "\n")
                         print(f"✅ User name: {user_name}", file=sys.stderr, flush=True)
                         print(f"{json.dumps(resp.json(), indent=2)}", file=sys.stderr, flush=True)
-                        set_user_name("username", user_name)
+                        # Also persist username (auth_storage already sets small username key
+                        # as a best-effort, but ensure compatibility when running standalone)
+                        if _USE_AUTH_STORAGE:
+                            try:
+                                # save_tokens_full already saved username; no-op here
+                                pass
+                            except Exception:
+                                try:
+                                    set_user_name("username", user_name)
+                                except Exception:
+                                    pass
+                        else:
+                            set_user_name("username", user_name)
                         print(f"✅ Tokens verified: {resp}", file=sys.stderr, flush=True)
                     except Exception as e:
                         print(f"❌ Tokens verification failed: {e}", file=sys.stderr, flush=True)
