@@ -1090,7 +1090,13 @@ class ConversationItem(Static):
                 # Reload messages in the chat view
                 chat_view.remove_children()
                 chat_view.mount_all(chat_view.compose())
-                chat_view.focus()
+                try:
+                    chat_view.focus_last_message()
+                except Exception:
+                    try:
+                        chat_view.focus()
+                    except Exception:
+                        pass
             except Exception:
                 pass
 
@@ -2925,6 +2931,8 @@ class NotificationsScreen(Container):
 class ConversationsList(VerticalScroll):
     cursor_position = reactive(0)
     can_focus = True
+    # Track whether the list has performed its initial mount setup
+    has_initialized = False
 
     def compose(self) -> ComposeResult:
         # Fetch conversations and sort most-recent-first by last_message_at
@@ -2947,14 +2955,19 @@ class ConversationsList(VerticalScroll):
     def on_mount(self) -> None:
         """Watch for cursor position changes"""
         self.watch(self, "cursor_position", self._update_cursor)
-        # Ensure first conversation is focused and visible when the list mounts
+        # Only perform initial focus and cursor setup the first time the list mounts.
         try:
-            # Default to first item
-            self.cursor_position = 0
-            # Update visuals immediately
-            self._update_cursor()
-            # Give focus to the conversations list so keyboard navigation works right away
-            self.focus()
+            if not getattr(self, "has_initialized", False):
+                # Default to first item only on first mount
+                self.cursor_position = 0
+                # Update visuals immediately
+                self._update_cursor()
+                # Give focus to the conversations list so keyboard navigation works right away
+                try:
+                    self.focus()
+                except Exception:
+                    pass
+                self.has_initialized = True
         except Exception:
             pass
 
@@ -2979,8 +2992,11 @@ class ConversationsList(VerticalScroll):
 
     def on_focus(self) -> None:
         """When the list gets focus"""
-        self.cursor_position = 0
-        self._update_cursor()
+        # Don't override the user's cursor_position when focusing; just refresh visuals
+        try:
+            self._update_cursor()
+        except Exception:
+            pass
 
     def on_blur(self) -> None:
         """When list loses focus"""
@@ -3076,8 +3092,14 @@ class ConversationsList(VerticalScroll):
                 chat_view.remove_children()
                 chat_view.mount_all(chat_view.compose())
 
-                # Focus the chat view
-                chat_view.focus()
+                # Focus the chat view and select the last message
+                try:
+                    chat_view.focus_last_message()
+                except Exception:
+                    try:
+                        chat_view.focus()
+                    except Exception:
+                        pass
         except Exception:
             pass
 
@@ -3245,6 +3267,36 @@ class ChatView(VerticalScroll):
             new_msg.add_class("vim-cursor")
 
             self.scroll_to_widget(new_msg)
+
+    def focus_last_message(self) -> None:
+        """Focus and select the last message in the chat after messages have mounted."""
+        try:
+            def _do_focus_last():
+                try:
+                    msgs = list(self.query(".chat-message"))
+                    if not msgs:
+                        return
+                    last_idx = max(0, len(msgs) - 1)
+                    # Set cursor position which triggers visual update and scrolling
+                    self.cursor_position = last_idx
+                    try:
+                        msgs[last_idx].focus()
+                    except Exception:
+                        pass
+                except Exception:
+                    pass
+
+            # Schedule after the layout refresh so children exist
+            try:
+                self.call_after_refresh(_do_focus_last)
+            except Exception:
+                # Fallback small timer
+                try:
+                    self.set_timer(0.02, _do_focus_last)
+                except Exception:
+                    _do_focus_last()
+        except Exception:
+            pass
 
     def key_j(self) -> None:
         """Vim-style down navigation"""
@@ -4949,9 +5001,6 @@ class Proj101App(App):
                 conversations.border_title = "[6] Messages"
                 conversations.add_class("vim-mode-active")
                 conversations.focus()
-                # Reset cursor position to ensure it's visible
-                conversations.cursor_position = 0
-                conversations._update_cursor()
         except Exception:
             pass
 
