@@ -1054,7 +1054,9 @@ class ConversationItem(Static):
             if self.conversation.participant_handles
             else "unknown"
         )
-        return f"@{username}\n  {self.conversation.last_message_preview}\n  {unread_text}"
+        return (
+            f"@{username}\n  {self.conversation.last_message_preview}\n  {unread_text}"
+        )
 
     def on_click(self) -> None:
         """Open this conversation when clicked with the mouse."""
@@ -1070,8 +1072,12 @@ class ConversationItem(Static):
                 pass
 
             # Determine username to display (other participant)
-            current_user = keyring.get_password(serviceKeyring, "username") or "yourname"
-            other_participants = [h for h in self.conversation.participant_handles if h != current_user]
+            current_user = (
+                keyring.get_password(serviceKeyring, "username") or "yourname"
+            )
+            other_participants = [
+                h for h in self.conversation.participant_handles if h != current_user
+            ]
             username = (
                 other_participants[0]
                 if other_participants
@@ -1120,14 +1126,25 @@ class ConversationItem(Static):
 
                     # Update conversations header unread count if present
                     try:
-                        convs_list = self.app.query_one("#conversations", ConversationsList)
-                        if hasattr(convs_list, "_conversations") and convs_list._conversations is not None:
+                        convs_list = self.app.query_one(
+                            "#conversations", ConversationsList
+                        )
+                        if (
+                            hasattr(convs_list, "_conversations")
+                            and convs_list._conversations is not None
+                        ):
                             # update the corresponding conversation object in stored list
                             for c in convs_list._conversations:
                                 if int(c.id) == int(self.conversation.id):
                                     c.unread = False
                                     break
-                            unread_count = len([c for c in convs_list._conversations if getattr(c, "unread", False)])
+                            unread_count = len(
+                                [
+                                    c
+                                    for c in convs_list._conversations
+                                    if getattr(c, "unread", False)
+                                ]
+                            )
                             try:
                                 header = convs_list.query_one(".panel-header", Static)
                                 header.update(f"conversations | {unread_count} unread")
@@ -1373,76 +1390,93 @@ class UserProfileCard(Static):
 # ───────── Top Navbar ─────────
 
 
+from textual.widgets import Tabs, Tab
+
+
 class TopNav(Horizontal):
-    """Horizontal top navigation bar."""
+    """Top navigation implemented using Textual's Tabs widget.
+
+    This wrapper preserves the `update_active(screen_name)` API so the rest
+    of the app (notably `switch_screen`) doesn't need to change.
+    """
 
     current = reactive("timeline")
 
     def __init__(self, current: str = "timeline", **kwargs):
         super().__init__(**kwargs)
         self.current = current
+        # Expose the inner Tabs widget for easier external access
+        self.tabs = None
 
     def compose(self) -> ComposeResult:
-        yield Label("[1] Timeline", classes="nav-item", id="nav-timeline")
-        yield Label("[2] Discover", classes="nav-item", id="nav-discover")
-        yield Label("[3] Notifs", classes="nav-item", id="nav-notifications")
-        yield Label("[4] Messages", classes="nav-item", id="nav-messages")
-        yield Label("[5] Settings", classes="nav-item", id="nav-settings")
+        # Use explicit Tab ids so programmatic activation is stable
+        yield Tabs(
+            Tab("[1] Timeline", id="tab-timeline"),
+            Tab("[2] Discover", id="tab-discover"),
+            Tab("[3] Notifs", id="tab-notifications"),
+            Tab("[4] Messages", id="tab-messages"),
+            Tab("[5] Settings", id="tab-settings"),
+            id="top-tabs",
+            active=self._screen_to_tab_id(self.current),
+        )
+
+    def _tab_to_screen_name(self, tab_id: str) -> str:
+        return {
+            "tab-timeline": "timeline",
+            "tab-discover": "discover",
+            "tab-notifications": "notifications",
+            "tab-messages": "messages",
+            "tab-settings": "settings",
+        }.get(tab_id, "timeline")
+
+    def _screen_to_tab_id(self, screen_name: str) -> str:
+        return {
+            "timeline": "tab-timeline",
+            "discover": "tab-discover",
+            "notifications": "tab-notifications",
+            "messages": "tab-messages",
+            "settings": "tab-settings",
+        }.get(screen_name, "tab-timeline")
 
     def on_mount(self) -> None:
-        """Set initial active state when mounted."""
-        self.update_active(self.current)
+        # Ensure the active tab reflects current
+        try:
+            tabs = self.query_one("#top-tabs", Tabs)
+            tabs.active = self._screen_to_tab_id(self.current)
+            # Save reference for external callers
+            self.tabs = tabs
 
-    def on_click(self, event) -> None:
-        """Handle clicks on nav items."""
-        # Map nav item IDs to screen names
-        id_to_screen = {
-            "nav-timeline": "timeline",
-            "nav-discover": "discover",
-            "nav-notifications": "notifications",
-            "nav-messages": "messages",
-            "nav-settings": "settings",
-        }
+        except Exception:
+            pass
 
-        # Check which widget was clicked by examining all nav items
-        for nav_id, screen_name in id_to_screen.items():
-            try:
-                nav_item = self.query_one(f"#{nav_id}", Label)
-                # Check if the click coordinates are within this nav item's region
-                if nav_item.region.contains(event.screen_x, event.screen_y):
-                    self.app.switch_screen(screen_name)
-                    break
-            except Exception:
-                pass
+    def on_tabs_tab_activated(self, event: Tabs.TabActivated) -> None:
+        """Handle TabActivated message from inner Tabs and switch screens."""
+        try:
+            # event.tab can be a Tab or None depending on Textual version
+            tab = getattr(event, "tab", None)
+            if tab is None:
+                return
+            tab_id = getattr(tab, "id", None)
+            if not tab_id:
+                return
+            screen_name = self._tab_to_screen_name(tab_id)
+            # Ask the App to switch screens
+            self.app.switch_screen(screen_name)
+        except Exception:
+            pass
 
     def update_active(self, screen_name: str):
-        """Update which nav item is marked as active."""
+        """Compatibility method used by the App to set the active screen."""
         self.current = screen_name
+        try:
+            if getattr(self, "tabs", None) is not None:
+                self.tabs.active = self._screen_to_tab_id(screen_name)
+            else:
+                tabs = self.query_one("#top-tabs", Tabs)
+                tabs.active = self._screen_to_tab_id(screen_name)
 
-        # Map screen names to nav item IDs
-        nav_map = {
-            "timeline": "nav-timeline",
-            "discover": "nav-discover",
-            "notifications": "nav-notifications",
-            "messages": "nav-messages",
-            "settings": "nav-settings",
-        }
-
-        # Remove active class from all items
-        for nav_id in nav_map.values():
-            try:
-                item = self.query_one(f"#{nav_id}", Label)
-                item.remove_class("active")
-            except Exception:
-                pass
-
-        # Add active class to current screen's nav item
-        if screen_name in nav_map:
-            try:
-                item = self.query_one(f"#{nav_map[screen_name]}", Label)
-                item.add_class("active")
-            except Exception:
-                pass
+        except Exception:
+            pass
 
 
 # ───────── Sidebar ─────────
@@ -1961,10 +1995,14 @@ class NewMessageDialog(ModalScreen):
     def compose(self) -> ComposeResult:
         with Container(id="dialog-container"):
             yield Static("💬 New Message", id="dialog-title")
-            yield Input(placeholder="Enter recipient handle (without @)", id="dm-username-input")
+            yield Input(
+                placeholder="Enter recipient handle (without @)", id="dm-username-input"
+            )
             yield Static("", id="dm-status", classes="status-message")
             # Small hint for vim-style input/selection controls
-            yield Static("\\[i] edit  |  \\[esc] navigate", id="dm-hint", classes="input-hint")
+            yield Static(
+                "\\[i] edit  |  \\[esc] navigate", id="dm-hint", classes="input-hint"
+            )
             with Container(id="action-buttons"):
                 open_btn = Button("Open", variant="primary", id="dm-open")
                 cancel_btn = Button("Cancel", id="dm-cancel")
@@ -2939,7 +2977,9 @@ class ConversationsList(VerticalScroll):
         # Fetch conversations and sort most-recent-first by last_message_at
         conversations = api.get_conversations()
         try:
-            conversations = sorted(conversations, key=lambda c: c.last_message_at, reverse=True)
+            conversations = sorted(
+                conversations, key=lambda c: c.last_message_at, reverse=True
+            )
         except Exception:
             # Fallback: leave order as-is
             pass
@@ -3160,7 +3200,9 @@ class ChatView(VerticalScroll):
             messages = []
 
         # Resolve current user once for use in message rendering
-        current_user = keyring.get_password(serviceKeyring, "username") or api.handle or "yourname"
+        current_user = (
+            keyring.get_password(serviceKeyring, "username") or api.handle or "yourname"
+        )
 
         # Build a sender->index resolver using a global map on the app so colors persist
         def _sender_idx(sender: str) -> int:
@@ -3188,12 +3230,21 @@ class ChatView(VerticalScroll):
                 # Also update the locally-stored conversations list so the header/unread dot refreshes
                 try:
                     convs_list = self.app.query_one("#conversations", ConversationsList)
-                    if hasattr(convs_list, "_conversations") and convs_list._conversations is not None:
+                    if (
+                        hasattr(convs_list, "_conversations")
+                        and convs_list._conversations is not None
+                    ):
                         for c in convs_list._conversations:
                             if int(c.id) == int(self.conversation_id):
                                 c.unread = False
                                 break
-                        unread_count = len([c for c in convs_list._conversations if getattr(c, "unread", False)])
+                        unread_count = len(
+                            [
+                                c
+                                for c in convs_list._conversations
+                                if getattr(c, "unread", False)
+                            ]
+                        )
                         try:
                             header = convs_list.query_one(".panel-header", Static)
                             header.update(f"conversations | {unread_count} unread")
@@ -3204,7 +3255,9 @@ class ChatView(VerticalScroll):
             except Exception:
                 pass
 
-        yield Static(f"@{self.conversation_username} | conversation", classes="panel-header")
+        yield Static(
+            f"@{self.conversation_username} | conversation", classes="panel-header"
+        )
         for msg in messages:
             idx = _sender_idx(msg.sender)
             sender_class = f"sender-{idx}"
@@ -3231,8 +3284,12 @@ class ChatView(VerticalScroll):
         try:
             new_msg = api.send_message(self.conversation_id, text)
             # Determine sender class for the new message (use app-global map)
-            current_user = keyring.get_password(serviceKeyring, "username") or api.handle or "yourname"
-            sender = (new_msg.sender or new_msg.sender_handle or current_user)
+            current_user = (
+                keyring.get_password(serviceKeyring, "username")
+                or api.handle
+                or "yourname"
+            )
+            sender = new_msg.sender or new_msg.sender_handle or current_user
             # Ensure global map exists
             if not hasattr(self.app, "_sender_map_global"):
                 setattr(self.app, "_sender_map_global", {})
@@ -3246,7 +3303,10 @@ class ChatView(VerticalScroll):
             idx = global_map[sender.lower()]
             sender_class = f"sender-{idx}"
             classes = f"chat-message sent {sender_class}"
-            self.mount(ChatMessage(new_msg, current_user=current_user, classes=classes), before=event.input)
+            self.mount(
+                ChatMessage(new_msg, current_user=current_user, classes=classes),
+                before=event.input,
+            )
             event.input.value = ""
             event.input.focus()
             self.scroll_end(animate=False)
@@ -3311,6 +3371,7 @@ class ChatView(VerticalScroll):
     def focus_last_message(self) -> None:
         """Focus and select the last message in the chat after messages have mounted."""
         try:
+
             def _do_focus_last():
                 try:
                     msgs = list(self.query(".chat-message"))
@@ -3353,7 +3414,10 @@ class ChatView(VerticalScroll):
         # Move up through messages and from the input back into messages
         if self.cursor_position > 0:
             # If currently on the input and input_active, exit insert mode first
-            if self.cursor_position == len(list(self.query(".chat-message"))) and self.input_active:
+            if (
+                self.cursor_position == len(list(self.query(".chat-message")))
+                and self.input_active
+            ):
                 try:
                     inp = self.query_one("#message-input", Input)
                     try:
@@ -5037,8 +5101,11 @@ class Proj101App(App):
     def action_focus_navigation(self) -> None:
         try:
             topnav = self.query_one("#top-navbar", TopNav)
-            first = topnav.query_one(".nav-item", NavigationItem)
-            first.focus()
+            # Prefer direct attribute if TopNav exposed its Tabs instance
+            tabs = getattr(topnav, "tabs", None)
+            if tabs is None:
+                tabs = topnav.query_one("#top-tabs", Tabs)
+            tabs.focus()
         except Exception:
             pass
 
@@ -5269,6 +5336,7 @@ class Proj101App(App):
                     elif self.current_screen_name == "messages":
                         # Open dialog to prompt for a username to message
                         try:
+
                             def _after(result):
                                 # result is the username string on success, False/None otherwise
                                 try:

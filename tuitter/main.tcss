@@ -454,25 +454,29 @@ DraftsScreen {
     margin-bottom: 1;
 }
 
-#top-navbar .nav-item {
+#top-navbar Tabs#top-tabs {
+    layout: horizontal;
+    width: 100%;
+    height: auto;
+    background: transparent;
+    content-align: left middle;
+}
+
+#top-tabs Tab {
     width: auto;
     padding: 0 3;
-    /* keep items visually subtle until hovered/active */
     background: transparent;
     color: $primary-light;
-    /* 'normal' is not a valid value for text-style in this TUI stylesheet; use 'none' instead */
     text-style: none;
     content-align: center middle;
 }
 
-#top-navbar .nav-item:hover {
-    /* gentle highlight on hover */
+#top-tabs Tab:hover {
     background: $primary-darker;
     color: $text-primary;
 }
 
-#top-navbar .nav-item:focus {
-    /* clear keyboard focus state: visible outline + stronger background */
+#top-tabs Tab:focus {
     outline: thick $primary;
     background: $primary-dark;
     color: $text-primary;
@@ -480,8 +484,7 @@ DraftsScreen {
     border-bottom: heavy $primary;
 }
 
-#top-navbar .nav-item.active {
-    /* active tab: stronger background and accent underline */
+#top-tabs Tab.-active, #top-tabs Tab.active {
     background: $primary-dark;
     color: $text-primary;
     text-style: bold;
