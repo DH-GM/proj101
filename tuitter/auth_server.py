@@ -5,7 +5,6 @@ and stores tokens securely using the system keyring.
 from http.server import HTTPServer, BaseHTTPRequestHandler
 import webbrowser
 import requests
-import keyring
 import json
 import sys
 from urllib.parse import urlencode, urlparse, parse_qs
@@ -13,6 +12,7 @@ from typing import Optional, Dict, Any
 import signal
 import threading
 from .auth_config import *
+from .auth_storage import save_tokens_full, store_chunked_value
 
 class AuthServer:
     def __init__(self):
@@ -107,15 +107,32 @@ class AuthServer:
 
                     user_info = user_response.json()
 
-                    # Store tokens and username
-                    keyring.set_password(KEYRING_SERVICE, TOKEN_KEY, json.dumps(tokens))
-                    keyring.set_password(KEYRING_SERVICE, USERNAME_KEY, user_info["username"])
+                    # Store tokens and username via centralized auth_storage
+                    try:
+                        save_tokens_full(tokens, user_info.get("username"))
+                    except Exception:
+                        # Best-effort fallback: write token pieces individually to
+                        # keyring (smaller blobs) to avoid large-blob CredWrite errors.
+                        try:
+                            import keyring
+                            access = tokens.get("access_token")
+                            refresh = tokens.get("refresh_token")
+                            idt = tokens.get("id_token")
+                            if access:
+                                keyring.set_password(KEYRING_SERVICE, "access_token", access)
+                            if refresh:
+                                # Use chunked store to avoid single-CredWrite failures
+                                store_chunked_value("refresh_token", refresh)
+                            if idt:
+                                keyring.set_password(KEYRING_SERVICE, "id_token", idt)
+                            keyring.set_password(KEYRING_SERVICE, USERNAME_KEY, user_info.get("username"))
+                        except Exception:
+                            # If this also fails, log; continue to signal result so
+                            # user can retry sign-in from the app.
+                            pass
 
                     # Signal success
-                    outer.auth_result = {
-                        "success": True,
-                        "username": user_info["username"]
-                    }
+                    outer.auth_result = {"success": True, "username": user_info.get("username")}
 
                     # Send success response
                     self.send_response(200)

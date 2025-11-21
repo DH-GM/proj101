@@ -80,11 +80,47 @@ $notif-unread: #5A5C7A;
 $notif-unread-hover: $dracula-comment;
 
 /* Chat Message Colors */
-$chat-received: #3C5A3C;
-$chat-sent: #5A3C5A;
-$chat-new: #3C6A3C;
-$chat-new-border: $dracula-green;
+/* Chat Message Colors (Dracula-themed, tuned for aesthetics) */
+/* Sent messages (current user): deep, muted green/teal */
+$chat-sent: #18583a; /* deep muted green */
+$chat-sent-border: $border-green;
+/* Received/other messages: muted indigo/purple to contrast sent */
+$chat-received: #2b3150; /* muted indigo/slate */
+$chat-received-border: $dracula-purple;
+/* New message emphasis - gentle highlight */
+$chat-new: #2f5d3b;
+$chat-new-border: $border-green;
 $chat-new-sent: $dracula-purple;
+
+/* Reusable color variables for non-top-level literals */
+$muted-hover-bg: #585858; /* used for small hover states */
+$muted-hover-color: #FFFFFF;
+$upload-profile-bg: #989393; /* upload-profile-picture background */
+$upload-profile-color: #000000;
+
+/* Per-sender bubble palette (dracula-leaning) */
+$sender-bg-0: #2b2f36;
+$sender-border-0: rgba(75, 114, 130, 0.15);
+$sender-bg-1: #27343a;
+$sender-border-1: rgba(59, 155, 163, 0.12);
+$sender-bg-2: #2b3038;
+$sender-border-2: rgba(139, 233, 253, 0.08);
+$sender-bg-3: #2c2a36;
+$sender-border-3: rgba(189, 147, 249, 0.08);
+$sender-bg-4: #283033;
+$sender-border-4: rgba(80, 250, 123, 0.08);
+
+/* ASCII video accent */
+$ascii-video-green: #00ff00;
+
+/* Follow button variants */
+$follow-text: #88ff88;
+$follow-bg-hover: #3a5a3a;
+$follow-border: #5aaa5a;
+$follow-text-2: #aaffaa;
+
+/* User-card hover */
+$user-card-username-hover: #2a3a4a;
 
 /* Scrollbar Colors */
 $scrollbar: $dracula-current-line;
@@ -418,25 +454,29 @@ DraftsScreen {
     margin-bottom: 1;
 }
 
-#top-navbar .nav-item {
+#top-navbar Tabs#top-tabs {
+    layout: horizontal;
+    width: 100%;
+    height: auto;
+    background: transparent;
+    content-align: left middle;
+}
+
+#top-tabs Tab {
     width: auto;
     padding: 0 3;
-    /* keep items visually subtle until hovered/active */
     background: transparent;
     color: $primary-light;
-    /* 'normal' is not a valid value for text-style in this TUI stylesheet; use 'none' instead */
     text-style: none;
     content-align: center middle;
 }
 
-#top-navbar .nav-item:hover {
-    /* gentle highlight on hover */
+#top-tabs Tab:hover {
     background: $primary-darker;
     color: $text-primary;
 }
 
-#top-navbar .nav-item:focus {
-    /* clear keyboard focus state: visible outline + stronger background */
+#top-tabs Tab:focus {
     outline: thick $primary;
     background: $primary-dark;
     color: $text-primary;
@@ -444,8 +484,7 @@ DraftsScreen {
     border-bottom: heavy $primary;
 }
 
-#top-navbar .nav-item.active {
-    /* active tab: stronger background and accent underline */
+#top-tabs Tab.-active, #top-tabs Tab.active {
     background: $primary-dark;
     color: $text-primary;
     text-style: bold;
@@ -505,12 +544,11 @@ TimelineScreen, DiscoverScreen, NotificationsScreen, MessagesScreen, SettingsScr
     color: $text-primary;
 }
 
-/* Chat message cursor */
+/* Chat message cursor: use a subtle focused background and border (no bright side bars) */
 .chat-message.vim-cursor {
-    background: $primary-dark;
+    background: $bg-focused;
     color: $text-primary;
-    border-left: heavy $primary;
-    border-right: heavy $primary;
+    border: solid $border-hover;
 }
 
 /* Search input cursor (visual indicator only, not focused) */
@@ -723,6 +761,30 @@ TimelineFeed:focus, DiscoverFeed:focus, NotificationsFeed:focus, ChatView:focus,
     text-style: italic;
 }
 
+/* Modal dialog container styling - center dialogs on screen and provide consistent sizing */
+#dialog-container {
+    /* Prefer centered overlay rather than filling the screen */
+    align: center middle;
+    content-align: center middle;
+    width: 60%;
+    height: auto;
+    padding: 2 3;
+    background: $bg-dark;
+    border: round $primary;
+}
+
+#dialog-title {
+    text-align: center;
+    text-style: bold;
+    margin-bottom: 1;
+}
+
+.status-message {
+    margin-top: 1;
+    color: $text-subtle;
+    text-align: center;
+}
+
 /* Commands Section Box - Yellow */
 .commands-box {
     border: round $color-yellow;
@@ -778,8 +840,8 @@ TimelineFeed:focus, DiscoverFeed:focus, NotificationsFeed:focus, ChatView:focus,
 
 .upload-profile-picture:hover {
     margin-top: 1;
-    background: rgb(88, 88, 88);
-    color: rgb(255, 255, 255);
+    background: $muted-hover-bg;
+    color: $muted-hover-color;
 }
 
 .ascii-avatar {
@@ -788,8 +850,8 @@ TimelineFeed:focus, DiscoverFeed:focus, NotificationsFeed:focus, ChatView:focus,
 
 .upload-profile-picture {
     margin-top: 1;
-    background: rgb(152, 147, 147);
-    color: rgb(0, 0, 0);
+    background: $upload-profile-bg;
+    color: $upload-profile-color;
 }
 
 /* Timeline Feed Container */
@@ -926,6 +988,29 @@ TimelineFeed:focus, DiscoverFeed:focus, NotificationsFeed:focus, ChatView:focus,
     border: solid $border-hover;
 }
 
+/* Better hover / focus / selected visuals for conversation items */
+.conversation-item:hover,
+.conversation-item:focus {
+    background: $bg-lighter;
+    color: $text-primary;
+    border: solid $border-hover;
+}
+
+/* Selected state (when opened) */
+.conversation-item.selected {
+    background: $primary-dark;
+    color: $text-primary;
+    text-style: bold;
+    border: heavy $primary;
+}
+
+/* Make vim-cursor visually consistent */
+.conversation-item.vim-cursor {
+    background: $bg-highlight;
+    color: $text-primary;
+    border: heavy $primary;
+}
+
 /* Chat View */
 #chat {
     width: 1fr;
@@ -939,26 +1024,125 @@ TimelineFeed:focus, DiscoverFeed:focus, NotificationsFeed:focus, ChatView:focus,
 }
 
 .chat-message {
+    /* Make messages appear as narrower bubbles rather than full-width rows */
     width: 100%;
     height: auto;
-    margin: 0 0 1 0;
+    /* Increase bottom margin to create visible gaps between messages */
+    margin: 0 0 2 0;
     padding: 1 2;
 }
 
 .chat-message.received {
-    background: $bg-dark;
-    color: $text-secondary;
-    align: left top;
-    margin-right: 15;
-    border: solid $chat-received;
+    background: $chat-received;
+    color: $text-primary;
+    /* Align content to the left side of the full-width message row */
+    content-align: left middle;
+    text-align: left;
+     /* position the bubble to the left: give a large right margin (in cells)
+         so the narrower bubble visually sits on the left side. Use integer
+         cell values (top right bottom left). */
+     margin: 0 20 2 0;
+    /* give more room on the right so the bubble reads as left-sided */
+    padding-left: 2;
+    padding-right: 18;
+    border: solid $chat-received-border;
 }
 
 .chat-message.sent {
-    background: $bg-dark;
-    color: $text-secondary;
-    align: right top;
-    margin-left: 15;
-    border: solid $danger-bg-hover;
+    background: $chat-sent;
+    color: $text-primary;
+    /* Align content to the right side of the full-width message row */
+    content-align: right middle;
+    text-align: right;
+     /* position the bubble to the right: give a large left margin (in cells)
+         so the narrower bubble visually sits on the right side. Use integer
+         cell values (top right bottom left). */
+     margin: 0 0 2 20;
+    /* give more room on the left so the bubble reads as right-sided */
+    padding-right: 2;
+    padding-left: 18;
+    border: solid $chat-sent-border;
+}
+
+/* Focus state for messages (keyboard focus only). Hover intentionally removed
+   so mouse hover does not visually alter message bubbles. Keep vim-cursor
+   and focus styling distinct and accessible. */
+.chat-message:focus {
+    background: $bg-focused;
+    border: solid $border-hover;
+    color: $text-primary;
+}
+
+/* Ensure sent-message hover/focus uses the same visuals as other messages */
+.chat-message.sent:focus {
+    background: $bg-focused;
+    border: solid $border-hover;
+    color: $text-primary;
+}
+
+/* Ensure sent-message vim-cursor matches chat-message.vim-cursor visuals */
+.chat-message.sent.vim-cursor {
+    background: $bg-focused;
+    color: $text-primary;
+    border: solid $border-hover;
+}
+
+/* New/unread message emphasis */
+.chat-message.message-new {
+    background: $chat-new;
+    border: solid $chat-new-border;
+    color: $text-primary;
+}
+
+/* Per-sender variants (cycle through a small palette). These classes are added
+   at runtime by ChatView to tag messages with sender indices (sender-0..sender-4). */
+.chat-message.sender-0 {
+    background: $sender-bg-0; /* subtle dark */
+    border: solid $sender-border-0;
+}
+.chat-message.sender-1 {
+    background: $sender-bg-1; /* slightly teal */
+    border: solid $sender-border-1;
+}
+.chat-message.sender-2 {
+    background: $sender-bg-2; /* slate */
+    border: solid $sender-border-2;
+}
+.chat-message.sender-3 {
+    background: $sender-bg-3; /* purple-lean */
+    border: solid $sender-border-3;
+}
+.chat-message.sender-4 {
+    background: $sender-bg-4; /* green-lean */
+    border: solid $sender-border-4;
+}
+
+/* Ensure current user's messages (sent) always use the sent palette. This
+   override is placed after the per-sender rules so sender-* does not
+   accidentally override the user's own bubble. We do not use a separate
+   `.me` class — `sent` is sufficient.
+*/
+.chat-message.sent {
+    background: $chat-sent;
+    border: solid $chat-sent-border;
+    color: $text-primary;
+}
+
+/* Ensure received messages also win over per-sender rules: place this
+   after the sender-* rules so per-sender backgrounds don't override
+   the intended received palette. */
+.chat-message.received {
+    background: $chat-received;
+    border: solid $chat-received-border;
+    color: $text-primary;
+}
+
+/* Selected/keyboard focus state for messages (vim-mode selection) */
+.chat-message.vim-cursor {
+    /* Use a less abrasive selection color (dracula-themed) */
+    background: $bg-focused;
+    color: $text-primary;
+    border: solid $border-hover;
 }
 
 .mode-indicator {
@@ -1084,14 +1268,14 @@ VerticalScroll {
 /* ASCII Video Player */
 .ascii-video {
     background: $bg-dark;
-    color: #00ff00;
-    border: solid #00ff00;
+    color: $ascii-video-green;
+    border: solid $ascii-video-green;
     padding: 1 2;
     margin: 1 2;
 }
 
 .ascii-video:hover {
-    border: solid #00ff00;
+    border: solid $ascii-video-green;
 }
 
 .post-author {
@@ -1245,14 +1429,14 @@ Input:focus {
 /* Following state - when button shows "Following" */
 #follow-user-btn.following {
     background: $chat-new;
-    color: #88ff88;
+    color: $follow-text;
     border: solid $accent-green;
 }
 
 #follow-user-btn.following:hover {
-    background: #3a5a3a;
-    border: heavy #5aaa5a;
-    color: #aaffaa;
+    background: $follow-bg-hover;
+    border: heavy $follow-border;
+    color: $follow-text-2;
 }
 
 /* Messages Container */
@@ -1359,14 +1543,14 @@ Input:focus {
 }
 
 .user-card-username-btn:hover {
-    background: #2a3a4a;
+    background: $user-card-username-hover;
     color: $primary-hover;
     text-style: bold underline;
     border: none;
 }
 
 .user-card-username-btn:focus {
-    background: #2a3a4a;
+    background: $user-card-username-hover;
     color: $primary-hover;
     border: solid $primary;
 }
@@ -1455,7 +1639,7 @@ Button.-error:hover {
 
 /* ========== NEW POST DIALOG STYLES ========== */
 
-NewPostDialog, DeleteDraftDialog {
+NewPostDialog, DeleteDraftDialog, NewMessageDialog {
     align: center middle;
 }
 
@@ -1505,6 +1689,29 @@ NewPostDialog, DeleteDraftDialog {
     color: $text-muted;
     text-align: center;
     text-style: italic;
+}
+
+/* Input hint for dialogs (e.g. [i] edit | [esc] navigate) */
+.input-hint {
+    width: 100%;
+    height: auto;
+    margin: 0 1;
+    padding: 0 1;
+    color: $text-muted;
+    text-align: center;
+    text-style: italic;
+}
+
+/* Selected state for action buttons inside dialogs */
+#action-buttons Button.selected {
+    background: $primary-dark;
+    border: heavy $primary;
+    color: $text-primary;
+}
+
+#action-buttons Button.selected:hover {
+    background: $primary-hover;
+    border: heavy $primary-hover;
 }
 
 /* Attachments List */

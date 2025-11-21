@@ -34,6 +34,20 @@ dotenv.load_dotenv()
 
 serviceKeyring = "tuitter"
 
+# Prefer canonical username lookup from auth_storage which handles
+# chunked tokens and centralized storage (falls back to legacy keyring).
+try:
+    from .auth_storage import get_username
+except Exception:
+    # Import-time failures should not break the UI; fall back to a no-op getter.
+    def get_username():
+        try:
+            import keyring
+
+            return keyring.get_password(serviceKeyring, "username")
+        except Exception:
+            return None
+
 # Service name for keyring storage
 
 
@@ -129,15 +143,28 @@ def delete_draft(index: int) -> None:
 
 def format_time_ago(dt: datetime) -> str:
     """Format datetime as 'time ago' string."""
-    now = datetime.now()
-    diff = now - dt
-    if diff.days > 0:
-        return f"{diff.days}d ago"
-    if diff.seconds < 60:
+    # Normalize 'now' to the same tz-awareness as dt to avoid incorrect deltas
+    if dt is None:
         return "just now"
-    if diff.seconds < 3600:
-        return f"{diff.seconds // 60}m ago"
-    return f"{diff.seconds // 3600}h ago"
+    try:
+        now = datetime.now(dt.tzinfo) if dt.tzinfo else datetime.now()
+    except Exception:
+        now = datetime.now()
+
+    delta = now - dt
+    total_seconds = int(delta.total_seconds())
+    if total_seconds < 10:
+        return "just now"
+    if total_seconds < 60:
+        return f"{total_seconds}s ago"
+    minutes = total_seconds // 60
+    if minutes < 60:
+        return f"{minutes}m ago"
+    hours = minutes // 60
+    if hours < 24:
+        return f"{hours}h ago"
+    days = hours // 24
+    return f"{days}d ago"
 
 
 # ───────── Main UI Screen (not auth) ─────────
@@ -149,7 +176,7 @@ class MainUIScreen(Screen):
         self.starting_view = starting_view
 
     def compose(self) -> ComposeResult:
-        username = keyring.get_password(serviceKeyring, "username") or "yourname"
+        username = get_username() or "yourname"
         yield Static(
             f"tuitter [{self.starting_view}] @{username}", id="app-header", markup=False
         )
@@ -1015,10 +1042,10 @@ class ProfileDisplay(Static):
 
     def compose(self) -> ComposeResult:
         user = api.get_current_user()
-        username = keyring.get_password(serviceKeyring, "username")
+        username = get_username()
         if username == None:
             username = user.username
-        yield Static(f"@{username} • {user.display_name}", classes="profile-username")
+        yield Static(f"@{username}", classes="profile-username")
 
 
 class ConversationItem(Static):
@@ -1027,11 +1054,10 @@ class ConversationItem(Static):
         self.conversation = conversation
 
     def render(self) -> str:
-        unread_marker = "🔵 " if self.conversation.unread else "  "
         time_ago = format_time_ago(self.conversation.last_message_at)
         unread_text = "🔵 unread" if self.conversation.unread else ""
         # Get the other participant's username (first one that's not the current user)
-        current_user = keyring.get_password(serviceKeyring, "username") or "yourname"
+        current_user = get_username() or "yourname"
         other_participants = [
             h for h in self.conversation.participant_handles if h != current_user
         ]
@@ -1042,18 +1068,123 @@ class ConversationItem(Static):
             if self.conversation.participant_handles
             else "unknown"
         )
-        return f"{unread_marker}@{username}\n  {self.conversation.last_message_preview}\n  {time_ago} {unread_text}"
+        return (
+            f"@{username}\n  {self.conversation.last_message_preview}\n  {unread_text}"
+        )
+
+    def on_click(self) -> None:
+        """Open this conversation when clicked with the mouse."""
+        try:
+            # If there's a conversations list, update its cursor_position so
+            # the clicked item becomes visually focused (matches keyboard nav).
+            try:
+                convs_list = self.app.query_one("#conversations", ConversationsList)
+                items = list(convs_list.query(".conversation-item"))
+                if self in items:
+                    convs_list.cursor_position = items.index(self)
+            except Exception:
+                pass
+
+            # Determine username to display (other participant)
+            current_user = get_username() or "yourname"
+            other_participants = [
+                h for h in self.conversation.participant_handles if h != current_user
+            ]
+            username = (
+                other_participants[0]
+                if other_participants
+                else self.conversation.participant_handles[0]
+                if self.conversation.participant_handles
+                else "unknown"
+            )
+
+            # Update chat view
+            try:
+                chat_view = self.app.query_one("#chat", ChatView)
+                chat_view.conversation_id = self.conversation.id
+                chat_view.conversation_username = username
+
+                # Reload messages in the chat view
+                chat_view.remove_children()
+                chat_view.mount_all(chat_view.compose())
+                try:
+                    chat_view.focus_last_message()
+                except Exception:
+                    try:
+                        chat_view.focus()
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+
+            # Mark this conversation as read locally, persist to server, and refresh the item text and header
+            try:
+                if getattr(self.conversation, "unread", False):
+                    # Persist read state to the server if possible
+                    try:
+                        api.mark_conversation_read(int(self.conversation.id))
+                    except Exception:
+                        # Non-fatal if server call fails; continue to update UI locally
+                        pass
+
+                    # Update local model so UI shows it as read immediately
+                    self.conversation.unread = False
+
+                    # Refresh this item's rendered text
+                    try:
+                        self.update(self.render())
+                    except Exception:
+                        pass
+
+                    # Update conversations header unread count if present
+                    try:
+                        convs_list = self.app.query_one(
+                            "#conversations", ConversationsList
+                        )
+                        if (
+                            hasattr(convs_list, "_conversations")
+                            and convs_list._conversations is not None
+                        ):
+                            # update the corresponding conversation object in stored list
+                            for c in convs_list._conversations:
+                                if int(c.id) == int(self.conversation.id):
+                                    c.unread = False
+                                    break
+                            unread_count = len(
+                                [
+                                    c
+                                    for c in convs_list._conversations
+                                    if getattr(c, "unread", False)
+                                ]
+                            )
+                            try:
+                                header = convs_list.query_one(".panel-header", Static)
+                                header.update(f"conversations | {unread_count} unread")
+                            except Exception:
+                                pass
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+        except Exception:
+            pass
 
 
 class ChatMessage(Static):
-    def __init__(self, message, current_user: str = "yourname", **kwargs):
+    def __init__(self, message, current_user: str = "", **kwargs):
         super().__init__(**kwargs)
         self.message = message
-        is_sent = message.sender == current_user
+        is_sent = (message.sender or "").lower() == (current_user or "").lower()
+        # Add sent/received class plus a 'me' class for messages from the current user
+        # Add sent/received class; avoid adding a separate 'me' class
+        # as 'sent' is sufficient and avoids duplicate styling rules.
         self.add_class("sent" if is_sent else "received")
+        # Layout and alignment are handled via TCSS classes in `main.tcss`.
+        # Keep widget class markers but avoid programmatic style mutation
+        # so styling is centralized in the stylesheet.
 
     def render(self) -> str:
-        return f"{self.message.content}\n{format_time_ago(self.message.timestamp)}"
+        return f"{self.message.content}\n{format_time_ago(self.message.created_at)}"
 
 
 class PostItem(Static):
@@ -1064,7 +1195,6 @@ class PostItem(Static):
     like_count = reactive(0)
     repost_count = reactive(0)
     comment_count = reactive(0)
-
 
     def __init__(self, post, reposted_by_you=False, **kwargs):
         super().__init__(**kwargs)
@@ -1269,9 +1399,7 @@ class UserProfileCard(Static):
             with info_container:
                 yield Static(self.display_name, classes="user-card-name")
                 # Resolve current local username once (fall back to the profile's username)
-                current_user = (
-                    keyring.get_password(serviceKeyring, "username") or self.username
-                )
+                current_user = get_username() or self.username
                 # Make username clickable as a button-like widget
                 yield Button(
                     f"@{current_user}",
@@ -1334,76 +1462,93 @@ class UserProfileCard(Static):
 # ───────── Top Navbar ─────────
 
 
+from textual.widgets import Tabs, Tab
+
+
 class TopNav(Horizontal):
-    """Horizontal top navigation bar."""
+    """Top navigation implemented using Textual's Tabs widget.
+
+    This wrapper preserves the `update_active(screen_name)` API so the rest
+    of the app (notably `switch_screen`) doesn't need to change.
+    """
 
     current = reactive("timeline")
 
     def __init__(self, current: str = "timeline", **kwargs):
         super().__init__(**kwargs)
         self.current = current
+        # Expose the inner Tabs widget for easier external access
+        self.tabs = None
 
     def compose(self) -> ComposeResult:
-        yield Label("[1] Timeline", classes="nav-item", id="nav-timeline")
-        yield Label("[2] Discover", classes="nav-item", id="nav-discover")
-        yield Label("[3] Notifs", classes="nav-item", id="nav-notifications")
-        yield Label("[4] Messages", classes="nav-item", id="nav-messages")
-        yield Label("[5] Settings", classes="nav-item", id="nav-settings")
+        # Use explicit Tab ids so programmatic activation is stable
+        yield Tabs(
+            Tab("[1] Timeline", id="tab-timeline"),
+            Tab("[2] Discover", id="tab-discover"),
+            Tab("[3] Notifs", id="tab-notifications"),
+            Tab("[4] Messages", id="tab-messages"),
+            Tab("[5] Settings", id="tab-settings"),
+            id="top-tabs",
+            active=self._screen_to_tab_id(self.current),
+        )
+
+    def _tab_to_screen_name(self, tab_id: str) -> str:
+        return {
+            "tab-timeline": "timeline",
+            "tab-discover": "discover",
+            "tab-notifications": "notifications",
+            "tab-messages": "messages",
+            "tab-settings": "settings",
+        }.get(tab_id, "timeline")
+
+    def _screen_to_tab_id(self, screen_name: str) -> str:
+        return {
+            "timeline": "tab-timeline",
+            "discover": "tab-discover",
+            "notifications": "tab-notifications",
+            "messages": "tab-messages",
+            "settings": "tab-settings",
+        }.get(screen_name, "tab-timeline")
 
     def on_mount(self) -> None:
-        """Set initial active state when mounted."""
-        self.update_active(self.current)
+        # Ensure the active tab reflects current
+        try:
+            tabs = self.query_one("#top-tabs", Tabs)
+            tabs.active = self._screen_to_tab_id(self.current)
+            # Save reference for external callers
+            self.tabs = tabs
 
-    def on_click(self, event) -> None:
-        """Handle clicks on nav items."""
-        # Map nav item IDs to screen names
-        id_to_screen = {
-            "nav-timeline": "timeline",
-            "nav-discover": "discover",
-            "nav-notifications": "notifications",
-            "nav-messages": "messages",
-            "nav-settings": "settings",
-        }
+        except Exception:
+            pass
 
-        # Check which widget was clicked by examining all nav items
-        for nav_id, screen_name in id_to_screen.items():
-            try:
-                nav_item = self.query_one(f"#{nav_id}", Label)
-                # Check if the click coordinates are within this nav item's region
-                if nav_item.region.contains(event.screen_x, event.screen_y):
-                    self.app.switch_screen(screen_name)
-                    break
-            except Exception:
-                pass
+    def on_tabs_tab_activated(self, event: Tabs.TabActivated) -> None:
+        """Handle TabActivated message from inner Tabs and switch screens."""
+        try:
+            # event.tab can be a Tab or None depending on Textual version
+            tab = getattr(event, "tab", None)
+            if tab is None:
+                return
+            tab_id = getattr(tab, "id", None)
+            if not tab_id:
+                return
+            screen_name = self._tab_to_screen_name(tab_id)
+            # Ask the App to switch screens
+            self.app.switch_screen(screen_name)
+        except Exception:
+            pass
 
     def update_active(self, screen_name: str):
-        """Update which nav item is marked as active."""
+        """Compatibility method used by the App to set the active screen."""
         self.current = screen_name
+        try:
+            if getattr(self, "tabs", None) is not None:
+                self.tabs.active = self._screen_to_tab_id(screen_name)
+            else:
+                tabs = self.query_one("#top-tabs", Tabs)
+                tabs.active = self._screen_to_tab_id(screen_name)
 
-        # Map screen names to nav item IDs
-        nav_map = {
-            "timeline": "nav-timeline",
-            "discover": "nav-discover",
-            "notifications": "nav-notifications",
-            "messages": "nav-messages",
-            "settings": "nav-settings",
-        }
-
-        # Remove active class from all items
-        for nav_id in nav_map.values():
-            try:
-                item = self.query_one(f"#{nav_id}", Label)
-                item.remove_class("active")
-            except Exception:
-                pass
-
-        # Add active class to current screen's nav item
-        if screen_name in nav_map:
-            try:
-                item = self.query_one(f"#{nav_map[screen_name]}", Label)
-                item.add_class("active")
-            except Exception:
-                pass
+        except Exception:
+            pass
 
 
 # ───────── Sidebar ─────────
@@ -1487,12 +1632,11 @@ class Sidebar(VerticalScroll):
             # Show only screen-specific commands to save space
             if self.current_screen == "messages":
                 yield CommandItem(":n", "new msg", classes="command-item")
-                yield CommandItem(":r", "reply", classes="command-item")
             elif self.current_screen in ("timeline", "discover"):
                 yield CommandItem(":n", "new post", classes="command-item")
                 yield CommandItem(":l", "like", classes="command-item")
                 yield CommandItem(":rt", "repost", classes="command-item")
-                yield CommandItem(":c", "comment", classes="command-item")
+                yield CommandItem("<Enter>", "comments", classes="command-item")
             elif self.current_screen == "notifications":
                 yield CommandItem(":m", "mark read", classes="command-item")
                 yield CommandItem(":ma", "mark all", classes="command-item")
@@ -1506,7 +1650,6 @@ class Sidebar(VerticalScroll):
             # Common commands (limited to save space)
             yield CommandItem("p", "profile", classes="command-item")
             yield CommandItem("d", "drafts", classes="command-item")
-            yield CommandItem("0", "main", classes="command-item")
         yield commands_container
 
     def update_active(self, screen_name: str):
@@ -1906,6 +2049,211 @@ class NewPostDialog(ModalScreen):
             self.set_timer(3, lambda: widget.update(""))
         except Exception:
             pass
+
+
+class NewMessageDialog(ModalScreen):
+    """Modal dialog to prompt for a username to start a DM with.
+
+    The dialog will validate the username by calling `api.get_or_create_dm`.
+    On success it will dismiss with the chosen username; on failure it will
+    display an inline error and keep the dialog open.
+    """
+
+    # 0 = Open, 1 = Cancel
+    cursor_position = reactive(0)
+    in_input = reactive(True)
+
+    def compose(self) -> ComposeResult:
+        with Container(id="dialog-container"):
+            yield Static("💬 New Message", id="dialog-title")
+            yield Input(
+                placeholder="Enter recipient handle (without @)", id="dm-username-input"
+            )
+            yield Static("", id="dm-status", classes="status-message")
+            # Small hint for vim-style input/selection controls
+            yield Static(
+                "\\[i] edit  |  \\[esc] navigate", id="dm-hint", classes="input-hint"
+            )
+            with Container(id="action-buttons"):
+                open_btn = Button("Open", variant="primary", id="dm-open")
+                cancel_btn = Button("Cancel", id="dm-cancel")
+                # Apply visual selection based on cursor position
+                if self.cursor_position == 0:
+                    open_btn.add_class("selected")
+                else:
+                    cancel_btn.add_class("selected")
+                yield open_btn
+                yield cancel_btn
+
+    def on_mount(self) -> None:
+        try:
+            inp = self.query_one("#dm-username-input", Input)
+            inp.focus()
+        except Exception:
+            pass
+
+    def key_i(self) -> None:
+        """Enter insert mode: focus the input box."""
+        if self.app.command_mode:
+            return
+        try:
+            self.in_input = True
+            inp = self.query_one("#dm-username-input", Input)
+            inp.focus()
+        except Exception:
+            pass
+
+    def key_escape(self) -> None:
+        """Exit input and focus buttons for h/l navigation."""
+        if self.app.command_mode:
+            return
+        try:
+            # If currently in input, move to button navigation
+            if getattr(self, "in_input", False):
+                self.in_input = False
+                # Focus the currently-selected button
+                btns = list(self.query("#action-buttons Button"))
+                if not btns:
+                    return
+                sel = max(0, min(self.cursor_position, len(btns) - 1))
+                try:
+                    btns[sel].focus()
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+    def key_h(self) -> None:
+        """Move selection left (Open)."""
+        if self.app.command_mode:
+            return
+        # Only navigate buttons when not in input
+        if getattr(self, "in_input", True):
+            return
+        try:
+            self.cursor_position = 0
+        except Exception:
+            pass
+
+    def key_l(self) -> None:
+        """Move selection right (Cancel)."""
+        if self.app.command_mode:
+            return
+        if getattr(self, "in_input", True):
+            return
+        try:
+            self.cursor_position = 1
+        except Exception:
+            pass
+
+    def watch_cursor_position(self, old_position: int, new_position: int) -> None:
+        """Update button selection visuals when cursor changes."""
+        try:
+            btns = list(self.query("#action-buttons Button"))
+            for i, b in enumerate(btns):
+                if i == new_position:
+                    if "selected" not in b.classes:
+                        b.add_class("selected")
+                    if "vim-cursor" not in b.classes:
+                        b.add_class("vim-cursor")
+                else:
+                    if "selected" in b.classes:
+                        b.remove_class("selected")
+                    if "vim-cursor" in b.classes:
+                        b.remove_class("vim-cursor")
+                # ensure focus follows the selected button when not in input
+                if not getattr(self, "in_input", True) and i == new_position:
+                    try:
+                        b.focus()
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+
+    def watch_in_input(self, old: bool, new: bool) -> None:
+        """When entering/exiting input mode, update button visuals accordingly."""
+        try:
+            btns = list(self.query("#action-buttons Button"))
+            if new:
+                # Entering input: remove selection visuals
+                for b in btns:
+                    if "selected" in b.classes:
+                        b.remove_class("selected")
+                    if "vim-cursor" in b.classes:
+                        b.remove_class("vim-cursor")
+            else:
+                # Leaving input: ensure the selected button has visuals and focus
+                sel = max(0, min(self.cursor_position, len(btns) - 1))
+                for i, b in enumerate(btns):
+                    if i == sel:
+                        if "selected" not in b.classes:
+                            b.add_class("selected")
+                        if "vim-cursor" not in b.classes:
+                            b.add_class("vim-cursor")
+                        try:
+                            b.focus()
+                        except Exception:
+                            pass
+                    else:
+                        if "selected" in b.classes:
+                            b.remove_class("selected")
+                        if "vim-cursor" in b.classes:
+                            b.remove_class("vim-cursor")
+        except Exception:
+            pass
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "dm-cancel":
+            # Dismiss with falsy value
+            self.dismiss(False)
+            return
+        if event.button.id == "dm-open":
+            self._try_open()
+
+    def key_enter(self) -> None:
+        if self.app.command_mode:
+            return
+        # If currently in input, attempt to open; otherwise activate selected button
+        if getattr(self, "in_input", True):
+            self._try_open()
+            return
+
+        # Button navigation: 0 = Open, 1 = Cancel
+        try:
+            if self.cursor_position == 0:
+                self._try_open()
+            else:
+                self.dismiss(False)
+        except Exception:
+            pass
+
+    def _try_open(self) -> None:
+        try:
+            inp = self.query_one("#dm-username-input", Input)
+            status = self.query_one("#dm-status", Static)
+            handle = (inp.value or "").strip().lstrip("@")
+            if not handle:
+                status.update("Please enter a username")
+                return
+
+            # Attempt to get or create a DM - backend will 404 if user not found
+            try:
+                conv = api.get_or_create_dm(handle)
+            except Exception:
+                # Show friendly error (don't dismiss)
+                try:
+                    status.update(f"User '@{handle}' not found")
+                except Exception:
+                    pass
+                return
+
+            # Success - dismiss and return the username to caller
+            self.dismiss(handle)
+        except Exception:
+            try:
+                self.dismiss(False)
+            except Exception:
+                pass
 
 
 class DeleteDraftDialog(ModalScreen):
@@ -2693,20 +3041,47 @@ class NotificationsScreen(Container):
 class ConversationsList(VerticalScroll):
     cursor_position = reactive(0)
     can_focus = True
+    # Track whether the list has performed its initial mount setup
+    has_initialized = False
 
     def compose(self) -> ComposeResult:
+        # Fetch conversations and sort most-recent-first by last_message_at
         conversations = api.get_conversations()
+        try:
+            conversations = sorted(
+                conversations, key=lambda c: c.last_message_at, reverse=True
+            )
+        except Exception:
+            # Fallback: leave order as-is
+            pass
+
+        # Store the ordered list so keyboard actions refer to the same ordering
+        self._conversations = conversations
+
         unread_count = len([c for c in conversations if c.unread])
         yield Static(f"conversations | {unread_count} unread", classes="panel-header")
         for i, conv in enumerate(conversations):
             item = ConversationItem(conv, classes="conversation-item", id=f"conv-{i}")
-            if i == 0:
-                item.add_class("vim-cursor")
             yield item
 
     def on_mount(self) -> None:
         """Watch for cursor position changes"""
         self.watch(self, "cursor_position", self._update_cursor)
+        # Only perform initial focus and cursor setup the first time the list mounts.
+        try:
+            if not getattr(self, "has_initialized", False):
+                # Default to first item only on first mount
+                self.cursor_position = 0
+                # Update visuals immediately
+                self._update_cursor()
+                # Give focus to the conversations list so keyboard navigation works right away
+                try:
+                    self.focus()
+                except Exception:
+                    pass
+                self.has_initialized = True
+        except Exception:
+            pass
 
     def _update_cursor(self) -> None:
         """Update the cursor position"""
@@ -2729,8 +3104,11 @@ class ConversationsList(VerticalScroll):
 
     def on_focus(self) -> None:
         """When the list gets focus"""
-        self.cursor_position = 0
-        self._update_cursor()
+        # Don't override the user's cursor_position when focusing; just refresh visuals
+        try:
+            self._update_cursor()
+        except Exception:
+            pass
 
     def on_blur(self) -> None:
         """When list loses focus"""
@@ -2796,13 +3174,14 @@ class ConversationsList(VerticalScroll):
         if self.app.command_mode:
             return
         try:
-            conversations = api.get_conversations()
-            if 0 <= self.cursor_position < len(conversations):
-                conv = conversations[self.cursor_position]
+            convs = getattr(self, "_conversations", None)
+            if convs is None:
+                convs = api.get_conversations()
+
+            if 0 <= self.cursor_position < len(convs):
+                conv = convs[self.cursor_position]
                 # Get the other participant's username
-                current_user = (
-                    keyring.get_password(serviceKeyring, "username") or "yourname"
-                )
+                current_user = get_username() or "yourname"
                 other_participants = [
                     h for h in conv.participant_handles if h != current_user
                 ]
@@ -2823,8 +3202,14 @@ class ConversationsList(VerticalScroll):
                 chat_view.remove_children()
                 chat_view.mount_all(chat_view.compose())
 
-                # Focus the chat view
-                chat_view.focus()
+                # Focus the chat view and select the last message
+                try:
+                    chat_view.focus_last_message()
+                except Exception:
+                    try:
+                        chat_view.focus()
+                    except Exception:
+                        pass
         except Exception:
             pass
 
@@ -2849,28 +3234,102 @@ class ConversationsList(VerticalScroll):
 
 class ChatView(VerticalScroll):
     conversation_id = reactive(0)  # Changed to int to match backend
-    conversation_username = reactive("alice")
+    conversation_username = reactive("")
     cursor_position = reactive(0)
+    input_active = reactive(False)
 
-    def __init__(self, conversation_id: int = 0, username: str = "alice", **kwargs):
+    def __init__(self, conversation_id: int = 0, username: str = "", **kwargs):
         super().__init__(**kwargs)
         self.conversation_id = conversation_id
         self.conversation_username = username
+        # Use an app-level sender map so colors remain stable across views
+        if not hasattr(self.app, "_sender_map_global"):
+            # store as {lower_handle: index}
+            setattr(self.app, "_sender_map_global", {})
+            setattr(self.app, "_sender_map_next_idx", 0)
 
     def compose(self) -> ComposeResult:
         self.border_title = "[0] Chat"
+
+        # If no conversation is selected, show a friendly placeholder
+        if not self.conversation_id or self.conversation_id <= 0:
+            yield Static("Select a conversation", classes="panel-header")
+            yield Static(
+                "\nSelect a conversation from the list on the left to view messages.",
+                classes="help-text",
+                markup=False,
+            )
+            return
+
         # Only fetch messages if conversation_id is valid (> 0)
         messages = []
-        if self.conversation_id > 0:
+        try:
+            messages = api.get_conversation_messages(self.conversation_id)
+        except Exception:
+            messages = []
+
+        # Resolve current user once for use in message rendering
+        current_user = get_username() or api.handle or "yourname"
+
+        # Build a sender->index resolver using a global map on the app so colors persist
+        def _sender_idx(sender: str) -> int:
+            s = (sender or "").lower()
+            global_map = getattr(self.app, "_sender_map_global", {})
+            if s in global_map:
+                return global_map[s]
+            next_idx = getattr(self.app, "_sender_map_next_idx", 0)
+            idx = next_idx % 5
+            global_map[s] = idx
+            setattr(self.app, "_sender_map_global", global_map)
+            setattr(self.app, "_sender_map_next_idx", next_idx + 1)
+            return idx
+
+        # Persist read-state for this conversation (centralized so all open flows mark read)
+        if getattr(self, "conversation_id", 0):
             try:
-                messages = api.get_conversation_messages(self.conversation_id)
-            except Exception as e:
-                messages = []
+                # Tell backend this conversation was read by current user
+                try:
+                    api.mark_conversation_read(int(self.conversation_id))
+                except Exception:
+                    # Non-fatal: if the API call fails, continue and still update UI locally
+                    pass
+
+                # Also update the locally-stored conversations list so the header/unread dot refreshes
+                try:
+                    convs_list = self.app.query_one("#conversations", ConversationsList)
+                    if (
+                        hasattr(convs_list, "_conversations")
+                        and convs_list._conversations is not None
+                    ):
+                        for c in convs_list._conversations:
+                            if int(c.id) == int(self.conversation_id):
+                                c.unread = False
+                                break
+                        unread_count = len(
+                            [
+                                c
+                                for c in convs_list._conversations
+                                if getattr(c, "unread", False)
+                            ]
+                        )
+                        try:
+                            header = convs_list.query_one(".panel-header", Static)
+                            header.update(f"conversations | {unread_count} unread")
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
+            except Exception:
+                pass
+
         yield Static(
             f"@{self.conversation_username} | conversation", classes="panel-header"
         )
         for msg in messages:
-            yield ChatMessage(msg, classes="chat-message")
+            idx = _sender_idx(msg.sender)
+            sender_class = f"sender-{idx}"
+            cls = f"chat-message {sender_class}"
+            yield ChatMessage(msg, current_user=current_user, classes=cls)
         yield Static("-- INSERT --", classes="mode-indicator")
         yield Input(
             placeholder="Type message and press Enter… (Esc to cancel)",
@@ -2891,7 +3350,26 @@ class ChatView(VerticalScroll):
 
         try:
             new_msg = api.send_message(self.conversation_id, text)
-            self.mount(ChatMessage(new_msg, classes="chat-message"), before=event.input)
+            # Determine sender class for the new message (use app-global map)
+            current_user = get_username() or api.handle or ""
+            sender = new_msg.sender or new_msg.sender_handle or current_user
+            # Ensure global map exists
+            if not hasattr(self.app, "_sender_map_global"):
+                setattr(self.app, "_sender_map_global", {})
+                setattr(self.app, "_sender_map_next_idx", 0)
+            global_map = getattr(self.app, "_sender_map_global")
+            if sender.lower() not in global_map:
+                next_idx = getattr(self.app, "_sender_map_next_idx", 0)
+                global_map[sender.lower()] = next_idx % 5
+                setattr(self.app, "_sender_map_next_idx", next_idx + 1)
+                setattr(self.app, "_sender_map_global", global_map)
+            idx = global_map[sender.lower()]
+            sender_class = f"sender-{idx}"
+            classes = f"chat-message sent {sender_class}"
+            self.mount(
+                ChatMessage(new_msg, current_user=current_user, classes=classes),
+                before=event.input,
+            )
             event.input.value = ""
             event.input.focus()
             self.scroll_end(animate=False)
@@ -2901,34 +3379,144 @@ class ChatView(VerticalScroll):
 
     def watch_cursor_position(self, old_position: int, new_position: int) -> None:
         """Update the cursor when position changes"""
+        # Treat the input as the final navigable item (index == len(messages))
+        messages = list(self.query(".chat-message"))
+
         # Remove cursor from old position
-        messages = self.query(".chat-message")
-        if old_position < len(messages):
-            old_msg = messages[old_position]
-            if "vim-cursor" in old_msg.classes:
-                old_msg.remove_class("vim-cursor")
+        try:
+            if old_position < len(messages):
+                old_msg = messages[old_position]
+                if "vim-cursor" in old_msg.classes:
+                    old_msg.remove_class("vim-cursor")
+            elif old_position == len(messages):
+                # old position was the input - remove visual indicator
+                try:
+                    inp = self.query_one("#message-input", Input)
+                    inp.remove_class("vim-cursor")
+                    # Only blur if input is not actively in insert mode
+                    if inp.has_focus and not self.input_active:
+                        try:
+                            inp.blur()
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
+        except Exception:
+            pass
 
         # Add cursor to new position
-        if new_position < len(messages):
-            new_msg = messages[new_position]
-            new_msg.add_class("vim-cursor")
+        try:
+            if new_position < len(messages):
+                new_msg = messages[new_position]
+                new_msg.add_class("vim-cursor")
+                # Scroll message into view
+                self.scroll_to_widget(new_msg)
+            elif new_position == len(messages):
+                # Select the input (visual indicator) but do NOT enter insert mode.
+                try:
+                    inp = self.query_one("#message-input", Input)
+                    inp.add_class("vim-cursor")
+                    # Ensure ChatView retains focus so vim keys are handled here
+                    try:
+                        self.focus()
+                    except Exception:
+                        pass
+                    # Ensure input area is visible at the bottom
+                    try:
+                        self.scroll_end(animate=False)
+                    except Exception:
+                        pass
+                except Exception:
+                    pass
+        except Exception:
+            pass
 
-            self.scroll_to_widget(new_msg)
+    def focus_last_message(self) -> None:
+        """Focus and select the last message in the chat after messages have mounted."""
+        try:
+
+            def _do_focus_last():
+                try:
+                    msgs = list(self.query(".chat-message"))
+                    if not msgs:
+                        return
+                    # Instead of focusing the last message, select the input
+                    # which is positioned after the last message (index == len(msgs)).
+                    inp_idx = len(msgs)
+                    # Set cursor position which triggers the watch_cursor_position
+                    # logic to visually mark the input without entering insert mode.
+                    self.cursor_position = inp_idx
+                except Exception:
+                    pass
+
+            # Schedule after the layout refresh so children exist
+            try:
+                self.call_after_refresh(_do_focus_last)
+            except Exception:
+                # Fallback small timer
+                try:
+                    self.set_timer(0.02, _do_focus_last)
+                except Exception:
+                    _do_focus_last()
+        except Exception:
+            pass
 
     def key_j(self) -> None:
         """Vim-style down navigation"""
         if self.app.command_mode:
             return
-        messages = self.query(".chat-message")
-        if self.cursor_position < len(messages) - 1:
+        messages = list(self.query(".chat-message"))
+        # allow moving into the input (index == len(messages))
+        if self.cursor_position < len(messages):
             self.cursor_position += 1
 
     def key_k(self) -> None:
         """Vim-style up navigation"""
         if self.app.command_mode:
             return
+        # Move up through messages and from the input back into messages
         if self.cursor_position > 0:
+            # If currently on the input and input_active, exit insert mode first
+            if (
+                self.cursor_position == len(list(self.query(".chat-message")))
+                and self.input_active
+            ):
+                try:
+                    inp = self.query_one("#message-input", Input)
+                    try:
+                        inp.blur()
+                    except Exception:
+                        pass
+                    self.input_active = False
+                except Exception:
+                    pass
             self.cursor_position -= 1
+
+    def key_i(self) -> None:
+        """Enter insert mode on the input when cursor is over it."""
+        if self.app.command_mode:
+            return
+        messages = list(self.query(".chat-message"))
+        if self.cursor_position == len(messages):
+            try:
+                inp = self.query_one("#message-input", Input)
+                inp.focus()
+                self.input_active = True
+            except Exception:
+                pass
+
+    def key_enter(self) -> None:
+        """If cursor is over input, start input (same as 'i')."""
+        if self.app.command_mode:
+            return
+        messages = list(self.query(".chat-message"))
+        if self.cursor_position == len(messages):
+            try:
+                inp = self.query_one("#message-input", Input)
+                inp.focus()
+                self.input_active = True
+            except Exception:
+                pass
 
     def key_g(self) -> None:
         """Vim-style go to top"""
@@ -2984,6 +3572,21 @@ class MessagesScreen(Container):
                 self.call_after_refresh(self._focus_message_input)
             except:
                 pass
+        else:
+            # No DM open: focus the conversations list and ensure first item selected
+            try:
+                # Use call_after_refresh to avoid races with initial compose
+                def _focus_conversations():
+                    try:
+                        conversations.cursor_position = 0
+                        conversations._update_cursor()
+                        conversations.focus()
+                    except Exception:
+                        pass
+
+                self.call_after_refresh(_focus_conversations)
+            except Exception:
+                pass
 
     def _focus_message_input(self):
         """Focus the message input for new DM"""
@@ -3033,7 +3636,7 @@ class SettingsPanel(VerticalScroll):
 
         # Account information
         yield Static("\n→ Account Information", classes="settings-section-header")
-        username = keyring.get_password(serviceKeyring, "username")
+        username = get_username()
         if username is None and settings:
             username = getattr(settings, "username", "yourname")
         yield Static(f"  Username:\n  @{username}", classes="settings-field")
@@ -3430,13 +4033,24 @@ class SettingsPanel(VerticalScroll):
                 try:
                     clear_credentials()
                 except Exception:
-                    # best-effort fallback to remove legacy keys
+                    # best-effort fallback: try centralized clear_tokens, then legacy deletes
                     try:
-                        keyring.delete_password(serviceKeyring, "refresh_token")
-                        keyring.delete_password(serviceKeyring, "username")
-                        keyring.delete_password(serviceKeyring, "oauth_tokens.json")
+                        from .auth_storage import clear_tokens
+
+                        clear_tokens()
                     except Exception:
-                        pass
+                        try:
+                            keyring.delete_password(serviceKeyring, "refresh_token")
+                        except Exception:
+                            pass
+                        try:
+                            keyring.delete_password(serviceKeyring, "username")
+                        except Exception:
+                            pass
+                        try:
+                            keyring.delete_password(serviceKeyring, "oauth_tokens.json")
+                        except Exception:
+                            pass
 
                 # Clear API auth header and reset handle
                 try:
@@ -3570,8 +4184,8 @@ class ProfilePanel(VerticalScroll):
 
         with profile_container:
             yield Static(settings.ascii_pic, classes="profile-avatar-large")
-            username = keyring.get_password(serviceKeyring, "username")
-            if username == None:
+            username = get_username()
+            if username is None:
                 username = settings.username
             yield Static(f"@{username}", classes="profile-username-display")
 
@@ -4293,7 +4907,7 @@ class Proj101App(App):
             # Resolve username once (prefer the message payload, then keyring, then a default)
             username = (
                 (message.username if getattr(message, "username", None) else None)
-                or keyring.get_password(serviceKeyring, "username")
+                or get_username()
                 or "yourname"
             )
             # If header exists, update it
@@ -4322,7 +4936,11 @@ class Proj101App(App):
             restored = False
             # Try a few quick attempts to restore session to avoid races with
             # another process writing the fallback token file (small window at startup).
-            for attempt in range(3):
+
+            # Clock to limit total restore time, and try to restore during that range
+            allow_restore_time = 2.0  # seconds
+            start_time = time.time()
+            while time.time() - start_time < allow_restore_time:
                 try:
                     restored = api.try_restore_session()
                 except Exception as e:
@@ -4347,9 +4965,7 @@ class Proj101App(App):
                     pass
                 # Ensure handle is set (may be persisted in keyring by auth flow)
                 try:
-                    api.handle = (
-                        keyring.get_password(serviceKeyring, "username") or api.handle
-                    )
+                    api.handle = get_username() or api.handle
                 except Exception:
                     pass
 
@@ -4561,8 +5177,11 @@ class Proj101App(App):
     def action_focus_navigation(self) -> None:
         try:
             topnav = self.query_one("#top-navbar", TopNav)
-            first = topnav.query_one(".nav-item", NavigationItem)
-            first.focus()
+            # Prefer direct attribute if TopNav exposed its Tabs instance
+            tabs = getattr(topnav, "tabs", None)
+            if tabs is None:
+                tabs = topnav.query_one("#top-tabs", Tabs)
+            tabs.focus()
         except Exception:
             pass
 
@@ -4603,9 +5222,6 @@ class Proj101App(App):
                 conversations.border_title = "[6] Messages"
                 conversations.add_class("vim-mode-active")
                 conversations.focus()
-                # Reset cursor position to ensure it's visible
-                conversations.cursor_position = 0
-                conversations._update_cursor()
         except Exception:
             pass
 
@@ -4790,11 +5406,21 @@ class Proj101App(App):
                 elif command.upper() == "P":
                     self.switch_screen("profile")
                 elif command == "n":
-                    # Handle :n differently based on screen
-                    if self.current_screen_name in ["timeline", "discover"]:
-                        self.action_new_post()
-                    elif self.current_screen_name == "messages":
-                        # Focus message input in messages screen
+                    # Open dialog to prompt for a username to message
+                    try:
+
+                        def _after(result):
+                            # result is the username string on success, False/None otherwise
+                            try:
+                                if result:
+                                    # Switch to messages with that username (action_open_dm handles notification)
+                                    self.action_open_dm(result)
+                            except Exception:
+                                pass
+
+                        self.push_screen(NewMessageDialog(), _after)
+                    except Exception:
+                        # Fallback: focus message input
                         try:
                             msg_input = self.query_one("#message-input", Input)
                             msg_input.focus()
@@ -4815,28 +5441,39 @@ class Proj101App(App):
                                 post = getattr(post_item, "post", None)
                                 if post:
                                     try:
-                                        currently_liked = bool(getattr(post_item, "liked_by_user", False) or getattr(post, "liked_by_user", False))
+                                        currently_liked = bool(
+                                            getattr(post_item, "liked_by_user", False)
+                                            or getattr(post, "liked_by_user", False)
+                                        )
                                         if currently_liked:
                                             # Unlike
                                             try:
                                                 api.unlike_post(post.id)
                                             except Exception:
-                                                logging.exception("api.unlike_post failed")
+                                                logging.exception(
+                                                    "api.unlike_post failed"
+                                                )
                                             try:
                                                 post_item.liked_by_user = False
                                             except Exception:
                                                 pass
-                                            self.notify("Post unliked!", severity="success")
+                                            self.notify(
+                                                "Post unliked!", severity="success"
+                                            )
                                         else:
                                             try:
                                                 api.like_post(post.id)
                                             except Exception:
-                                                logging.exception("api.like_post failed")
+                                                logging.exception(
+                                                    "api.like_post failed"
+                                                )
                                             try:
                                                 post_item.liked_by_user = True
                                             except Exception:
                                                 pass
-                                            self.notify("Post liked!", severity="success")
+                                            self.notify(
+                                                "Post liked!", severity="success"
+                                            )
                                     except Exception:
                                         logging.exception("Error toggling like")
                         except Exception:
@@ -4851,27 +5488,38 @@ class Proj101App(App):
                                 post = getattr(post_item, "post", None)
                                 if post:
                                     try:
-                                        currently_liked = bool(getattr(post_item, "liked_by_user", False) or getattr(post, "liked_by_user", False))
+                                        currently_liked = bool(
+                                            getattr(post_item, "liked_by_user", False)
+                                            or getattr(post, "liked_by_user", False)
+                                        )
                                         if currently_liked:
                                             try:
                                                 api.unlike_post(post.id)
                                             except Exception:
-                                                logging.exception("api.unlike_post failed")
+                                                logging.exception(
+                                                    "api.unlike_post failed"
+                                                )
                                             try:
                                                 post_item.liked_by_user = False
                                             except Exception:
                                                 pass
-                                            self.notify("Post unliked!", severity="success")
+                                            self.notify(
+                                                "Post unliked!", severity="success"
+                                            )
                                         else:
                                             try:
                                                 api.like_post(post.id)
                                             except Exception:
-                                                logging.exception("api.like_post failed")
+                                                logging.exception(
+                                                    "api.like_post failed"
+                                                )
                                             try:
                                                 post_item.liked_by_user = True
                                             except Exception:
                                                 pass
-                                            self.notify("Post liked!", severity="success")
+                                            self.notify(
+                                                "Post liked!", severity="success"
+                                            )
                                     except Exception:
                                         logging.exception("Error toggling like")
                         except Exception:
@@ -4931,7 +5579,12 @@ class Proj101App(App):
                                 post = getattr(post_item, "post", None)
                                 if post:
                                     try:
-                                        currently_reposted = bool(getattr(post_item, "reposted_by_user", False) or getattr(post, "reposted_by_user", False))
+                                        currently_reposted = bool(
+                                            getattr(
+                                                post_item, "reposted_by_user", False
+                                            )
+                                            or getattr(post, "reposted_by_user", False)
+                                        )
                                         if currently_reposted:
                                             try:
                                                 api.unrepost(post.id)
@@ -4941,7 +5594,9 @@ class Proj101App(App):
                                                 post_item.reposted_by_user = False
                                             except Exception:
                                                 pass
-                                            self.notify("Post unreposted!", severity="success")
+                                            self.notify(
+                                                "Post unreposted!", severity="success"
+                                            )
                                         else:
                                             try:
                                                 api.repost(post.id)
@@ -4964,7 +5619,9 @@ class Proj101App(App):
                                                     timeline_feed, "reposted_posts", []
                                                 )
                                             ]
-                                            self.notify("Post reposted!", severity="success")
+                                            self.notify(
+                                                "Post reposted!", severity="success"
+                                            )
                                     except Exception:
                                         logging.exception("Error toggling repost")
                         except Exception:
@@ -4979,7 +5636,12 @@ class Proj101App(App):
                                 post = getattr(post_item, "post", None)
                                 if post:
                                     try:
-                                        currently_reposted = bool(getattr(post_item, "reposted_by_user", False) or getattr(post, "reposted_by_user", False))
+                                        currently_reposted = bool(
+                                            getattr(
+                                                post_item, "reposted_by_user", False
+                                            )
+                                            or getattr(post, "reposted_by_user", False)
+                                        )
                                         if currently_reposted:
                                             try:
                                                 api.unrepost(post.id)
@@ -4989,7 +5651,9 @@ class Proj101App(App):
                                                 post_item.reposted_by_user = False
                                             except Exception:
                                                 pass
-                                            self.notify("Post unreposted!", severity="success")
+                                            self.notify(
+                                                "Post unreposted!", severity="success"
+                                            )
                                         else:
                                             try:
                                                 api.repost(post.id)
@@ -4999,7 +5663,9 @@ class Proj101App(App):
                                                 post_item.reposted_by_user = True
                                             except Exception:
                                                 pass
-                                            self.notify("Post reposted!", severity="success")
+                                            self.notify(
+                                                "Post reposted!", severity="success"
+                                            )
                                     except Exception:
                                         logging.exception("Error toggling repost")
                         except Exception:

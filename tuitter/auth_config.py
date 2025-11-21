@@ -20,5 +20,5 @@ AUTH_SERVER_URL = f"http://{AUTH_SERVER_HOST}:{AUTH_SERVER_PORT}"
 
 # Storage settings
 KEYRING_SERVICE = "tuitter"
-TOKEN_KEY = "oauth_tokens"
+TOKEN_KEY = "oauth_tokens.json"
 USERNAME_KEY = "username"
