@@ -5522,27 +5522,40 @@ class Proj101App(App):
                 elif command.upper() == "P":
                     self.switch_screen("profile")
                 elif command == "n":
-                    # Open dialog to prompt for a username to message
+                    # Context-aware :n
+                    # - When on the messages screen, open NewMessageDialog
+                    # - When on timeline or discover, open NewPostDialog
                     try:
+                        if self.current_screen_name == "messages":
 
-                        def _after(result):
-                            # result is the username string on success, False/None otherwise
+                            def _after(result):
+                                # result is the username string on success, False/None otherwise
+                                try:
+                                    if result:
+                                        # Switch to messages with that username (action_open_dm handles notification)
+                                        self.action_open_dm(result)
+                                except Exception:
+                                    pass
+
+                            self.push_screen(NewMessageDialog(), _after)
+
+                        elif self.current_screen_name in ("timeline", "discover"):
+                            # Open the new post dialog when on timeline or discover
                             try:
-                                if result:
-                                    # Switch to messages with that username (action_open_dm handles notification)
-                                    self.action_open_dm(result)
+                                self.push_screen(NewPostDialog())
                             except Exception:
                                 pass
 
-                        self.push_screen(NewMessageDialog(), _after)
+                        else:
+                            pass
+
                     except Exception:
-                        # Fallback: focus message input
+                        # Fallback: focus message input if present
                         try:
                             msg_input = self.query_one("#message-input", Input)
                             msg_input.focus()
-                        except:
+                        except Exception:
                             pass
-                    # Don't do anything for other screens (like drafts)
                 elif command.upper() == "D":
                     self.action_show_drafts()
                 elif command == "l":
