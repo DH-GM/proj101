@@ -1353,7 +1353,7 @@ class PostItem(Static):
             like_symbol = "❤️" if self.liked_by_user else "🤍"
             repost_symbol = "Reposts"
             stats_widget.update(
-                f"{like_symbol}  {self.like_count} Likes     {self.repost_count} {repost_symbol}     {self.comment_count} Comments"
+                f"{like_symbol}  {self.like_count} Likes     🔁  {self.repost_count} {repost_symbol}     💬  {self.comment_count} Comments"
             )
         except Exception:
             # If not found, force a refresh as fallback
