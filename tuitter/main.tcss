@@ -267,6 +267,19 @@ DraftsScreen {
     border-title-style: bold;
 }
 
+/* Ensure draft box children don't expand to fill remaining space.
+   This prevents a large gap between the border title and the content preview. */
+.draft-box {
+    layout: vertical;
+    align: left top;
+    min-height: 3;
+}
+
+.draft-header {
+    height: auto;
+    margin-bottom: 0;
+    content-align: left middle;
+}
 .draft-content-preview {
     color: $text-content;
     margin-bottom: 1;
@@ -300,12 +313,28 @@ DraftsScreen {
     min-width: 15;
 }
 
+/* Override Button primary variant when used on draft action buttons so that
+   the .draft-action-btn visual remains neutral (no bright filled primary).
+   This prevents open_btn.variant = "primary" from changing the background. */
+.draft-action-btn.-primary, .draft-action-btn.-primary:focus {
+    background: $bg-dark;
+    border: solid $color-cyan;
+    color: $text-primary;
+}
+.draft-action-btn.-primary:hover {
+    background: $bg-highlight;
+    border: heavy $accent-cyan;
+}
+
 .draft-action-btn, #cancel-delete {
     border: solid $color-cyan;
 }
 
-.draft-action-btn-delete, #confirm-delete {
-    border: solid $accent-red;
+/* Make the draft Delete action use the same neutral/cyan treatment as Open
+   (we don't want a saturated red here; keep red for destructive confirm dialogs).
+ */
+.draft-action-btn-delete {
+    border: solid $color-cyan;
 }
 
 .draft-action-btn:hover, #cancel-delete:hover {
@@ -314,9 +343,12 @@ DraftsScreen {
     color: $text-primary;
 }
 
-.draft-action-btn-delete:hover, #confirm-delete:hover {
-    background: $danger-bg-hover;
-    border: heavy $accent-red-hover;
+/* Draft delete button hover should match the neutral cyan highlight (not the destructive red)
+   to keep consistent affordance in the drafts list. The destructive confirm dialog still
+   uses red styling via #confirm-delete. */
+.draft-action-btn-delete:hover {
+    background: $bg-highlight;
+    border: heavy $accent-cyan;
     color: $text-primary;
 }
 
@@ -328,9 +360,11 @@ DraftsScreen {
     text-style: bold;
 }
 
-.draft-action-btn-delete.action-selected, #confirm-delete.selected {
-    background: $danger-bg-hover;
-    border: heavy $accent-red-hover;
+/* Use the same selected highlight for the delete action in the drafts list so both
+   buttons look consistent. Keep the confirm-delete dialog button separate. */
+.draft-action-btn-delete.action-selected {
+    background: $primary-dark;
+    border: heavy $primary;
     color: $text-primary;
     text-style: bold;
 }

@@ -148,6 +148,7 @@ class APIInterface:
     def add_comment(self, post_id: int, text: str) -> Dict[str, Any]: ...
 
 
+
 class RealAPI(APIInterface):
     """Real API client that talks to an external HTTP backend.
 

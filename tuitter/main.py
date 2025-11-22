@@ -74,6 +74,21 @@ class AuthenticationFailed(Message):
         self.error = error
 
 
+class CommentAdded(Message):
+    """Posted when a comment is successfully added to a post.
+
+    `origin` may be provided as a direct reference to the PostItem widget that
+    spawned the CommentScreen so handlers can optimistically update that
+    specific widget.
+    """
+
+    def __init__(self, post_id: str, comment_count: int, origin=None) -> None:
+        super().__init__()
+        self.post_id = post_id
+        self.comment_count = comment_count
+        self.origin = origin
+
+
 # Drafts file path
 DRAFTS_FILE = Path.home() / ".proj101_drafts.json"
 
@@ -139,6 +154,20 @@ def delete_draft(index: int) -> None:
     if 0 <= index < len(drafts):
         drafts.pop(index)
         save_drafts(drafts)
+
+
+def update_draft(index: int, content: str, attachments: List = None) -> None:
+    """Update an existing draft by index (overwrite content/attachments)."""
+    drafts = load_drafts()
+    if not drafts:
+        return
+    if index < 0 or index >= len(drafts):
+        raise IndexError("draft index out of range")
+
+    drafts[index]["content"] = content
+    drafts[index]["attachments"] = attachments or []
+    drafts[index]["timestamp"] = datetime.now()
+    save_drafts(drafts)
 
 
 def format_time_ago(dt: datetime) -> str:
@@ -573,7 +602,7 @@ class AuthScreen(Screen):
                     def on_auth_fail():
                         try:
                             self.query_one("#auth-status", Static).update(
-                                f"⚠️ Auth failed: {str(e)}"
+                                f"Warning: Auth failed: {str(e)}"
                             )
                         except Exception:
                             pass
@@ -594,7 +623,7 @@ class AuthScreen(Screen):
                     def on_exc():
                         try:
                             self.query_one("#auth-status", Static).update(
-                                "⚠️ An error occurred"
+                                "Warning: An error occurred"
                             )
                         except Exception:
                             pass
@@ -650,7 +679,7 @@ class AuthScreen(Screen):
         try:
             try:
                 self.query_one("#auth-status", Static).update(
-                    f"⚠️ Auth failed: {message.error}"
+                    f"Warning: Auth failed: {message.error}"
                 )
             except Exception:
                 pass
@@ -669,9 +698,10 @@ class CommentFeed(VerticalScroll):
     cursor_position = reactive(0)  # 0 = post, 1 = input, 2+ = comments
     scroll_y = reactive(0)  # Track scroll position
 
-    def __init__(self, post, **kwargs):
+    def __init__(self, post, origin=None, **kwargs):
         super().__init__(**kwargs)
         self.post = post
+        self.origin = origin
         self.comments = []
 
     def compose(self):
@@ -736,6 +766,38 @@ class CommentFeed(VerticalScroll):
 
         # Refresh comments
         self._refresh_comments()
+
+        # Notify app/widgets that a comment was added so post counters update
+        try:
+            new_comments = api.get_comments(self.post.id)
+            new_count = len(new_comments)
+            try:
+                setattr(self.post, "comments", new_count)
+            except Exception:
+                pass
+            try:
+                # Post message including the origin reference if present so the
+                # originating PostItem can be updated optimistically.
+                self.post_message(
+                    CommentAdded(
+                        post_id=self.post.id,
+                        comment_count=new_count,
+                        origin=getattr(self, "origin", None),
+                    )
+                )
+            except Exception:
+                try:
+                    self.app.post_message(
+                        CommentAdded(
+                            post_id=self.post.id,
+                            comment_count=new_count,
+                            origin=getattr(self, "origin", None),
+                        )
+                    )
+                except Exception:
+                    pass
+        except Exception:
+            pass
 
         # Show notification
         if hasattr(self.app, "notify"):
@@ -956,12 +1018,13 @@ class CommentFeed(VerticalScroll):
 class CommentScreen(Screen):
     """Screen wrapper for CommentFeed"""
 
-    def __init__(self, post, **kwargs):
+    def __init__(self, post, origin=None, **kwargs):
         super().__init__(**kwargs)
         self.post = post
+        self.origin = origin
 
     def compose(self) -> ComposeResult:
-        yield CommentFeed(self.post, id="comment-feed")
+        yield CommentFeed(self.post, origin=getattr(self, "origin", None), id="comment-feed")
         yield Static(
             "[i] Input [q] Back [j/k] Navigate", id="comment-footer", markup=False
         )
@@ -977,9 +1040,6 @@ class NavigationItem(Static):
         # Ensure markup is enabled
         kwargs.setdefault("markup", True)
         super().__init__(**kwargs)
-        self.label_text = label
-        self.screen_name = screen_name
-        self.number = number
         self.active = active
         if active:
             self.add_class("active")
@@ -1028,7 +1088,7 @@ class DraftItem(Static):
         )
         time_ago = format_time_ago(self.draft["timestamp"])
         attachments_count = len(self.draft.get("attachments", []))
-        attach_text = f" 📎{attachments_count}" if attachments_count > 0 else ""
+        attach_text = f" [{attachments_count} attachments]" if attachments_count > 0 else ""
 
         return f"{time_ago}\n{content}{attach_text}"
 
@@ -1228,13 +1288,13 @@ class PostItem(Static):
         """Compose compact post."""
         time_ago = format_time_ago(self.post.timestamp)
         like_symbol = "❤️" if self.liked_by_user else "🤍"
-        repost_symbol = "🔁" if self.reposted_by_user else "🔁"
+        repost_symbol = "Repost"
 
         # Repost banner if this is a reposted post by you (either client-injected or backend-marked)
         if getattr(self, "reposted_by_you", False) or getattr(
             self.post, "reposted_by_user", False
         ):
-            yield Static("🔁 Reposted by you", classes="repost-banner", markup=False)
+            yield Static("Reposted by you", classes="repost-banner", markup=False)
 
         # Post header and reactive stats
         yield Static(
@@ -1270,7 +1330,7 @@ class PostItem(Static):
 
         # Post stats - use reactive fields so updates are instant
         yield Static(
-            f"{like_symbol} {self.like_count}  {repost_symbol} {self.repost_count}  💬 {self.comment_count}",
+            f"{like_symbol} {self.like_count}  {repost_symbol} {self.repost_count}  Comments {self.comment_count}",
             classes="post-stats",
             markup=False,
         )
@@ -1291,9 +1351,9 @@ class PostItem(Static):
         try:
             stats_widget = self.query_one(".post-stats", Static)
             like_symbol = "❤️" if self.liked_by_user else "🤍"
-            repost_symbol = "🔁" if self.reposted_by_user else "🔁"
+            repost_symbol = "Reposts"
             stats_widget.update(
-                f"{like_symbol} {self.like_count}  {repost_symbol} {self.repost_count}  💬 {self.comment_count}"
+                f"{like_symbol}  {self.like_count} Likes     🔁  {self.repost_count} {repost_symbol}     💬  {self.comment_count} Comments"
             )
         except Exception:
             # If not found, force a refresh as fallback
@@ -1329,10 +1389,20 @@ class PostItem(Static):
             pass
         self._update_stats_widget()
 
+    def watch_comment_count(self, new: int) -> None:
+        """Update UI when the comment_count reactive value changes."""
+        try:
+            # Keep underlying model consistent if possible
+            self.post.comments = new
+        except Exception:
+            pass
+        # Refresh the visible stats
+        self._update_stats_widget()
+
     def on_click(self) -> None:
         """Handle click to open comment screen"""
         try:
-            self.app.push_screen(CommentScreen(self.post))
+            self.app.push_screen(CommentScreen(self.post, origin=self))
         except Exception:
             pass
 
@@ -1349,9 +1419,9 @@ class NotificationItem(Static):
         icon = {
             "mention": "📢",
             "like": "❤️",
-            "repost": "🔁",
+            "repost": "Repost",
             "follow": "👥",
-            "comment": "💬",
+            "comment": "Comments",
         }.get(self.notification.type, "🔵")
         n = self.notification
         if n.type == "mention":
@@ -1615,7 +1685,10 @@ class Sidebar(VerticalScroll):
         drafts_container = Container(classes="drafts-box")
         drafts_container.border_title = "\\[d] Drafts"
         with drafts_container:
-            drafts = load_drafts()
+            # Prefer App-level reactive store when present for instant UI updates
+            drafts = getattr(self.app, "drafts_store", None)
+            if drafts is None:
+                drafts = load_drafts()
             if drafts:
                 # Show most recent first
                 for i, draft in enumerate(reversed(drafts)):
@@ -1670,7 +1743,9 @@ class Sidebar(VerticalScroll):
                 item.remove()
 
             # Add updated drafts
-            drafts = load_drafts()
+            drafts = getattr(self.app, "drafts_store", None)
+            if drafts is None:
+                drafts = load_drafts()
             if drafts:
                 # Show most recent first
                 for i, draft in enumerate(reversed(drafts)):
@@ -1688,6 +1763,16 @@ class Sidebar(VerticalScroll):
         """Handle drafts updated message."""
         self.refresh_drafts()
 
+    def on_mount(self) -> None:
+        """Watch the app-level drafts_store so the sidebar updates reactively."""
+        try:
+            # Watch the app's drafts_store reactive for changes
+            if getattr(self, "app", None) is not None:
+                # callback receives (old, new) but refresh_drafts doesn't need them
+                self.watch(self.app, "drafts_store", lambda old, new: self.refresh_drafts())
+        except Exception:
+            pass
+
 
 # ───────── Modal Dialogs ─────────
 
@@ -1697,19 +1782,22 @@ class NewPostDialog(ModalScreen):
 
     cursor_position = reactive(0)  # 0 = textarea, 1-5 = buttons
 
-    def __init__(self, draft_content: str = "", draft_attachments: List = None):
+    def __init__(self, draft_content: str = "", draft_attachments: List = None, draft_index: int = None):
         super().__init__()
         self.draft_content = draft_content
         self.draft_attachments = draft_attachments or []
+        self.draft_index = draft_index
         self.in_insert_mode = True  # Start in insert mode (textarea focused)
 
     def compose(self) -> ComposeResult:
         with Container(id="dialog-container"):
-            yield Static("✨ Create New Post", id="dialog-title")
+            yield Static("Create New Post", id="dialog-title")
             yield TextArea(id="post-textarea")
             # Key hints for vim navigation
             yield Static(
-                "\\[i] edit | \\[esc] navigate", id="vim-hints", classes="vim-hints"
+                "\\[i] edit | \\[r] remove photo | \\[esc] navigate",
+                id="vim-hints",
+                classes="vim-hints",
             )
             # Status/attachments display area
             yield Static("", id="attachments-list", classes="attachments-list")
@@ -1717,13 +1805,13 @@ class NewPostDialog(ModalScreen):
 
             # Media attachment buttons
             with Container(id="media-buttons"):
-                yield Button("🖼️ Add Photo", id="attach-photo")
+                yield Button("Add Photo", id="attach-photo")
 
             # Action buttons
             with Container(id="action-buttons"):
-                yield Button("📤 Post", variant="primary", id="post-button")
-                yield Button("💾 Save", id="draft-button")
-                yield Button("❌ Cancel", id="cancel-button")
+                yield Button("Post", variant="primary", id="post-button")
+                yield Button("Save", id="draft-button")
+                yield Button("Cancel", id="cancel-button")
 
     def on_mount(self) -> None:
         """Focus the textarea when dialog opens."""
@@ -1787,6 +1875,30 @@ class NewPostDialog(ModalScreen):
             return
         if self.in_insert_mode:
             self.in_insert_mode = False
+            self.cursor_position = 1  # Start at first button
+            self._update_cursor()
+
+    def key_r(self) -> None:
+        """Remove any attached photo/ascii_photo when in navigation mode.
+
+        This is a navigation shortcut (press after hitting Esc to leave insert mode).
+        """
+        if self.app.command_mode:
+            return
+        # Only act when in navigation mode (not typing into textarea)
+        if getattr(self, "in_insert_mode", False):
+            return
+        try:
+            before = len(getattr(self, "_attachments", []))
+            self._attachments = [a for a in getattr(self, "_attachments", []) if not (a and a[0] in ("photo", "ascii_photo"))]
+            after = len(self._attachments)
+            if after < before:
+                self._update_attachments_display()
+                self._show_status("Photo removed.")
+            else:
+                self._show_status("No photo to remove", error=True)
+        except Exception:
+            pass
             self.cursor_position = 1  # Start at first button
             self._update_cursor()
 
@@ -1869,7 +1981,15 @@ class NewPostDialog(ModalScreen):
         btn_id = getattr(event.button, "id", None)
 
         if btn_id == "attach-photo":
-            self._show_status("🖼️ Opening photo selector...")
+            # Allow only one image per post; if one exists, we'll replace it.
+            try:
+                existing_photos = [a for a in getattr(self, "_attachments", []) if a and a[0] in ("photo", "ascii_photo")]
+                if existing_photos:
+                    self._show_status("Replacing existing photo...")
+            except Exception:
+                pass
+
+            self._show_status("Opening photo selector...")
             try:
                 root = tk.Tk()
                 root.withdraw()
@@ -1897,6 +2017,7 @@ class NewPostDialog(ModalScreen):
                     pixels = img.load()
                     # Use reversed density ramp so dark areas map to sparse chars
                     ascii_chars = [
+                        " ",
                         ".",
                         ",",
                         ":",
@@ -1909,6 +2030,7 @@ class NewPostDialog(ModalScreen):
                         "#",
                         "@",
                     ]
+                    ascii_chars = ascii_chars[::-1]  # Reverse the list
                     ascii_lines = []
                     for y in range(height):
                         line = ""
@@ -1919,14 +2041,20 @@ class NewPostDialog(ModalScreen):
                         ascii_lines.append(line)
                     ascii_art = "\n".join(ascii_lines)
 
+                    # Remove any existing photo attachment so we only keep one image
+                    try:
+                        self._attachments = [a for a in getattr(self, "_attachments", []) if not (a and a[0] in ("photo", "ascii_photo"))]
+                    except Exception:
+                        self._attachments = []
+
                     # Store ASCII version instead of original photo
                     self._attachments.append(("ascii_photo", ascii_art))
                     self._update_attachments_display()
                     self._show_status("✓ Photo converted to ASCII!")
                 except Exception as e:
-                    self._show_status(f"⚠ Error converting image: {str(e)}", error=True)
+                    self._show_status(f"Warning: Error converting image: {str(e)}", error=True)
             except Exception as e:
-                self._show_status(f"⚠ Error: {str(e)}", error=True)
+                self._show_status(f"Warning: Error: {str(e)}", error=True)
 
         elif btn_id == "post-button":
             self._handle_post()
@@ -1943,10 +2071,10 @@ class NewPostDialog(ModalScreen):
         content = textarea.text.strip()
 
         if not content and not self._attachments:
-            self._show_status("⚠ Post cannot be empty!", error=True)
+            self._show_status("Warning: Post cannot be empty!", error=True)
             return
 
-        self._show_status("📤 Publishing post...")
+        self._show_status("Publishing post...")
 
         # Prepare attachments payload - ensure attachments is a list that gets set on the post
         attachments = []
@@ -1964,7 +2092,7 @@ class NewPostDialog(ModalScreen):
 
             self._show_status("✓ Post published successfully!")
             try:
-                self.app.notify("📤 Post published!", severity="success")
+                self.app.notify("Post published!", severity="success")
             except:
                 pass
             self.dismiss(True)
@@ -1977,7 +2105,7 @@ class NewPostDialog(ModalScreen):
                 )  # Add attachments after creation
                 self._show_status("✓ Post published successfully!")
                 try:
-                    self.app.notify("📤 Post published!", severity="success")
+                    self.app.notify("Post published!", severity="success")
                 except:
                     pass
                 self.dismiss(True)
@@ -1987,12 +2115,12 @@ class NewPostDialog(ModalScreen):
                     new_post = api.create_post(content)
                     self._show_status("✓ Post published (without attachments)")
                     try:
-                        self.app.notify("📤 Post published!", severity="warning")
+                        self.app.notify("Post published!", severity="warning")
                     except:
                         pass
                     self.dismiss(True)
                 except Exception as e:
-                    self._show_status(f"⚠ Error: {str(e)}", error=True)
+                    self._show_status(f"Warning: Error: {str(e)}", error=True)
 
     def _handle_save_draft(self) -> None:
         """Handle saving the post as a draft."""
@@ -2000,24 +2128,35 @@ class NewPostDialog(ModalScreen):
         content = textarea.text.strip()
 
         if not content and not self._attachments:
-            self._show_status("⚠ Draft cannot be empty!", error=True)
+            self._show_status("Warning: Draft cannot be empty!", error=True)
             return
 
-        self._show_status("💾 Saving draft...")
+        self._show_status("Saving draft...")
 
         # Save draft using the add_draft function
         try:
-            add_draft(content, self._attachments)
+            # If editing an existing draft, overwrite it; otherwise add a new draft
+            if getattr(self, "draft_index", None) is not None:
+                update_draft(self.draft_index, content, self._attachments)
+            else:
+                add_draft(content, self._attachments)
             self._show_status("✓ Draft saved!")
             try:
-                self.app.notify("💾 Draft saved successfully!", severity="success")
-                # Post a custom message to refresh drafts everywhere
-                self.app.post_message(DraftsUpdated())
+                self.app.notify("Draft saved successfully!", severity="success")
             except:
+                # Ignore notification errors but continue to update drafts
+                pass
+            # Refresh the App-level drafts store so UI updates instantly
+            try:
+                if hasattr(self.app, "refresh_drafts_store"):
+                    self.app.refresh_drafts_store()
+                else:
+                    self.app.post_message(DraftsUpdated())
+            except Exception:
                 pass
             self.dismiss(False)
         except Exception as e:
-            self._show_status(f"⚠ Error: {str(e)}", error=True)
+            self._show_status(f"Warning: Error: {str(e)}", error=True)
 
     def _update_attachments_display(self) -> None:
         """Update the attachments display area."""
@@ -2026,10 +2165,10 @@ class NewPostDialog(ModalScreen):
             if not self._attachments:
                 widget.update("")
                 return
-            lines = ["📎 Attachments:"]
+            lines = ["Attachments:"]
             for i, (t, p) in enumerate(self._attachments, start=1):
                 short = Path(p).name
-                icon = {"file": "📁", "photo": "🖼️"}.get(t, "📎")
+                icon = {"file": "[file]", "photo": "[photo]"}.get(t, "[attach]")
                 if t == "ascii_photo":
                     lines.append(f"\n{p}")  # p is the ASCII art itself
                 widget.update("\n".join(lines))
@@ -2065,7 +2204,7 @@ class NewMessageDialog(ModalScreen):
 
     def compose(self) -> ComposeResult:
         with Container(id="dialog-container"):
-            yield Static("💬 New Message", id="dialog-title")
+            yield Static("New Message", id="dialog-title")
             yield Input(
                 placeholder="Enter recipient handle (without @)", id="dm-username-input"
             )
@@ -2271,14 +2410,14 @@ class DeleteDraftDialog(ModalScreen):
 
     def compose(self) -> ComposeResult:
         with Container(id="dialog-container"):
-            yield Static("🗑️ Delete Draft?", id="dialog-title")
+            yield Static("Delete Draft?", id="dialog-title")
             yield Static(
                 "Are you sure you want to delete this draft?", classes="dialog-message"
             )
 
             with Container(id="action-buttons"):
                 confirm_btn = Button("✓ Yes, Delete", id="confirm-delete")
-                cancel_btn = Button("❌ Cancel", id="cancel-delete")
+                cancel_btn = Button("Cancel", id="cancel-delete")
                 if self.cursor_position == 0:
                     confirm_btn.add_class("selected")
                 else:
@@ -2299,9 +2438,15 @@ class DeleteDraftDialog(ModalScreen):
         if self.cursor_position == 0:
             delete_draft(self.draft_index)
             try:
-                self.app.notify("🗑️ Draft deleted!", severity="success")
-                # Post message to refresh drafts everywhere
-                self.app.post_message(DraftsUpdated())
+                self.app.notify("Draft deleted!", severity="success")
+                # Refresh in-memory store + broadcast so UI updates immediately
+                try:
+                    if hasattr(self.app, "refresh_drafts_store"):
+                        self.app.refresh_drafts_store()
+                    else:
+                        self.app.post_message(DraftsUpdated())
+                except Exception:
+                    pass
             except:
                 pass
             self.dismiss(True)
@@ -2329,9 +2474,14 @@ class DeleteDraftDialog(ModalScreen):
         if btn_id == "confirm-delete":
             delete_draft(self.draft_index)
             try:
-                self.app.notify("🗑️ Draft deleted!", severity="success")
-                # Post message to refresh drafts everywhere
-                self.app.post_message(DraftsUpdated())
+                self.app.notify("Draft deleted!", severity="success")
+                try:
+                    if hasattr(self.app, "refresh_drafts_store"):
+                        self.app.refresh_drafts_store()
+                    else:
+                        self.app.post_message(DraftsUpdated())
+                except Exception:
+                    pass
             except:
                 pass
             self.dismiss(True)
@@ -2371,7 +2521,7 @@ class TimelineFeed(VerticalScroll):
                 f"Opening comment screen for post id={getattr(post, 'id', None)} author={getattr(post, 'author', None)}"
             )
             if post:
-                self.app.push_screen(CommentScreen(post))
+                    self.app.push_screen(CommentScreen(post, origin=post_item))
         else:
             logging.debug("Invalid cursor position in open_comment_screen")
 
@@ -2600,7 +2750,7 @@ class DiscoverFeed(VerticalScroll):
                 post_item = items[post_idx]
                 post = getattr(post_item, "post", None)
                 if post:
-                    self.app.push_screen(CommentScreen(post))
+                    self.app.push_screen(CommentScreen(post, origin=post_item))
         except Exception:
             pass
 
@@ -3673,22 +3823,22 @@ class SettingsPanel(VerticalScroll):
             else "[:c] Connect"
         )
         yield Button(
-            f"  [🟢] GitHub                                              {github_status}",
+            f"  GitHub                                              {github_status}",
             id="oauth-github",
             classes="oauth-item",
         )
         yield Button(
-            f"  [⚪] GitLab                                              {gitlab_status}",
+            f"  GitLab                                              {gitlab_status}",
             id="oauth-gitlab",
             classes="oauth-item",
         )
         yield Button(
-            f"  [⚪] Google                                              {google_status}",
+            f"  Google                                              {google_status}",
             id="oauth-google",
             classes="oauth-item",
         )
         yield Button(
-            f"  [⚪] Discord                                             {discord_status}",
+            f"  Discord                                             {discord_status}",
             id="oauth-discord",
             classes="oauth-item",
         )
@@ -3786,7 +3936,7 @@ class SettingsPanel(VerticalScroll):
             container = self.query_one("#settings-content", Container)
             container.mount(
                 Static(
-                    f"⚠️ Failed to load settings\n\nError: {str(e)}\n\nAPI Handle: {api.handle}",
+                    f"Warning: Failed to load settings\n\nError: {str(e)}\n\nAPI Handle: {api.handle}",
                     classes="panel-header",
                 )
             )
@@ -4329,7 +4479,7 @@ class UserProfileViewPanel(VerticalScroll):
                 )
                 yield follow_btn
                 yield Button(
-                    "💬 Message", id="message-user-btn", classes="profile-action-btn"
+                    "Message", id="message-user-btn", classes="profile-action-btn"
                 )
             yield buttons_container
 
@@ -4450,7 +4600,10 @@ class DraftsPanel(VerticalScroll):
 
     def compose(self) -> ComposeResult:
         self.border_title = "Drafts"
-        drafts = load_drafts()
+        # Prefer app-level drafts store for instant updates
+        drafts = getattr(self.app, "drafts_store", None)
+        if drafts is None:
+            drafts = load_drafts()
 
         yield Static(
             f"drafts.all | {len(drafts)} saved | line 1", classes="panel-header"
@@ -4480,6 +4633,30 @@ class DraftsPanel(VerticalScroll):
         """Watch for cursor position changes"""
         self.watch(self, "cursor_position", self._update_cursor)
         self.watch(self, "selected_action", self._update_action_highlight)
+        try:
+            # Also watch the app-level drafts store so the panel updates reactively
+            if getattr(self, "app", None) is not None:
+                # Use the existing on_drafts_updated handler for consistency
+                self.watch(self.app, "drafts_store", lambda old, new: self.on_drafts_updated(DraftsUpdated()))
+            # Initialize selection to the first displayed draft so keyboard
+            # navigation starts with the Open action focused
+            try:
+                # Ensure there is at least one draft button to focus
+                self.selected_action = "open"
+                self.cursor_position = 0
+                # Update visuals
+                self._update_cursor()
+                self._update_action_highlight()
+                open_buttons = list(self.query(".draft-action-btn"))
+                if open_buttons:
+                    try:
+                        open_buttons[0].focus()
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+        except Exception:
+            pass
 
     def _update_cursor(self) -> None:
         """Update the cursor position"""
@@ -4625,35 +4802,64 @@ class DraftsPanel(VerticalScroll):
         """Create a nice box for displaying a draft."""
         box = Container(classes="draft-box")
         box.border = "round"
-        box.border_title = f"💾 Draft {index + 1}"
+        box.border_title = f"Draft {index + 1}"
 
-        # Header with timestamp
-        time_ago = format_time_ago(draft["timestamp"])
-        box.mount(Static(f"⏰ Saved {time_ago}", classes="draft-timestamp"))
+        # Top header row: timestamp and small meta
+        header = Container(classes="draft-header", id=f"draft-header-{index}")
+        header.styles.layout = "horizontal"
+        header.styles.width = "100%"
+        try:
+            time_ago = format_time_ago(draft.get("timestamp"))
+        except Exception:
+            time_ago = ""
+        header.mount(Static(f"{time_ago}", classes="draft-timestamp"))
+        # Attachments (we'll summarize below; don't include attachment content in preview)
+        attachments = draft.get("attachments", [])
 
-        # Content preview
-        content = draft["content"]
-        preview = content if len(content) <= 200 else content[:200] + "..."
+        box.mount(header)
+
+        # Content preview block (wider than sidebar preview)
+        content = draft.get("content", "")
+        preview = content if len(content) <= 320 else content[:320] + "..."
         box.mount(Static(preview, classes="draft-content-preview"))
 
-        # Attachments info
-        attachments = draft.get("attachments", [])
-        if attachments:
-            attach_text = f"📎 {len(attachments)} attachment(s)"
-            box.mount(Static(attach_text, classes="draft-attachments-info"))
+        # Attachments summary (concise, describe photos separately)
+        if attachments and len(attachments) > 0:
+            try:
+                total = len(attachments)
+                # attachments are stored as tuples (type, payload/path)
+                photo_types = ("photo", "ascii_photo")
+                photo_count = sum(1 for a in attachments if a and a[0] in photo_types)
+                other_count = total - photo_count
 
-        # Action buttons
+                if total == 1:
+                    if photo_count == 1:
+                        summary = "1 photo attached"
+                    else:
+                        summary = f"1 attachment ({attachments[0][0]})"
+                else:
+                    parts = []
+                    if photo_count:
+                        parts.append(f"{photo_count} photo{'s' if photo_count>1 else ''}")
+                    if other_count:
+                        parts.append(f"{other_count} other attachment{'s' if other_count>1 else ''}")
+                    summary = ", ".join(parts)
+            except Exception:
+                summary = f"{len(attachments)} attachment(s)"
+
+            box.mount(Static(summary, classes="draft-attachments-info"))
+
+        # Action buttons row - emphasize primary for Open
         actions_container = Container(classes="draft-actions")
-        actions_container.mount(
-            Button(f"✏️ Open", id=f"open-draft-{index}", classes="draft-action-btn")
-        )
-        actions_container.mount(
-            Button(
-                f"🗑️ Delete",
-                id=f"delete-draft-{index}",
-                classes="draft-action-btn-delete",
-            )
-        )
+        open_btn = Button("Open", id=f"open-draft-{index}", classes="draft-action-btn")
+        delete_btn = Button("Delete", id=f"delete-draft-{index}", classes="draft-action-btn-delete")
+        # Make Open a primary-looking button when possible
+        try:
+            open_btn.variant = "primary"
+        except Exception:
+            pass
+        actions_container.mount(open_btn)
+        actions_container.mount(delete_btn)
         box.mount(actions_container)
 
         return box
@@ -4673,7 +4879,9 @@ class DraftsPanel(VerticalScroll):
         """Handle drafts updated message - refresh the panel."""
         # Remove all children and re-compose
         self.remove_children()
-        drafts = load_drafts()
+        drafts = getattr(self.app, "drafts_store", None)
+        if drafts is None:
+            drafts = load_drafts()
 
         self.mount(
             Static(f"drafts.all | {len(drafts)} saved | line 1", classes="panel-header")
@@ -4762,6 +4970,27 @@ class Proj101App(App):
     command_mode = reactive(False)
     command_text = reactive("")
     _switching = False  # Flag to prevent concurrent screen switches
+    # In-memory reactive drafts store so UI updates immediately without re-reading disk
+    drafts_store = reactive([])
+
+    def load_drafts_store(self) -> None:
+        """Load drafts from disk into the reactive in-memory store."""
+        try:
+            self.drafts_store = load_drafts()
+        except Exception:
+            self.drafts_store = []
+
+    def refresh_drafts_store(self) -> None:
+        """Reload drafts from disk and broadcast DraftsUpdated."""
+        try:
+            self.load_drafts_store()
+        except Exception:
+            self.drafts_store = []
+        try:
+            # Broadcast so widgets listening for DraftsUpdated refresh too
+            self.post_message(DraftsUpdated())
+        except Exception:
+            pass
 
     def watch_command_text(self, new_text: str) -> None:
         """Update command bar whenever command_text changes"""
@@ -4920,6 +5149,63 @@ class Proj101App(App):
         except Exception:
             pass
 
+    def on_comment_added(self, message: CommentAdded) -> None:
+        """Update mounted PostItem widgets when a comment is added.
+
+        This handler finds PostItem widgets referencing the same post id and
+        updates their reactive `comment_count` value so their UI updates via
+        `watch_comment_count`.
+        """
+        try:
+            post_id = getattr(message, "post_id", None)
+            new_count = getattr(message, "comment_count", None)
+            origin = getattr(message, "origin", None)
+            if post_id is None or new_count is None:
+                return
+            # If the message includes an origin widget reference, update it optimistically first
+            try:
+                if origin is not None:
+                    try:
+                        setattr(origin.post, "comments", new_count)
+                    except Exception:
+                        pass
+                    try:
+                        origin.comment_count = new_count
+                        origin._update_stats_widget()
+                    except Exception:
+                        try:
+                            origin.refresh()
+                        except Exception:
+                            pass
+            except Exception:
+                pass
+            # Update any PostItem widgets that reference this post id
+            try:
+                # Query for mounted post items (use both CSS-classed and direct PostItem widgets)
+                post_items = list(self.query(".post-item")) + list(self.query(PostItem))
+                for post_item in post_items:
+                    try:
+                        p = getattr(post_item, "post", None)
+                        if p and getattr(p, "id", None) == post_id:
+                            try:
+                                setattr(p, "comments", new_count)
+                            except Exception:
+                                pass
+                            try:
+                                post_item.comment_count = new_count
+                            except Exception:
+                                # If setting reactive fails, force a refresh
+                                try:
+                                    post_item.refresh()
+                                except Exception:
+                                    pass
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+        except Exception:
+            pass
+
     def on_mount(self) -> None:
         """App startup - decide which mode to show based on stored credentials."""
         import sys
@@ -4928,6 +5214,14 @@ class Proj101App(App):
             self.log_auth_event("App.on_mount CALLED")
         except Exception:
             pass
+        # Initialize in-memory drafts store early so sidebar/drafts panel can render from it
+        try:
+            self.load_drafts_store()
+        except Exception:
+            try:
+                self.drafts_store = load_drafts()
+            except Exception:
+                self.drafts_store = []
         try:
             # First, attempt a proactive restore using the API helper which
             # will attempt refresh if a refresh token is present. This avoids
@@ -5165,7 +5459,7 @@ class Proj101App(App):
     def action_open_dm(self, username: str) -> None:
         """Open a DM with a specific user."""
         try:
-            self.notify(f"💬 Opening chat with @{username}...", severity="info")
+            self.notify(f"Opening chat with @{username}...", severity="info")
         except:
             pass
 
@@ -5323,7 +5617,9 @@ class Proj101App(App):
     def action_open_draft(self, draft_index: int) -> None:
         """Open a draft in the new post dialog."""
         try:
-            drafts = load_drafts()
+            drafts = getattr(self, "drafts_store", None)
+            if drafts is None:
+                drafts = load_drafts()
             if 0 <= draft_index < len(drafts):
                 draft = drafts[draft_index]
 
@@ -5332,9 +5628,11 @@ class Proj101App(App):
                         # Post was published, delete the draft
                         delete_draft(draft_index)
                         try:
-                            # Post message to refresh drafts everywhere
-                            self.post_message(DraftsUpdated())
-                        except:
+                            if hasattr(self, "refresh_drafts_store"):
+                                self.refresh_drafts_store()
+                            else:
+                                self.post_message(DraftsUpdated())
+                        except Exception:
                             pass
                         if self.current_screen_name == "timeline":
                             self.switch_screen("timeline")
@@ -5343,9 +5641,11 @@ class Proj101App(App):
                     else:
                         # Dialog was closed without posting, refresh drafts in case it was saved
                         try:
-                            # Post message to refresh drafts everywhere
-                            self.post_message(DraftsUpdated())
-                        except:
+                            if hasattr(self, "refresh_drafts_store"):
+                                self.refresh_drafts_store()
+                            else:
+                                self.post_message(DraftsUpdated())
+                        except Exception:
                             pass
                         # Refresh drafts screen if we're on it
                         if self.current_screen_name == "drafts":
@@ -5355,6 +5655,7 @@ class Proj101App(App):
                     NewPostDialog(
                         draft_content=draft["content"],
                         draft_attachments=draft.get("attachments", []),
+                        draft_index=draft_index,
                     ),
                     check_refresh,
                 )
@@ -5406,27 +5707,40 @@ class Proj101App(App):
                 elif command.upper() == "P":
                     self.switch_screen("profile")
                 elif command == "n":
-                    # Open dialog to prompt for a username to message
+                    # Context-aware :n
+                    # - When on the messages screen, open NewMessageDialog
+                    # - When on timeline or discover, open NewPostDialog
                     try:
+                        if self.current_screen_name == "messages":
 
-                        def _after(result):
-                            # result is the username string on success, False/None otherwise
+                            def _after(result):
+                                # result is the username string on success, False/None otherwise
+                                try:
+                                    if result:
+                                        # Switch to messages with that username (action_open_dm handles notification)
+                                        self.action_open_dm(result)
+                                except Exception:
+                                    pass
+
+                            self.push_screen(NewMessageDialog(), _after)
+
+                        elif self.current_screen_name in ("timeline", "discover"):
+                            # Open the new post dialog when on timeline or discover
                             try:
-                                if result:
-                                    # Switch to messages with that username (action_open_dm handles notification)
-                                    self.action_open_dm(result)
+                                self.push_screen(NewPostDialog())
                             except Exception:
                                 pass
 
-                        self.push_screen(NewMessageDialog(), _after)
+                        else:
+                            pass
+
                     except Exception:
-                        # Fallback: focus message input
+                        # Fallback: focus message input if present
                         try:
                             msg_input = self.query_one("#message-input", Input)
                             msg_input.focus()
-                        except:
+                        except Exception:
                             pass
-                    # Don't do anything for other screens (like drafts)
                 elif command.upper() == "D":
                     self.action_show_drafts()
                 elif command == "l":
@@ -5542,7 +5856,7 @@ class Proj101App(App):
                                     f"Opening comment screen for post id={getattr(post, 'id', None)} author={getattr(post, 'author', None)}"
                                 )
                                 if post:
-                                    self.push_screen(CommentScreen(post))
+                                    self.push_screen(CommentScreen(post, origin=post_item))
                             else:
                                 logging.debug("Invalid cursor position for :c command")
                         except Exception as e:
@@ -5562,7 +5876,7 @@ class Proj101App(App):
                                     f"Opening comment screen for post id={getattr(post, 'id', None)} author={getattr(post, 'author', None)}"
                                 )
                                 if post:
-                                    self.push_screen(CommentScreen(post))
+                                    self.push_screen(CommentScreen(post, origin=post_item))
                             else:
                                 logging.debug("Invalid cursor position for :c command")
                         except Exception as e:
