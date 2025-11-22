@@ -156,6 +156,20 @@ def delete_draft(index: int) -> None:
         save_drafts(drafts)
 
 
+def update_draft(index: int, content: str, attachments: List = None) -> None:
+    """Update an existing draft by index (overwrite content/attachments)."""
+    drafts = load_drafts()
+    if not drafts:
+        return
+    if index < 0 or index >= len(drafts):
+        raise IndexError("draft index out of range")
+
+    drafts[index]["content"] = content
+    drafts[index]["attachments"] = attachments or []
+    drafts[index]["timestamp"] = datetime.now()
+    save_drafts(drafts)
+
+
 def format_time_ago(dt: datetime) -> str:
     """Format datetime as 'time ago' string."""
     # Normalize 'now' to the same tz-awareness as dt to avoid incorrect deltas
@@ -1768,10 +1782,11 @@ class NewPostDialog(ModalScreen):
 
     cursor_position = reactive(0)  # 0 = textarea, 1-5 = buttons
 
-    def __init__(self, draft_content: str = "", draft_attachments: List = None):
+    def __init__(self, draft_content: str = "", draft_attachments: List = None, draft_index: int = None):
         super().__init__()
         self.draft_content = draft_content
         self.draft_attachments = draft_attachments or []
+        self.draft_index = draft_index
         self.in_insert_mode = True  # Start in insert mode (textarea focused)
 
     def compose(self) -> ComposeResult:
@@ -2078,7 +2093,11 @@ class NewPostDialog(ModalScreen):
 
         # Save draft using the add_draft function
         try:
-            add_draft(content, self._attachments)
+            # If editing an existing draft, overwrite it; otherwise add a new draft
+            if getattr(self, "draft_index", None) is not None:
+                update_draft(self.draft_index, content, self._attachments)
+            else:
+                add_draft(content, self._attachments)
             self._show_status("✓ Draft saved!")
             try:
                 self.app.notify("💾 Draft saved successfully!", severity="success")
@@ -5577,6 +5596,7 @@ class Proj101App(App):
                     NewPostDialog(
                         draft_content=draft["content"],
                         draft_attachments=draft.get("attachments", []),
+                        draft_index=draft_index,
                     ),
                     check_refresh,
                 )
