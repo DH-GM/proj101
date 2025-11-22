@@ -74,6 +74,21 @@ class AuthenticationFailed(Message):
         self.error = error
 
 
+class CommentAdded(Message):
+    """Posted when a comment is successfully added to a post.
+
+    `origin` may be provided as a direct reference to the PostItem widget that
+    spawned the CommentScreen so handlers can optimistically update that
+    specific widget.
+    """
+
+    def __init__(self, post_id: str, comment_count: int, origin=None) -> None:
+        super().__init__()
+        self.post_id = post_id
+        self.comment_count = comment_count
+        self.origin = origin
+
+
 # Drafts file path
 DRAFTS_FILE = Path.home() / ".proj101_drafts.json"
 
@@ -669,9 +684,10 @@ class CommentFeed(VerticalScroll):
     cursor_position = reactive(0)  # 0 = post, 1 = input, 2+ = comments
     scroll_y = reactive(0)  # Track scroll position
 
-    def __init__(self, post, **kwargs):
+    def __init__(self, post, origin=None, **kwargs):
         super().__init__(**kwargs)
         self.post = post
+        self.origin = origin
         self.comments = []
 
     def compose(self):
@@ -736,6 +752,38 @@ class CommentFeed(VerticalScroll):
 
         # Refresh comments
         self._refresh_comments()
+
+        # Notify app/widgets that a comment was added so post counters update
+        try:
+            new_comments = api.get_comments(self.post.id)
+            new_count = len(new_comments)
+            try:
+                setattr(self.post, "comments", new_count)
+            except Exception:
+                pass
+            try:
+                # Post message including the origin reference if present so the
+                # originating PostItem can be updated optimistically.
+                self.post_message(
+                    CommentAdded(
+                        post_id=self.post.id,
+                        comment_count=new_count,
+                        origin=getattr(self, "origin", None),
+                    )
+                )
+            except Exception:
+                try:
+                    self.app.post_message(
+                        CommentAdded(
+                            post_id=self.post.id,
+                            comment_count=new_count,
+                            origin=getattr(self, "origin", None),
+                        )
+                    )
+                except Exception:
+                    pass
+        except Exception:
+            pass
 
         # Show notification
         if hasattr(self.app, "notify"):
@@ -956,12 +1004,13 @@ class CommentFeed(VerticalScroll):
 class CommentScreen(Screen):
     """Screen wrapper for CommentFeed"""
 
-    def __init__(self, post, **kwargs):
+    def __init__(self, post, origin=None, **kwargs):
         super().__init__(**kwargs)
         self.post = post
+        self.origin = origin
 
     def compose(self) -> ComposeResult:
-        yield CommentFeed(self.post, id="comment-feed")
+        yield CommentFeed(self.post, origin=getattr(self, "origin", None), id="comment-feed")
         yield Static(
             "[i] Input [q] Back [j/k] Navigate", id="comment-footer", markup=False
         )
@@ -1329,10 +1378,20 @@ class PostItem(Static):
             pass
         self._update_stats_widget()
 
+    def watch_comment_count(self, new: int) -> None:
+        """Update UI when the comment_count reactive value changes."""
+        try:
+            # Keep underlying model consistent if possible
+            self.post.comments = new
+        except Exception:
+            pass
+        # Refresh the visible stats
+        self._update_stats_widget()
+
     def on_click(self) -> None:
         """Handle click to open comment screen"""
         try:
-            self.app.push_screen(CommentScreen(self.post))
+            self.app.push_screen(CommentScreen(self.post, origin=self))
         except Exception:
             pass
 
@@ -2371,7 +2430,7 @@ class TimelineFeed(VerticalScroll):
                 f"Opening comment screen for post id={getattr(post, 'id', None)} author={getattr(post, 'author', None)}"
             )
             if post:
-                self.app.push_screen(CommentScreen(post))
+                    self.app.push_screen(CommentScreen(post, origin=post_item))
         else:
             logging.debug("Invalid cursor position in open_comment_screen")
 
@@ -2600,7 +2659,7 @@ class DiscoverFeed(VerticalScroll):
                 post_item = items[post_idx]
                 post = getattr(post_item, "post", None)
                 if post:
-                    self.app.push_screen(CommentScreen(post))
+                    self.app.push_screen(CommentScreen(post, origin=post_item))
         except Exception:
             pass
 
@@ -4920,6 +4979,63 @@ class Proj101App(App):
         except Exception:
             pass
 
+    def on_comment_added(self, message: CommentAdded) -> None:
+        """Update mounted PostItem widgets when a comment is added.
+
+        This handler finds PostItem widgets referencing the same post id and
+        updates their reactive `comment_count` value so their UI updates via
+        `watch_comment_count`.
+        """
+        try:
+            post_id = getattr(message, "post_id", None)
+            new_count = getattr(message, "comment_count", None)
+            origin = getattr(message, "origin", None)
+            if post_id is None or new_count is None:
+                return
+            # If the message includes an origin widget reference, update it optimistically first
+            try:
+                if origin is not None:
+                    try:
+                        setattr(origin.post, "comments", new_count)
+                    except Exception:
+                        pass
+                    try:
+                        origin.comment_count = new_count
+                        origin._update_stats_widget()
+                    except Exception:
+                        try:
+                            origin.refresh()
+                        except Exception:
+                            pass
+            except Exception:
+                pass
+            # Update any PostItem widgets that reference this post id
+            try:
+                # Query for mounted post items (use both CSS-classed and direct PostItem widgets)
+                post_items = list(self.query(".post-item")) + list(self.query(PostItem))
+                for post_item in post_items:
+                    try:
+                        p = getattr(post_item, "post", None)
+                        if p and getattr(p, "id", None) == post_id:
+                            try:
+                                setattr(p, "comments", new_count)
+                            except Exception:
+                                pass
+                            try:
+                                post_item.comment_count = new_count
+                            except Exception:
+                                # If setting reactive fails, force a refresh
+                                try:
+                                    post_item.refresh()
+                                except Exception:
+                                    pass
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+        except Exception:
+            pass
+
     def on_mount(self) -> None:
         """App startup - decide which mode to show based on stored credentials."""
         import sys
@@ -5542,7 +5658,7 @@ class Proj101App(App):
                                     f"Opening comment screen for post id={getattr(post, 'id', None)} author={getattr(post, 'author', None)}"
                                 )
                                 if post:
-                                    self.push_screen(CommentScreen(post))
+                                    self.push_screen(CommentScreen(post, origin=post_item))
                             else:
                                 logging.debug("Invalid cursor position for :c command")
                         except Exception as e:
@@ -5562,7 +5678,7 @@ class Proj101App(App):
                                     f"Opening comment screen for post id={getattr(post, 'id', None)} author={getattr(post, 'author', None)}"
                                 )
                                 if post:
-                                    self.push_screen(CommentScreen(post))
+                                    self.push_screen(CommentScreen(post, origin=post_item))
                             else:
                                 logging.debug("Invalid cursor position for :c command")
                         except Exception as e:
