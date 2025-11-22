@@ -602,7 +602,7 @@ class AuthScreen(Screen):
                     def on_auth_fail():
                         try:
                             self.query_one("#auth-status", Static).update(
-                                f"⚠️ Auth failed: {str(e)}"
+                                f"Warning: Auth failed: {str(e)}"
                             )
                         except Exception:
                             pass
@@ -623,7 +623,7 @@ class AuthScreen(Screen):
                     def on_exc():
                         try:
                             self.query_one("#auth-status", Static).update(
-                                "⚠️ An error occurred"
+                                "Warning: An error occurred"
                             )
                         except Exception:
                             pass
@@ -679,7 +679,7 @@ class AuthScreen(Screen):
         try:
             try:
                 self.query_one("#auth-status", Static).update(
-                    f"⚠️ Auth failed: {message.error}"
+                    f"Warning: Auth failed: {message.error}"
                 )
             except Exception:
                 pass
@@ -1088,7 +1088,7 @@ class DraftItem(Static):
         )
         time_ago = format_time_ago(self.draft["timestamp"])
         attachments_count = len(self.draft.get("attachments", []))
-        attach_text = f" 📎{attachments_count}" if attachments_count > 0 else ""
+        attach_text = f" [{attachments_count} attachments]" if attachments_count > 0 else ""
 
         return f"{time_ago}\n{content}{attach_text}"
 
@@ -1288,13 +1288,13 @@ class PostItem(Static):
         """Compose compact post."""
         time_ago = format_time_ago(self.post.timestamp)
         like_symbol = "❤️" if self.liked_by_user else "🤍"
-        repost_symbol = "🔁" if self.reposted_by_user else "🔁"
+        repost_symbol = "Repost"
 
         # Repost banner if this is a reposted post by you (either client-injected or backend-marked)
         if getattr(self, "reposted_by_you", False) or getattr(
             self.post, "reposted_by_user", False
         ):
-            yield Static("🔁 Reposted by you", classes="repost-banner", markup=False)
+            yield Static("Reposted by you", classes="repost-banner", markup=False)
 
         # Post header and reactive stats
         yield Static(
@@ -1330,7 +1330,7 @@ class PostItem(Static):
 
         # Post stats - use reactive fields so updates are instant
         yield Static(
-            f"{like_symbol} {self.like_count}  {repost_symbol} {self.repost_count}  💬 {self.comment_count}",
+            f"{like_symbol} {self.like_count}  {repost_symbol} {self.repost_count}  Comments {self.comment_count}",
             classes="post-stats",
             markup=False,
         )
@@ -1351,9 +1351,9 @@ class PostItem(Static):
         try:
             stats_widget = self.query_one(".post-stats", Static)
             like_symbol = "❤️" if self.liked_by_user else "🤍"
-            repost_symbol = "🔁" if self.reposted_by_user else "🔁"
+            repost_symbol = "Reposts"
             stats_widget.update(
-                f"{like_symbol} {self.like_count}  {repost_symbol} {self.repost_count}  💬 {self.comment_count}"
+                f"{like_symbol}  {self.like_count} Likes     {self.repost_count} {repost_symbol}     {self.comment_count} Comments"
             )
         except Exception:
             # If not found, force a refresh as fallback
@@ -1419,9 +1419,9 @@ class NotificationItem(Static):
         icon = {
             "mention": "📢",
             "like": "❤️",
-            "repost": "🔁",
+            "repost": "Repost",
             "follow": "👥",
-            "comment": "💬",
+            "comment": "Comments",
         }.get(self.notification.type, "🔵")
         n = self.notification
         if n.type == "mention":
@@ -1791,7 +1791,7 @@ class NewPostDialog(ModalScreen):
 
     def compose(self) -> ComposeResult:
         with Container(id="dialog-container"):
-            yield Static("✨ Create New Post", id="dialog-title")
+            yield Static("Create New Post", id="dialog-title")
             yield TextArea(id="post-textarea")
             # Key hints for vim navigation
             yield Static(
@@ -1803,13 +1803,13 @@ class NewPostDialog(ModalScreen):
 
             # Media attachment buttons
             with Container(id="media-buttons"):
-                yield Button("🖼️ Add Photo", id="attach-photo")
+                yield Button("Add Photo", id="attach-photo")
 
             # Action buttons
             with Container(id="action-buttons"):
-                yield Button("📤 Post", variant="primary", id="post-button")
-                yield Button("💾 Save", id="draft-button")
-                yield Button("❌ Cancel", id="cancel-button")
+                yield Button("Post", variant="primary", id="post-button")
+                yield Button("Save", id="draft-button")
+                yield Button("Cancel", id="cancel-button")
 
     def on_mount(self) -> None:
         """Focus the textarea when dialog opens."""
@@ -1959,11 +1959,11 @@ class NewPostDialog(ModalScreen):
             try:
                 existing_photos = [a for a in getattr(self, "_attachments", []) if a and a[0] in ("photo", "ascii_photo")]
                 if existing_photos:
-                    self._show_status("🔁 Replacing existing photo...")
+                    self._show_status("Replacing existing photo...")
             except Exception:
                 pass
 
-            self._show_status("🖼️ Opening photo selector...")
+            self._show_status("Opening photo selector...")
             try:
                 root = tk.Tk()
                 root.withdraw()
@@ -2024,9 +2024,9 @@ class NewPostDialog(ModalScreen):
                     self._update_attachments_display()
                     self._show_status("✓ Photo converted to ASCII!")
                 except Exception as e:
-                    self._show_status(f"⚠ Error converting image: {str(e)}", error=True)
+                    self._show_status(f"Warning: Error converting image: {str(e)}", error=True)
             except Exception as e:
-                self._show_status(f"⚠ Error: {str(e)}", error=True)
+                self._show_status(f"Warning: Error: {str(e)}", error=True)
 
         elif btn_id == "post-button":
             self._handle_post()
@@ -2043,10 +2043,10 @@ class NewPostDialog(ModalScreen):
         content = textarea.text.strip()
 
         if not content and not self._attachments:
-            self._show_status("⚠ Post cannot be empty!", error=True)
+            self._show_status("Warning: Post cannot be empty!", error=True)
             return
 
-        self._show_status("📤 Publishing post...")
+        self._show_status("Publishing post...")
 
         # Prepare attachments payload - ensure attachments is a list that gets set on the post
         attachments = []
@@ -2064,7 +2064,7 @@ class NewPostDialog(ModalScreen):
 
             self._show_status("✓ Post published successfully!")
             try:
-                self.app.notify("📤 Post published!", severity="success")
+                self.app.notify("Post published!", severity="success")
             except:
                 pass
             self.dismiss(True)
@@ -2077,7 +2077,7 @@ class NewPostDialog(ModalScreen):
                 )  # Add attachments after creation
                 self._show_status("✓ Post published successfully!")
                 try:
-                    self.app.notify("📤 Post published!", severity="success")
+                    self.app.notify("Post published!", severity="success")
                 except:
                     pass
                 self.dismiss(True)
@@ -2087,12 +2087,12 @@ class NewPostDialog(ModalScreen):
                     new_post = api.create_post(content)
                     self._show_status("✓ Post published (without attachments)")
                     try:
-                        self.app.notify("📤 Post published!", severity="warning")
+                        self.app.notify("Post published!", severity="warning")
                     except:
                         pass
                     self.dismiss(True)
                 except Exception as e:
-                    self._show_status(f"⚠ Error: {str(e)}", error=True)
+                    self._show_status(f"Warning: Error: {str(e)}", error=True)
 
     def _handle_save_draft(self) -> None:
         """Handle saving the post as a draft."""
@@ -2100,10 +2100,10 @@ class NewPostDialog(ModalScreen):
         content = textarea.text.strip()
 
         if not content and not self._attachments:
-            self._show_status("⚠ Draft cannot be empty!", error=True)
+            self._show_status("Warning: Draft cannot be empty!", error=True)
             return
 
-        self._show_status("💾 Saving draft...")
+        self._show_status("Saving draft...")
 
         # Save draft using the add_draft function
         try:
@@ -2114,7 +2114,7 @@ class NewPostDialog(ModalScreen):
                 add_draft(content, self._attachments)
             self._show_status("✓ Draft saved!")
             try:
-                self.app.notify("💾 Draft saved successfully!", severity="success")
+                self.app.notify("Draft saved successfully!", severity="success")
             except:
                 # Ignore notification errors but continue to update drafts
                 pass
@@ -2128,7 +2128,7 @@ class NewPostDialog(ModalScreen):
                 pass
             self.dismiss(False)
         except Exception as e:
-            self._show_status(f"⚠ Error: {str(e)}", error=True)
+            self._show_status(f"Warning: Error: {str(e)}", error=True)
 
     def _update_attachments_display(self) -> None:
         """Update the attachments display area."""
@@ -2137,10 +2137,10 @@ class NewPostDialog(ModalScreen):
             if not self._attachments:
                 widget.update("")
                 return
-            lines = ["📎 Attachments:"]
+            lines = ["Attachments:"]
             for i, (t, p) in enumerate(self._attachments, start=1):
                 short = Path(p).name
-                icon = {"file": "📁", "photo": "🖼️"}.get(t, "📎")
+                icon = {"file": "[file]", "photo": "[photo]"}.get(t, "[attach]")
                 if t == "ascii_photo":
                     lines.append(f"\n{p}")  # p is the ASCII art itself
                 widget.update("\n".join(lines))
@@ -2176,7 +2176,7 @@ class NewMessageDialog(ModalScreen):
 
     def compose(self) -> ComposeResult:
         with Container(id="dialog-container"):
-            yield Static("💬 New Message", id="dialog-title")
+            yield Static("New Message", id="dialog-title")
             yield Input(
                 placeholder="Enter recipient handle (without @)", id="dm-username-input"
             )
@@ -2382,14 +2382,14 @@ class DeleteDraftDialog(ModalScreen):
 
     def compose(self) -> ComposeResult:
         with Container(id="dialog-container"):
-            yield Static("🗑️ Delete Draft?", id="dialog-title")
+            yield Static("Delete Draft?", id="dialog-title")
             yield Static(
                 "Are you sure you want to delete this draft?", classes="dialog-message"
             )
 
             with Container(id="action-buttons"):
                 confirm_btn = Button("✓ Yes, Delete", id="confirm-delete")
-                cancel_btn = Button("❌ Cancel", id="cancel-delete")
+                cancel_btn = Button("Cancel", id="cancel-delete")
                 if self.cursor_position == 0:
                     confirm_btn.add_class("selected")
                 else:
@@ -2410,7 +2410,7 @@ class DeleteDraftDialog(ModalScreen):
         if self.cursor_position == 0:
             delete_draft(self.draft_index)
             try:
-                self.app.notify("🗑️ Draft deleted!", severity="success")
+                self.app.notify("Draft deleted!", severity="success")
                 # Refresh in-memory store + broadcast so UI updates immediately
                 try:
                     if hasattr(self.app, "refresh_drafts_store"):
@@ -2446,7 +2446,7 @@ class DeleteDraftDialog(ModalScreen):
         if btn_id == "confirm-delete":
             delete_draft(self.draft_index)
             try:
-                self.app.notify("🗑️ Draft deleted!", severity="success")
+                self.app.notify("Draft deleted!", severity="success")
                 try:
                     if hasattr(self.app, "refresh_drafts_store"):
                         self.app.refresh_drafts_store()
@@ -3795,22 +3795,22 @@ class SettingsPanel(VerticalScroll):
             else "[:c] Connect"
         )
         yield Button(
-            f"  [🟢] GitHub                                              {github_status}",
+            f"  GitHub                                              {github_status}",
             id="oauth-github",
             classes="oauth-item",
         )
         yield Button(
-            f"  [⚪] GitLab                                              {gitlab_status}",
+            f"  GitLab                                              {gitlab_status}",
             id="oauth-gitlab",
             classes="oauth-item",
         )
         yield Button(
-            f"  [⚪] Google                                              {google_status}",
+            f"  Google                                              {google_status}",
             id="oauth-google",
             classes="oauth-item",
         )
         yield Button(
-            f"  [⚪] Discord                                             {discord_status}",
+            f"  Discord                                             {discord_status}",
             id="oauth-discord",
             classes="oauth-item",
         )
@@ -3908,7 +3908,7 @@ class SettingsPanel(VerticalScroll):
             container = self.query_one("#settings-content", Container)
             container.mount(
                 Static(
-                    f"⚠️ Failed to load settings\n\nError: {str(e)}\n\nAPI Handle: {api.handle}",
+                    f"Warning: Failed to load settings\n\nError: {str(e)}\n\nAPI Handle: {api.handle}",
                     classes="panel-header",
                 )
             )
@@ -4451,7 +4451,7 @@ class UserProfileViewPanel(VerticalScroll):
                 )
                 yield follow_btn
                 yield Button(
-                    "💬 Message", id="message-user-btn", classes="profile-action-btn"
+                    "Message", id="message-user-btn", classes="profile-action-btn"
                 )
             yield buttons_container
 
@@ -4774,7 +4774,7 @@ class DraftsPanel(VerticalScroll):
         """Create a nice box for displaying a draft."""
         box = Container(classes="draft-box")
         box.border = "round"
-        box.border_title = f"💾 Draft {index + 1}"
+        box.border_title = f"Draft {index + 1}"
 
         # Top header row: timestamp and small meta
         header = Container(classes="draft-header", id=f"draft-header-{index}")
@@ -4806,18 +4806,18 @@ class DraftsPanel(VerticalScroll):
 
                 if total == 1:
                     if photo_count == 1:
-                        summary = "📎 1 photo attached"
+                        summary = "1 photo attached"
                     else:
-                        summary = f"📎 1 attachment ({attachments[0][0]})"
+                        summary = f"1 attachment ({attachments[0][0]})"
                 else:
                     parts = []
                     if photo_count:
                         parts.append(f"{photo_count} photo{'s' if photo_count>1 else ''}")
                     if other_count:
                         parts.append(f"{other_count} other attachment{'s' if other_count>1 else ''}")
-                    summary = "📎 " + ", ".join(parts)
+                    summary = ", ".join(parts)
             except Exception:
-                summary = f"📎 {len(attachments)} attachment(s)"
+                summary = f"{len(attachments)} attachment(s)"
 
             box.mount(Static(summary, classes="draft-attachments-info"))
 
@@ -5431,7 +5431,7 @@ class Proj101App(App):
     def action_open_dm(self, username: str) -> None:
         """Open a DM with a specific user."""
         try:
-            self.notify(f"💬 Opening chat with @{username}...", severity="info")
+            self.notify(f"Opening chat with @{username}...", severity="info")
         except:
             pass
 
