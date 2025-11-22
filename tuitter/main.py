@@ -1795,7 +1795,9 @@ class NewPostDialog(ModalScreen):
             yield TextArea(id="post-textarea")
             # Key hints for vim navigation
             yield Static(
-                "\\[i] edit | \\[esc] navigate", id="vim-hints", classes="vim-hints"
+                "\\[i] edit | \\[r] remove photo | \\[esc] navigate",
+                id="vim-hints",
+                classes="vim-hints",
             )
             # Status/attachments display area
             yield Static("", id="attachments-list", classes="attachments-list")
@@ -1873,6 +1875,30 @@ class NewPostDialog(ModalScreen):
             return
         if self.in_insert_mode:
             self.in_insert_mode = False
+            self.cursor_position = 1  # Start at first button
+            self._update_cursor()
+
+    def key_r(self) -> None:
+        """Remove any attached photo/ascii_photo when in navigation mode.
+
+        This is a navigation shortcut (press after hitting Esc to leave insert mode).
+        """
+        if self.app.command_mode:
+            return
+        # Only act when in navigation mode (not typing into textarea)
+        if getattr(self, "in_insert_mode", False):
+            return
+        try:
+            before = len(getattr(self, "_attachments", []))
+            self._attachments = [a for a in getattr(self, "_attachments", []) if not (a and a[0] in ("photo", "ascii_photo"))]
+            after = len(self._attachments)
+            if after < before:
+                self._update_attachments_display()
+                self._show_status("Photo removed.")
+            else:
+                self._show_status("No photo to remove", error=True)
+        except Exception:
+            pass
             self.cursor_position = 1  # Start at first button
             self._update_cursor()
 
@@ -1991,6 +2017,7 @@ class NewPostDialog(ModalScreen):
                     pixels = img.load()
                     # Use reversed density ramp so dark areas map to sparse chars
                     ascii_chars = [
+                        " ",
                         ".",
                         ",",
                         ":",
@@ -2003,6 +2030,7 @@ class NewPostDialog(ModalScreen):
                         "#",
                         "@",
                     ]
+                    ascii_chars = ascii_chars[::-1]  # Reverse the list
                     ascii_lines = []
                     for y in range(height):
                         line = ""
