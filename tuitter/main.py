@@ -4596,6 +4596,23 @@ class DraftsPanel(VerticalScroll):
             if getattr(self, "app", None) is not None:
                 # Use the existing on_drafts_updated handler for consistency
                 self.watch(self.app, "drafts_store", lambda old, new: self.on_drafts_updated(DraftsUpdated()))
+            # Initialize selection to the first displayed draft so keyboard
+            # navigation starts with the Open action focused
+            try:
+                # Ensure there is at least one draft button to focus
+                self.selected_action = "open"
+                self.cursor_position = 0
+                # Update visuals
+                self._update_cursor()
+                self._update_action_highlight()
+                open_buttons = list(self.query(".draft-action-btn"))
+                if open_buttons:
+                    try:
+                        open_buttons[0].focus()
+                    except Exception:
+                        pass
+            except Exception:
+                pass
         except Exception:
             pass
 
