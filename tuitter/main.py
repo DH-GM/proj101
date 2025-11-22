@@ -1026,9 +1026,6 @@ class NavigationItem(Static):
         # Ensure markup is enabled
         kwargs.setdefault("markup", True)
         super().__init__(**kwargs)
-        self.label_text = label
-        self.screen_name = screen_name
-        self.number = number
         self.active = active
         if active:
             self.add_class("active")
@@ -1674,7 +1671,10 @@ class Sidebar(VerticalScroll):
         drafts_container = Container(classes="drafts-box")
         drafts_container.border_title = "\\[d] Drafts"
         with drafts_container:
-            drafts = load_drafts()
+            # Prefer App-level reactive store when present for instant UI updates
+            drafts = getattr(self.app, "drafts_store", None)
+            if drafts is None:
+                drafts = load_drafts()
             if drafts:
                 # Show most recent first
                 for i, draft in enumerate(reversed(drafts)):
@@ -1729,7 +1729,9 @@ class Sidebar(VerticalScroll):
                 item.remove()
 
             # Add updated drafts
-            drafts = load_drafts()
+            drafts = getattr(self.app, "drafts_store", None)
+            if drafts is None:
+                drafts = load_drafts()
             if drafts:
                 # Show most recent first
                 for i, draft in enumerate(reversed(drafts)):
@@ -1746,6 +1748,16 @@ class Sidebar(VerticalScroll):
     def on_drafts_updated(self, message: DraftsUpdated) -> None:
         """Handle drafts updated message."""
         self.refresh_drafts()
+
+    def on_mount(self) -> None:
+        """Watch the app-level drafts_store so the sidebar updates reactively."""
+        try:
+            # Watch the app's drafts_store reactive for changes
+            if getattr(self, "app", None) is not None:
+                # callback receives (old, new) but refresh_drafts doesn't need them
+                self.watch(self.app, "drafts_store", lambda old, new: self.refresh_drafts())
+        except Exception:
+            pass
 
 
 # ───────── Modal Dialogs ─────────
@@ -2070,9 +2082,16 @@ class NewPostDialog(ModalScreen):
             self._show_status("✓ Draft saved!")
             try:
                 self.app.notify("💾 Draft saved successfully!", severity="success")
-                # Post a custom message to refresh drafts everywhere
-                self.app.post_message(DraftsUpdated())
             except:
+                # Ignore notification errors but continue to update drafts
+                pass
+            # Refresh the App-level drafts store so UI updates instantly
+            try:
+                if hasattr(self.app, "refresh_drafts_store"):
+                    self.app.refresh_drafts_store()
+                else:
+                    self.app.post_message(DraftsUpdated())
+            except Exception:
                 pass
             self.dismiss(False)
         except Exception as e:
@@ -2359,8 +2378,14 @@ class DeleteDraftDialog(ModalScreen):
             delete_draft(self.draft_index)
             try:
                 self.app.notify("🗑️ Draft deleted!", severity="success")
-                # Post message to refresh drafts everywhere
-                self.app.post_message(DraftsUpdated())
+                # Refresh in-memory store + broadcast so UI updates immediately
+                try:
+                    if hasattr(self.app, "refresh_drafts_store"):
+                        self.app.refresh_drafts_store()
+                    else:
+                        self.app.post_message(DraftsUpdated())
+                except Exception:
+                    pass
             except:
                 pass
             self.dismiss(True)
@@ -2389,8 +2414,13 @@ class DeleteDraftDialog(ModalScreen):
             delete_draft(self.draft_index)
             try:
                 self.app.notify("🗑️ Draft deleted!", severity="success")
-                # Post message to refresh drafts everywhere
-                self.app.post_message(DraftsUpdated())
+                try:
+                    if hasattr(self.app, "refresh_drafts_store"):
+                        self.app.refresh_drafts_store()
+                    else:
+                        self.app.post_message(DraftsUpdated())
+                except Exception:
+                    pass
             except:
                 pass
             self.dismiss(True)
@@ -4509,7 +4539,10 @@ class DraftsPanel(VerticalScroll):
 
     def compose(self) -> ComposeResult:
         self.border_title = "Drafts"
-        drafts = load_drafts()
+        # Prefer app-level drafts store for instant updates
+        drafts = getattr(self.app, "drafts_store", None)
+        if drafts is None:
+            drafts = load_drafts()
 
         yield Static(
             f"drafts.all | {len(drafts)} saved | line 1", classes="panel-header"
@@ -4539,6 +4572,13 @@ class DraftsPanel(VerticalScroll):
         """Watch for cursor position changes"""
         self.watch(self, "cursor_position", self._update_cursor)
         self.watch(self, "selected_action", self._update_action_highlight)
+        try:
+            # Also watch the app-level drafts store so the panel updates reactively
+            if getattr(self, "app", None) is not None:
+                # Use the existing on_drafts_updated handler for consistency
+                self.watch(self.app, "drafts_store", lambda old, new: self.on_drafts_updated(DraftsUpdated()))
+        except Exception:
+            pass
 
     def _update_cursor(self) -> None:
         """Update the cursor position"""
@@ -4732,7 +4772,9 @@ class DraftsPanel(VerticalScroll):
         """Handle drafts updated message - refresh the panel."""
         # Remove all children and re-compose
         self.remove_children()
-        drafts = load_drafts()
+        drafts = getattr(self.app, "drafts_store", None)
+        if drafts is None:
+            drafts = load_drafts()
 
         self.mount(
             Static(f"drafts.all | {len(drafts)} saved | line 1", classes="panel-header")
@@ -4821,6 +4863,27 @@ class Proj101App(App):
     command_mode = reactive(False)
     command_text = reactive("")
     _switching = False  # Flag to prevent concurrent screen switches
+    # In-memory reactive drafts store so UI updates immediately without re-reading disk
+    drafts_store = reactive([])
+
+    def load_drafts_store(self) -> None:
+        """Load drafts from disk into the reactive in-memory store."""
+        try:
+            self.drafts_store = load_drafts()
+        except Exception:
+            self.drafts_store = []
+
+    def refresh_drafts_store(self) -> None:
+        """Reload drafts from disk and broadcast DraftsUpdated."""
+        try:
+            self.load_drafts_store()
+        except Exception:
+            self.drafts_store = []
+        try:
+            # Broadcast so widgets listening for DraftsUpdated refresh too
+            self.post_message(DraftsUpdated())
+        except Exception:
+            pass
 
     def watch_command_text(self, new_text: str) -> None:
         """Update command bar whenever command_text changes"""
@@ -5044,6 +5107,14 @@ class Proj101App(App):
             self.log_auth_event("App.on_mount CALLED")
         except Exception:
             pass
+        # Initialize in-memory drafts store early so sidebar/drafts panel can render from it
+        try:
+            self.load_drafts_store()
+        except Exception:
+            try:
+                self.drafts_store = load_drafts()
+            except Exception:
+                self.drafts_store = []
         try:
             # First, attempt a proactive restore using the API helper which
             # will attempt refresh if a refresh token is present. This avoids
@@ -5439,7 +5510,9 @@ class Proj101App(App):
     def action_open_draft(self, draft_index: int) -> None:
         """Open a draft in the new post dialog."""
         try:
-            drafts = load_drafts()
+            drafts = getattr(self, "drafts_store", None)
+            if drafts is None:
+                drafts = load_drafts()
             if 0 <= draft_index < len(drafts):
                 draft = drafts[draft_index]
 
@@ -5448,9 +5521,11 @@ class Proj101App(App):
                         # Post was published, delete the draft
                         delete_draft(draft_index)
                         try:
-                            # Post message to refresh drafts everywhere
-                            self.post_message(DraftsUpdated())
-                        except:
+                            if hasattr(self, "refresh_drafts_store"):
+                                self.refresh_drafts_store()
+                            else:
+                                self.post_message(DraftsUpdated())
+                        except Exception:
                             pass
                         if self.current_screen_name == "timeline":
                             self.switch_screen("timeline")
@@ -5459,9 +5534,11 @@ class Proj101App(App):
                     else:
                         # Dialog was closed without posting, refresh drafts in case it was saved
                         try:
-                            # Post message to refresh drafts everywhere
-                            self.post_message(DraftsUpdated())
-                        except:
+                            if hasattr(self, "refresh_drafts_store"):
+                                self.refresh_drafts_store()
+                            else:
+                                self.post_message(DraftsUpdated())
+                        except Exception:
                             pass
                         # Refresh drafts screen if we're on it
                         if self.current_screen_name == "drafts":
