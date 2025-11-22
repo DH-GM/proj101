@@ -1955,6 +1955,14 @@ class NewPostDialog(ModalScreen):
         btn_id = getattr(event.button, "id", None)
 
         if btn_id == "attach-photo":
+            # Allow only one image per post; if one exists, we'll replace it.
+            try:
+                existing_photos = [a for a in getattr(self, "_attachments", []) if a and a[0] in ("photo", "ascii_photo")]
+                if existing_photos:
+                    self._show_status("🔁 Replacing existing photo...")
+            except Exception:
+                pass
+
             self._show_status("🖼️ Opening photo selector...")
             try:
                 root = tk.Tk()
@@ -2004,6 +2012,12 @@ class NewPostDialog(ModalScreen):
                             line += ascii_chars[char_index]
                         ascii_lines.append(line)
                     ascii_art = "\n".join(ascii_lines)
+
+                    # Remove any existing photo attachment so we only keep one image
+                    try:
+                        self._attachments = [a for a in getattr(self, "_attachments", []) if not (a and a[0] in ("photo", "ascii_photo"))]
+                    except Exception:
+                        self._attachments = []
 
                     # Store ASCII version instead of original photo
                     self._attachments.append(("ascii_photo", ascii_art))
