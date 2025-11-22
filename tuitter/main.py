@@ -4726,33 +4726,62 @@ class DraftsPanel(VerticalScroll):
         box.border = "round"
         box.border_title = f"💾 Draft {index + 1}"
 
-        # Header with timestamp
-        time_ago = format_time_ago(draft["timestamp"])
-        box.mount(Static(f"⏰ Saved {time_ago}", classes="draft-timestamp"))
+        # Top header row: timestamp and small meta
+        header = Container(classes="draft-header", id=f"draft-header-{index}")
+        header.styles.layout = "horizontal"
+        header.styles.width = "100%"
+        try:
+            time_ago = format_time_ago(draft.get("timestamp"))
+        except Exception:
+            time_ago = ""
+        header.mount(Static(f"{time_ago}", classes="draft-timestamp"))
+        # Attachments (we'll summarize below; don't include attachment content in preview)
+        attachments = draft.get("attachments", [])
 
-        # Content preview
-        content = draft["content"]
-        preview = content if len(content) <= 200 else content[:200] + "..."
+        box.mount(header)
+
+        # Content preview block (wider than sidebar preview)
+        content = draft.get("content", "")
+        preview = content if len(content) <= 320 else content[:320] + "..."
         box.mount(Static(preview, classes="draft-content-preview"))
 
-        # Attachments info
-        attachments = draft.get("attachments", [])
-        if attachments:
-            attach_text = f"📎 {len(attachments)} attachment(s)"
-            box.mount(Static(attach_text, classes="draft-attachments-info"))
+        # Attachments summary (concise, describe photos separately)
+        if attachments and len(attachments) > 0:
+            try:
+                total = len(attachments)
+                # attachments are stored as tuples (type, payload/path)
+                photo_types = ("photo", "ascii_photo")
+                photo_count = sum(1 for a in attachments if a and a[0] in photo_types)
+                other_count = total - photo_count
 
-        # Action buttons
+                if total == 1:
+                    if photo_count == 1:
+                        summary = "📎 1 photo attached"
+                    else:
+                        summary = f"📎 1 attachment ({attachments[0][0]})"
+                else:
+                    parts = []
+                    if photo_count:
+                        parts.append(f"{photo_count} photo{'s' if photo_count>1 else ''}")
+                    if other_count:
+                        parts.append(f"{other_count} other attachment{'s' if other_count>1 else ''}")
+                    summary = "📎 " + ", ".join(parts)
+            except Exception:
+                summary = f"📎 {len(attachments)} attachment(s)"
+
+            box.mount(Static(summary, classes="draft-attachments-info"))
+
+        # Action buttons row - emphasize primary for Open
         actions_container = Container(classes="draft-actions")
-        actions_container.mount(
-            Button(f"✏️ Open", id=f"open-draft-{index}", classes="draft-action-btn")
-        )
-        actions_container.mount(
-            Button(
-                f"🗑️ Delete",
-                id=f"delete-draft-{index}",
-                classes="draft-action-btn-delete",
-            )
-        )
+        open_btn = Button("Open", id=f"open-draft-{index}", classes="draft-action-btn")
+        delete_btn = Button("Delete", id=f"delete-draft-{index}", classes="draft-action-btn-delete")
+        # Make Open a primary-looking button when possible
+        try:
+            open_btn.variant = "primary"
+        except Exception:
+            pass
+        actions_container.mount(open_btn)
+        actions_container.mount(delete_btn)
         box.mount(actions_container)
 
         return box
