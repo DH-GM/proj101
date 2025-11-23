@@ -5359,30 +5359,73 @@ class Proj101App(App):
                             pass
             except Exception:
                 pass
-            # Update any PostItem widgets that reference this post id
+            # Apply the update to all mounted PostItem widgets via helper
             try:
-                # Query for mounted post items (use both CSS-classed and direct PostItem widgets)
-                post_items = list(self.query(".post-item")) + list(self.query(PostItem))
-                for post_item in post_items:
-                    try:
-                        p = getattr(post_item, "post", None)
-                        if p and getattr(p, "id", None) == post_id:
-                            try:
-                                setattr(p, "comments", new_count)
-                            except Exception:
-                                pass
-                            try:
-                                post_item.comment_count = new_count
-                            except Exception:
-                                # If setting reactive fails, force a refresh
-                                try:
-                                    post_item.refresh()
-                                except Exception:
-                                    pass
-                    except Exception:
-                        pass
+                self._apply_post_update(post_id, comments=new_count, origin=origin)
             except Exception:
                 pass
+        except Exception:
+            pass
+
+    def _apply_post_update(self, post_id: str, liked: bool = None, likes: int = None, reposted: bool = None, reposts: int = None, comments: int = None, origin=None) -> None:
+        """Find mounted PostItem widgets for post_id and apply reactive updates robustly.
+
+        This central helper avoids duplicating query/update logic across handlers.
+        """
+        try:
+            # Prefer direct PostItem instances first, then CSS-classed ones
+            try:
+                post_items = list(self.query(PostItem)) + list(self.query(".post-item"))
+            except Exception:
+                try:
+                    post_items = list(self.query(".post-item"))
+                except Exception:
+                    post_items = []
+            for post_item in post_items:
+                try:
+                    p = getattr(post_item, "post", None)
+                    if not p or getattr(p, "id", None) != post_id:
+                        continue
+                    # Update underlying model if possible
+                    try:
+                        if liked is not None:
+                            setattr(p, "liked_by_user", bool(liked))
+                        if likes is not None:
+                            setattr(p, "likes", int(likes))
+                        if reposted is not None:
+                            setattr(p, "reposted_by_user", bool(reposted))
+                        if reposts is not None:
+                            setattr(p, "reposts", int(reposts))
+                        if comments is not None:
+                            setattr(p, "comments", int(comments))
+                    except Exception:
+                        pass
+
+                    # Apply to widget reactive fields (triggers watch_* handlers)
+                    try:
+                        if liked is not None:
+                            post_item.liked_by_user = bool(liked)
+                        if likes is not None:
+                            post_item.like_count = int(likes)
+                        if reposted is not None:
+                            post_item.reposted_by_user = bool(reposted)
+                        if reposts is not None:
+                            post_item.repost_count = int(reposts)
+                        if comments is not None:
+                            post_item.comment_count = int(comments)
+                    except Exception:
+                        pass
+
+                    # Call widget's internal updater if present, else refresh
+                    try:
+                        post_item._update_stats_widget()
+                    except Exception:
+                        try:
+                            post_item.refresh()
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
         except Exception:
             pass
 
@@ -5419,26 +5462,7 @@ class Proj101App(App):
                 pass
 
             try:
-                post_items = list(self.query(".post-item")) + list(self.query(PostItem))
-                for post_item in post_items:
-                    try:
-                        p = getattr(post_item, "post", None)
-                        if p and getattr(p, "id", None) == post_id:
-                            try:
-                                setattr(p, "liked_by_user", bool(liked))
-                            except Exception:
-                                pass
-                            try:
-                                post_item.liked_by_user = bool(liked)
-                                if likes is not None:
-                                    post_item.like_count = int(likes)
-                            except Exception:
-                                try:
-                                    post_item.refresh()
-                                except Exception:
-                                    pass
-                    except Exception:
-                        pass
+                self._apply_post_update(post_id, liked=liked, likes=likes, origin=origin)
             except Exception:
                 pass
         except Exception:
@@ -5473,26 +5497,7 @@ class Proj101App(App):
                 pass
 
             try:
-                post_items = list(self.query(".post-item")) + list(self.query(PostItem))
-                for post_item in post_items:
-                    try:
-                        p = getattr(post_item, "post", None)
-                        if p and getattr(p, "id", None) == post_id:
-                            try:
-                                setattr(p, "reposted_by_user", bool(reposted))
-                            except Exception:
-                                pass
-                            try:
-                                post_item.reposted_by_user = bool(reposted)
-                                if reposts is not None:
-                                    post_item.repost_count = int(reposts)
-                            except Exception:
-                                try:
-                                    post_item.refresh()
-                                except Exception:
-                                    pass
-                    except Exception:
-                        pass
+                self._apply_post_update(post_id, reposted=reposted, reposts=reposts, origin=origin)
             except Exception:
                 pass
         except Exception:
@@ -6036,6 +6041,28 @@ class Proj101App(App):
                 container = None
 
             if container is not None:
+                # Prefer the canonical mounted PostItem.post instance when available.
+                # This ensures the comment panel sees the most up-to-date model
+                # (e.g., likes/reposts/comments) instead of a stale copy.
+                try:
+                    target_post_id = getattr(post, "id", None)
+                    if target_post_id is not None:
+                        try:
+                            mounted_post_items = list(self.query(PostItem)) + list(self.query(".post-item"))
+                            for pi in mounted_post_items:
+                                try:
+                                    p = getattr(pi, "post", None)
+                                    if p and getattr(p, "id", None) == target_post_id:
+                                        post = p
+                                        if origin is None:
+                                            origin = pi
+                                        break
+                                except Exception:
+                                    pass
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
                 try:
                     # Determine the feed widget id for the current screen
                     content_map = {
