@@ -1071,13 +1071,6 @@ class CommentPanel(Container):
             return
         self.cursor_position = max(self.cursor_position - 3, 0)
 
-    def key_d(self) -> None:
-        """Prevent 'd' from triggering drafts when in comment screen"""
-        if self.app.command_mode:
-            return
-        # Just prevent propagation - 'd' has no function in comment screen
-        pass
-
     def on_key(self, event) -> None:
         """Handle g+g key combination for top and escape from input"""
         # Don't process keys if app is in command mode
@@ -1107,10 +1100,31 @@ class CommentPanel(Container):
             else:
                 self.last_g_time = now
 
-        # Prevent 'd' from propagating to app level (show drafts)
+        # If 'd' pressed, navigate to drafts. Close embedded panel first if present.
         if event.key == "d":
-            event.prevent_default()
-            event.stop()
+            try:
+                event.prevent_default()
+            except Exception:
+                pass
+            try:
+                event.stop()
+            except Exception:
+                pass
+            try:
+                # If this CommentFeed is embedded inside a panel, ask app to close it
+                try:
+                    self.app.action_close_comment_panel()
+                except Exception:
+                    pass
+                try:
+                    self.app.action_show_drafts()
+                except Exception:
+                    try:
+                        self.app.switch_screen("drafts")
+                    except Exception:
+                        pass
+            except Exception:
+                pass
 
 
 class CommentScreen(Screen):
