@@ -733,9 +733,13 @@ class CommentFeed(VerticalScroll):
         self.comments = []
 
     def compose(self):
-        # Post at the top
+        # Post at the top (use the same PostItem widget + CSS class as timeline/discover)
         yield Static("─ Post ─", classes="comment-thread-header", markup=False)
-        yield PostItem(self.post)
+        try:
+            post_id = getattr(self.post, "id", None) or "unknown"
+        except Exception:
+            post_id = "unknown"
+        yield PostItem(self.post, classes="post-item", id=f"post-{post_id}")
 
         yield Static("─ Comments ─", classes="comment-thread-header", markup=False)
 
