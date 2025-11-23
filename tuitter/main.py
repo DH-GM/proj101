@@ -857,7 +857,18 @@ class CommentFeed(VerticalScroll):
         if self.app.command_mode:
             return
         try:
-            self.app.pop_screen()
+            # If this feed was mounted as an embedded panel, ask app to close it.
+            try:
+                self.app.action_close_comment_panel()
+                return
+            except Exception:
+                pass
+
+            # Fallback to original full-screen behavior
+            try:
+                self.app.pop_screen()
+            except Exception:
+                pass
         except Exception:
             pass
 
@@ -911,6 +922,22 @@ class CommentFeed(VerticalScroll):
         self.cursor_position = 0
         self._update_cursor()
 
+
+class CommentPanel(Container):
+    """Embed-friendly comment panel that can be mounted inside the main screen container.
+
+    This is a minimal wrapper that mounts a `CommentFeed` so the comment UI can live
+    inside the main layout (keeping TopNav and Sidebar visible).
+    """
+
+    def __init__(self, post, origin=None, **kwargs):
+        super().__init__(**kwargs)
+        self.post = post
+        self.origin = origin
+
+    def compose(self) -> ComposeResult:
+        yield CommentFeed(self.post, origin=self.origin, id="comment-feed")
+
     def on_blur(self) -> None:
         """When screen loses focus"""
         pass
@@ -918,6 +945,45 @@ class CommentFeed(VerticalScroll):
     def on_scroll(self, event) -> None:
         """Update scroll position reactive when scrolling"""
         self.scroll_y = self.scroll_offset.y
+
+    # Helper to access the mounted CommentFeed instance
+    def _feed(self):
+        try:
+            return self.query_one("#comment-feed")
+        except Exception:
+            return None
+
+    # Proxy cursor_position to inner CommentFeed so navigation works
+    @property
+    def cursor_position(self):
+        f = self._feed()
+        try:
+            return getattr(f, "cursor_position")
+        except Exception:
+            return 0
+
+    @cursor_position.setter
+    def cursor_position(self, val):
+        f = self._feed()
+        try:
+            setattr(f, "cursor_position", val)
+        except Exception:
+            pass
+
+    def _get_navigable_items(self) -> list:
+        f = self._feed()
+        try:
+            return f._get_navigable_items()
+        except Exception:
+            return []
+
+    def _update_cursor(self) -> None:
+        f = self._feed()
+        try:
+            if hasattr(f, "_update_cursor"):
+                f._update_cursor()
+        except Exception:
+            pass
 
     def key_j(self) -> None:
         """Move down with j key"""
@@ -1350,7 +1416,12 @@ class PostItem(Static):
     def on_click(self) -> None:
         """Handle click to open comment screen"""
         try:
-            self.app.push_screen(CommentScreen(self.post, origin=self))
+            try:
+                # Prefer embedding the comment panel so TopNav/Sidebar remain visible
+                self.app.action_open_comment_panel(self.post, origin=self)
+            except Exception:
+                # Fallback to original behavior
+                self.app.push_screen(CommentScreen(self.post, origin=self))
         except Exception:
             pass
 
@@ -2471,7 +2542,10 @@ class TimelineFeed(VerticalScroll):
                 f"Opening comment screen for post id={getattr(post, 'id', None)} author={getattr(post, 'author', None)}"
             )
             if post:
-                    self.app.push_screen(CommentScreen(post, origin=post_item))
+                    try:
+                        self.app.action_open_comment_panel(post, origin=post_item)
+                    except Exception:
+                        self.app.push_screen(CommentScreen(post, origin=post_item))
         else:
             logging.debug("Invalid cursor position in open_comment_screen")
 
@@ -2583,6 +2657,18 @@ class TimelineFeed(VerticalScroll):
 
     def on_focus(self) -> None:
         """When the feed gets focus"""
+        try:
+            # If we just closed an embedded comment panel and restored the cursor,
+            # don't clobber that restored value by resetting to 0 here.
+            if getattr(self.app, "_just_closed_comment_panel", False):
+                try:
+                    self._update_cursor()
+                except Exception:
+                    pass
+                return
+        except Exception:
+            pass
+
         self.cursor_position = 0
         self._update_cursor()
 
@@ -2700,7 +2786,10 @@ class DiscoverFeed(VerticalScroll):
                 post_item = items[post_idx]
                 post = getattr(post_item, "post", None)
                 if post:
-                    self.app.push_screen(CommentScreen(post, origin=post_item))
+                    try:
+                        self.app.action_open_comment_panel(post, origin=post_item)
+                    except Exception:
+                        self.app.push_screen(CommentScreen(post, origin=post_item))
         except Exception:
             pass
 
@@ -2869,6 +2958,16 @@ class DiscoverFeed(VerticalScroll):
 
     def on_focus(self) -> None:
         """When the feed gets focus"""
+        try:
+            if getattr(self.app, "_just_closed_comment_panel", False):
+                try:
+                    self._update_cursor()
+                except Exception:
+                    pass
+                return
+        except Exception:
+            pass
+
         self.cursor_position = 0
         self._update_cursor()
 
@@ -5018,6 +5117,9 @@ class Proj101App(App):
     _switching = False  # Flag to prevent concurrent screen switches
     # In-memory reactive drafts store so UI updates immediately without re-reading disk
     drafts_store = reactive([])
+    # Short-lived flag set when the comment panel was just closed so focus handlers
+    # can avoid resetting restored cursor state.
+    _just_closed_comment_panel = False
 
     def load_drafts_store(self) -> None:
         """Load drafts from disk into the reactive in-memory store."""
@@ -5474,9 +5576,24 @@ class Proj101App(App):
                 widget = self.query_one(widget_id)
                 widget.focus()
 
-                # Reset cursor position to 0 for feeds with cursor navigation
+                # Reset cursor position to 0 for feeds with cursor navigation,
+                # except when we've just closed an embedded comment panel and
+                # restored the feed's cursor — in that case preserve the restored value.
                 if hasattr(widget, "cursor_position"):
-                    widget.cursor_position = 0
+                    try:
+                        if getattr(self, "_just_closed_comment_panel", False):
+                            # Clear the flag and do not overwrite restored cursor
+                            try:
+                                self._just_closed_comment_panel = False
+                            except Exception:
+                                pass
+                        else:
+                            widget.cursor_position = 0
+                    except Exception:
+                        try:
+                            widget.cursor_position = 0
+                        except Exception:
+                            pass
         except Exception:
             pass
 
@@ -5761,6 +5878,342 @@ class Proj101App(App):
         except Exception as e:
             self.notify(f"Error opening draft: {str(e)}", severity="error")
 
+    def action_open_comment_panel(self, post, origin=None) -> None:
+        """Mount the CommentPanel into the current screen's `#screen-container`.
+
+        Falls back to pushing a full-screen CommentScreen if mounting fails.
+        """
+        try:
+            current_screen = self.screen
+            # Find the screen container where the main content is mounted
+            try:
+                container = current_screen.query_one("#screen-container")
+            except Exception:
+                container = None
+
+            if container is not None:
+                try:
+                    # Determine the feed widget id for the current screen
+                    content_map = {
+                        "timeline": "#timeline-feed",
+                        "discover": "#discover-feed",
+                        "notifications": "#notifications-feed",
+                        "messages": "#chat",
+                        "profile": "#profile-panel",
+                        "settings": "#settings-panel",
+                        "drafts": "#drafts-panel",
+                        "user_profile": "#user-profile-panel",
+                    }
+                    feed_id = content_map.get(self.current_screen_name)
+
+                    replaced_widget = None
+                    if feed_id:
+                        try:
+                            replaced_widget = container.query_one(feed_id)
+                        except Exception:
+                            replaced_widget = None
+
+                    # If we found a widget to replace, mount the comment panel in its place
+                    panel = CommentPanel(post, origin=origin, id="comment-panel")
+                    # Preserve visual chrome from the replaced widget (border styles)
+                    try:
+                        # Try to copy border attribute and computed styles from the
+                        # replaced widget. Note: many feeds get their border via
+                        # CSS (ID selector) so the widget.border attr may be None.
+                        # Copying styles.background / styles.border makes the
+                        # visual chrome appear on the panel even when border was
+                        # applied only via CSS rules.
+                        orig_border = getattr(replaced_widget, "border", None)
+                        orig_title = getattr(replaced_widget, "border_title", None)
+
+                        # If the widget had an explicit border attribute, use it.
+                        if orig_border is not None:
+                            try:
+                                panel.border = orig_border
+                            except Exception:
+                                pass
+
+                        # If the border was applied via CSS, copy the computed
+                        # style values so the panel visually matches.
+                        try:
+                            styled_border = getattr(replaced_widget.styles, "border", None)
+                            if styled_border:
+                                try:
+                                    panel.styles.border = styled_border
+                                except Exception:
+                                    pass
+                        except Exception:
+                            pass
+
+                        # Copy background so the panel matches feed background
+                        try:
+                            bg = getattr(replaced_widget.styles, "background", None)
+                            if bg:
+                                try:
+                                    panel.styles.background = bg
+                                except Exception:
+                                    pass
+                        except Exception:
+                            pass
+
+                        # Copy border title appearance attributes from computed styles
+                        try:
+                            for attr in (
+                                "border_title_color",
+                                "border_title_style",
+                                "border_title_align",
+                                "border_subtitle_color",
+                            ):
+                                try:
+                                    val = getattr(replaced_widget.styles, attr, None)
+                                    if val is not None:
+                                        try:
+                                            setattr(panel.styles, attr, val)
+                                        except Exception:
+                                            pass
+                                except Exception:
+                                    pass
+                        except Exception:
+                            pass
+
+                        # Title should indicate comments while keeping context optional
+                        try:
+                            panel.border_title = "Comments"
+                        except Exception:
+                            pass
+
+                        # Copy CSS classes from the replaced widget so other
+                        # styling (colors) match. (ID-based CSS won't transfer,
+                        # so we copy computed styles above.)
+                        try:
+                            src_classes = list(getattr(replaced_widget, "classes", []))
+                            for cls in src_classes:
+                                try:
+                                    panel.add_class(cls)
+                                except Exception:
+                                    pass
+                        except Exception:
+                            pass
+                    except Exception:
+                        pass
+                    # Capture cursor position (so we can restore focus later)
+                    try:
+                        saved_cursor = getattr(replaced_widget, "cursor_position", None)
+                    except Exception:
+                        saved_cursor = None
+
+                    # Capture original display style so we can hide/show instead of removing
+                    try:
+                        orig_display = getattr(replaced_widget.styles, "display", None)
+                    except Exception:
+                        orig_display = None
+
+                    if replaced_widget is not None:
+                        try:
+                            # Insert the panel before the replaced widget, then hide the replaced widget
+                            container.mount(panel, before=replaced_widget)
+                            # Save state so we can restore later
+                            try:
+                                # record the panel index so we can restore at same position
+                                try:
+                                    panel_index = list(container.children).index(panel)
+                                except Exception:
+                                    panel_index = None
+                                self._comment_embedded_state = {
+                                    "container": container,
+                                    "replaced": replaced_widget,
+                                    "index": panel_index,
+                                    "cursor_position": saved_cursor,
+                                    "orig_title": orig_title,
+                                    "orig_display": orig_display,
+                                }
+                            except Exception:
+                                self._comment_embedded_state = None
+                            try:
+                                # Instead of removing the widget (which can lose internal state), hide it.
+                                if orig_display is not None:
+                                    try:
+                                        replaced_widget.styles.display = "none"
+                                    except Exception:
+                                        # Best-effort hide; fall back to remove if hiding fails
+                                        try:
+                                            replaced_widget.remove()
+                                        except Exception:
+                                            pass
+                                else:
+                                    # If no computed display to restore later, still hide
+                                    try:
+                                        replaced_widget.styles.display = "none"
+                                    except Exception:
+                                        try:
+                                            replaced_widget.remove()
+                                        except Exception:
+                                            pass
+                            except Exception:
+                                pass
+                            return
+                        except Exception:
+                            # fallthrough to append mount
+                            pass
+
+                    # If we couldn't locate a specific feed to replace, just mount panel (append)
+                    try:
+                        container.mount(panel)
+                        # Clear any previous state since this is a simple mount
+                        self._comment_embedded_state = None
+                        return
+                    except Exception:
+                        pass
+                except Exception:
+                    pass
+
+            # Fallback: push a full-screen CommentScreen
+            try:
+                self.push_screen(CommentScreen(post, origin=origin))
+            except Exception:
+                pass
+        except Exception:
+            pass
+
+    def action_close_comment_panel(self) -> None:
+        """Remove an embedded comment panel if present, otherwise pop a screen."""
+        try:
+            # If we have stored state about a replaced widget, restore it
+            state = getattr(self, "_comment_embedded_state", None)
+            if state:
+                try:
+                    container = state.get("container")
+                    replaced = state.get("replaced")
+                    # Remove the panel if present
+                    try:
+                        panel = container.query_one("#comment-panel")
+                        try:
+                            panel.remove()
+                        except Exception:
+                            pass
+                    except Exception:
+                        pass
+
+                    # Restore the replaced widget by showing it again (it was hidden)
+                    try:
+                        orig_display = state.get("orig_display", None)
+                        try:
+                            if orig_display is not None:
+                                try:
+                                    replaced.styles.display = orig_display
+                                except Exception:
+                                    # best-effort: set to empty string to show
+                                    try:
+                                        replaced.styles.display = ""
+                                    except Exception:
+                                        pass
+                            else:
+                                try:
+                                    replaced.styles.display = ""
+                                except Exception:
+                                    pass
+                        except Exception:
+                            pass
+
+                        # Restore cursor position and focus after the DOM settles.
+                        def _restore_focus():
+                            try:
+                                saved_cursor = state.get("cursor_position", None)
+                                if saved_cursor is not None and hasattr(replaced, "cursor_position"):
+                                    try:
+                                        replaced.cursor_position = saved_cursor
+                                    except Exception:
+                                        pass
+                                # Call feed-specific update if present
+                                try:
+                                    if hasattr(replaced, "_update_cursor"):
+                                        replaced._update_cursor()
+                                except Exception:
+                                    pass
+                                try:
+                                    replaced.focus()
+                                except Exception:
+                                    pass
+                            except Exception:
+                                pass
+
+                        try:
+                            # Use call_after_refresh to ensure focus happens after layout
+                            self.call_after_refresh(_restore_focus)
+                        except Exception:
+                            try:
+                                self.set_timer(0.02, _restore_focus)
+                            except Exception:
+                                _restore_focus()
+                        # Mark that we just closed the comment panel so other focus
+                        # handlers don't clobber the restored cursor state.
+                        try:
+                            self._just_closed_comment_panel = True
+                            # Clear the flag shortly after to limit scope
+                            try:
+                                self.set_timer(0.2, lambda: setattr(self, "_just_closed_comment_panel", False))
+                            except Exception:
+                                try:
+                                    # best-effort clear via call_after_refresh
+                                    self.call_after_refresh(lambda: setattr(self, "_just_closed_comment_panel", False))
+                                except Exception:
+                                    pass
+                        except Exception:
+                            pass
+                    except Exception:
+                        pass
+
+                    # Clear stored state
+                    try:
+                        delattr(self, "_comment_embedded_state")
+                    except Exception:
+                        self._comment_embedded_state = None
+
+                    return
+                except Exception:
+                    pass
+
+            # If no state, attempt to simply remove any mounted panel
+            try:
+                current_screen = self.screen
+                try:
+                    container = current_screen.query_one("#screen-container")
+                except Exception:
+                    container = None
+                if container is not None:
+                    try:
+                        panel = container.query_one("#comment-panel")
+                        try:
+                            panel.remove()
+                            # Mark that a comment panel was just closed so focus handlers
+                            # don't reset the restored cursor. (No detailed state available.)
+                            try:
+                                self._just_closed_comment_panel = True
+                                try:
+                                    self.set_timer(0.2, lambda: setattr(self, "_just_closed_comment_panel", False))
+                                except Exception:
+                                    try:
+                                        self.call_after_refresh(lambda: setattr(self, "_just_closed_comment_panel", False))
+                                    except Exception:
+                                        pass
+                            except Exception:
+                                pass
+                            return
+                        except Exception:
+                            pass
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+
+            # Fallback: pop a screen if present
+            try:
+                self.pop_screen()
+            except Exception:
+                pass
+        except Exception:
+            pass
+
     def on_key(self, event) -> None:
         if self.command_mode:
             # CRITICAL: Stop event propagation IMMEDIATELY when in command mode
@@ -5956,7 +6409,10 @@ class Proj101App(App):
                                     f"Opening comment screen for post id={getattr(post, 'id', None)} author={getattr(post, 'author', None)}"
                                 )
                                 if post:
-                                    self.push_screen(CommentScreen(post, origin=post_item))
+                                    try:
+                                        self.action_open_comment_panel(post, origin=post_item)
+                                    except Exception:
+                                        self.push_screen(CommentScreen(post, origin=post_item))
                             else:
                                 logging.debug("Invalid cursor position for :c command")
                         except Exception as e:
@@ -5977,7 +6433,10 @@ class Proj101App(App):
                                     f"Opening comment screen for post id={getattr(post, 'id', None)} author={getattr(post, 'author', None)}"
                                 )
                                 if post:
-                                    self.push_screen(CommentScreen(post, origin=post_item))
+                                    try:
+                                        self.action_open_comment_panel(post, origin=post_item)
+                                    except Exception:
+                                        self.push_screen(CommentScreen(post, origin=post_item))
                             else:
                                 logging.debug("Invalid cursor position for :c command")
                         except Exception as e:
@@ -5995,9 +6454,7 @@ class Proj101App(App):
                                 if post:
                                     try:
                                         currently_reposted = bool(
-                                            getattr(
-                                                post_item, "reposted_by_user", False
-                                            )
+                                            getattr(post_item, "reposted_by_user", False)
                                             or getattr(post, "reposted_by_user", False)
                                         )
                                         if currently_reposted:
@@ -6009,9 +6466,7 @@ class Proj101App(App):
                                                 post_item.reposted_by_user = False
                                             except Exception:
                                                 pass
-                                            self.notify(
-                                                "Post unreposted!", severity="success"
-                                            )
+                                            self.notify("Post unreposted!", severity="success")
                                         else:
                                             try:
                                                 api.repost(post.id)
@@ -6034,9 +6489,7 @@ class Proj101App(App):
                                                     timeline_feed, "reposted_posts", []
                                                 )
                                             ]
-                                            self.notify(
-                                                "Post reposted!", severity="success"
-                                            )
+                                            self.notify("Post reposted!", severity="success")
                                     except Exception:
                                         logging.exception("Error toggling repost")
                         except Exception:
@@ -6054,9 +6507,7 @@ class Proj101App(App):
                                 if post:
                                     try:
                                         currently_reposted = bool(
-                                            getattr(
-                                                post_item, "reposted_by_user", False
-                                            )
+                                            getattr(post_item, "reposted_by_user", False)
                                             or getattr(post, "reposted_by_user", False)
                                         )
                                         if currently_reposted:
@@ -6068,9 +6519,7 @@ class Proj101App(App):
                                                 post_item.reposted_by_user = False
                                             except Exception:
                                                 pass
-                                            self.notify(
-                                                "Post unreposted!", severity="success"
-                                            )
+                                            self.notify("Post unreposted!", severity="success")
                                         else:
                                             try:
                                                 api.repost(post.id)
@@ -6080,9 +6529,7 @@ class Proj101App(App):
                                                 post_item.reposted_by_user = True
                                             except Exception:
                                                 pass
-                                            self.notify(
-                                                "Post reposted!", severity="success"
-                                            )
+                                            self.notify("Post reposted!", severity="success")
                                     except Exception:
                                         logging.exception("Error toggling repost")
                         except Exception:
