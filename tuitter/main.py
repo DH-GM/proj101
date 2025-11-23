@@ -3473,10 +3473,20 @@ class ChatView(VerticalScroll):
             idx = global_map[sender.lower()]
             sender_class = f"sender-{idx}"
             classes = f"chat-message sent {sender_class}"
-            self.mount(
-                ChatMessage(new_msg, current_user=current_user, classes=classes),
-                before=event.input,
-            )
+            # Insert the new message before the insert indicator so
+            # the "-- INSERT --" line always follows the latest messages.
+            try:
+                mode_indicator = self.query_one(".mode-indicator", Static)
+                self.mount(
+                    ChatMessage(new_msg, current_user=current_user, classes=classes),
+                    before=mode_indicator,
+                )
+            except Exception:
+                # Fallback: if mode indicator not found, insert before input
+                self.mount(
+                    ChatMessage(new_msg, current_user=current_user, classes=classes),
+                    before=event.input,
+                )
             event.input.value = ""
             event.input.focus()
             self.scroll_end(animate=False)
