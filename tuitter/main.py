@@ -4982,7 +4982,6 @@ class Proj101App(App):
 
     BINDINGS = [
         # Basic app controls
-        Binding("q", "quit", "Quit", show=False),
         Binding("i", "insert_mode", "Insert", show=True),
         Binding("escape", "normal_mode", "Normal", show=False),
         # Screen navigation
