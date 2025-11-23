@@ -6107,6 +6107,8 @@ class Proj101App(App):
                                 "border_title_style",
                                 "border_title_align",
                                 "border_subtitle_color",
+                                "border_subtitle_align",
+                                "border_subtitle_style",
                             ):
                                 try:
                                     val = getattr(replaced_widget.styles, attr, None)
@@ -6123,6 +6125,13 @@ class Proj101App(App):
                         # Title should indicate comments while keeping context optional
                         try:
                             panel.border_title = "Comments"
+                            panel.border_subtitle = "\\[q] Close"
+                            # Ensure subtitle is centered by default and inherits styling
+                            try:
+                                if getattr(panel.styles, "border_subtitle_align", None) is None:
+                                    panel.styles.border_subtitle_align = "center"
+                            except Exception:
+                                pass
                         except Exception:
                             pass
 
