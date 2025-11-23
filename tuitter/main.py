@@ -1178,7 +1178,6 @@ class ConversationItem(Static):
         except Exception:
             pass
 
-
 class ChatMessage(Static):
     def __init__(self, message, current_user: str = "", **kwargs):
         super().__init__(**kwargs)
@@ -3289,37 +3288,6 @@ class ConversationsList(VerticalScroll):
             return
         self.cursor_position = max(self.cursor_position - 3, 0)
 
-    def key_enter(self) -> None:
-        """Open the selected conversation when Enter is pressed"""
-        if self.app.command_mode:
-            return
-        try:
-            conversations = api.get_conversations()
-            if 0 <= self.cursor_position < len(conversations):
-                conv = conversations[self.cursor_position]
-                # Mark this conversation as selected (blue background)
-                self.selected_position = self.cursor_position
-
-                # Get the other participant's username
-                current_user = get_username() or "yourname"
-                other_participants = [h for h in conv.participant_handles if h != current_user]
-                username = other_participants[0] if other_participants else conv.participant_handles[0] if conv.participant_handles else "unknown"
-
-                # Get MessagesScreen parent container
-                messages_screen = self.parent
-                if isinstance(messages_screen, MessagesScreen):
-                    messages_screen._open_chat_view(conv.id, username)
-
-                    # Focus the chat view
-                    try:
-                        chat_views = list(messages_screen.query("ChatView"))
-                        if chat_views:
-                            chat_views[0].focus()
-                    except:
-                        pass
-        except Exception:
-            pass
-
     def on_key(self, event) -> None:
         """Handle g+g key combination for top and prevent escape from unfocusing"""
         if self.app.command_mode:
@@ -3337,6 +3305,25 @@ class ConversationsList(VerticalScroll):
                 delattr(self, "last_g_time")
             else:
                 self.last_g_time = now
+
+    def key_enter(self) -> None:
+        """Handle Enter key the same way as a mouse click."""
+        # Delegate to the currently-focused ConversationItem so Enter matches click
+        if self.app.command_mode:
+            return
+        try:
+            items = list(self.query(".conversation-item"))
+            if 0 <= self.cursor_position < len(items):
+                item = items[self.cursor_position]
+                # Prefer calling the item's on_click handler so behavior is identical
+                try:
+                    item.on_click()
+                except Exception:
+                    # If the item's handler raises, fail silently to avoid crashing the UI
+                    pass
+        except Exception:
+            pass
+
 
 
 class ChatView(VerticalScroll):
