@@ -5405,7 +5405,14 @@ class Proj101App(App):
             def mount_new_screen():
                 current_screen.mount(ScreenClass(id="screen-container", **kwargs))
 
-            self.call_after_refresh(mount_new_screen)
+                # After mounting, schedule the UI update to run after the next refresh
+                try:
+                    self.call_after_refresh(update_ui)
+                except Exception:
+                    try:
+                        self.set_timer(0.02, update_ui)
+                    except Exception:
+                        update_ui()
 
             def update_ui():
                 try:
@@ -5449,7 +5456,15 @@ class Proj101App(App):
                 # Focus the main content area after screen switch
                 self._focus_main_content_for_screen(screen_name)
 
-            self.call_after_refresh(update_ui)
+            # Mount the new screen and ensure update_ui runs after mount completes
+            try:
+                self.call_after_refresh(mount_new_screen)
+            except Exception:
+                # Fallback to a short timer to start the mount
+                try:
+                    self.set_timer(0.02, mount_new_screen)
+                except Exception:
+                    mount_new_screen()
 
             self.set_timer(0.1, lambda: setattr(self, "_switching", False))
 
