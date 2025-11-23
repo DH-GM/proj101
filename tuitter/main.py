@@ -89,6 +89,34 @@ class CommentAdded(Message):
         self.origin = origin
 
 
+class LikeUpdated(Message):
+    """Posted when a post's like state/count changes.
+
+    Carries `post_id`, `liked` (bool), optional `likes` count and `origin` widget.
+    """
+
+    def __init__(self, post_id: str, liked: bool, likes: int = None, origin=None) -> None:
+        super().__init__()
+        self.post_id = post_id
+        self.liked = liked
+        self.likes = likes
+        self.origin = origin
+
+
+class RepostUpdated(Message):
+    """Posted when a post's repost state/count changes.
+
+    Carries `post_id`, `reposted` (bool), optional `reposts` count and `origin` widget.
+    """
+
+    def __init__(self, post_id: str, reposted: bool, reposts: int = None, origin=None) -> None:
+        super().__init__()
+        self.post_id = post_id
+        self.reposted = reposted
+        self.reposts = reposts
+        self.origin = origin
+
+
 # Drafts file path
 DRAFTS_FILE = Path.home() / ".proj101_drafts.json"
 
@@ -5354,6 +5382,118 @@ class Proj101App(App):
         except Exception:
             pass
 
+    def on_like_updated(self, message: LikeUpdated) -> None:
+        """Update mounted PostItem widgets when a like state changes.
+
+        Mirrors the pattern used for comments: update origin optimistically,
+        then update any mounted `PostItem` instances that reference the post id.
+        """
+        try:
+            post_id = getattr(message, "post_id", None)
+            liked = getattr(message, "liked", None)
+            likes = getattr(message, "likes", None)
+            origin = getattr(message, "origin", None)
+            if post_id is None or liked is None:
+                return
+            try:
+                if origin is not None:
+                    try:
+                        setattr(origin.post, "liked_by_user", bool(liked))
+                    except Exception:
+                        pass
+                    try:
+                        origin.liked_by_user = bool(liked)
+                        if likes is not None:
+                            origin.like_count = int(likes)
+                        origin._update_stats_widget()
+                    except Exception:
+                        try:
+                            origin.refresh()
+                        except Exception:
+                            pass
+            except Exception:
+                pass
+
+            try:
+                post_items = list(self.query(".post-item")) + list(self.query(PostItem))
+                for post_item in post_items:
+                    try:
+                        p = getattr(post_item, "post", None)
+                        if p and getattr(p, "id", None) == post_id:
+                            try:
+                                setattr(p, "liked_by_user", bool(liked))
+                            except Exception:
+                                pass
+                            try:
+                                post_item.liked_by_user = bool(liked)
+                                if likes is not None:
+                                    post_item.like_count = int(likes)
+                            except Exception:
+                                try:
+                                    post_item.refresh()
+                                except Exception:
+                                    pass
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+        except Exception:
+            pass
+
+    def on_repost_updated(self, message: RepostUpdated) -> None:
+        """Update mounted PostItem widgets when a repost state changes."""
+        try:
+            post_id = getattr(message, "post_id", None)
+            reposted = getattr(message, "reposted", None)
+            reposts = getattr(message, "reposts", None)
+            origin = getattr(message, "origin", None)
+            if post_id is None or reposted is None:
+                return
+            try:
+                if origin is not None:
+                    try:
+                        setattr(origin.post, "reposted_by_user", bool(reposted))
+                    except Exception:
+                        pass
+                    try:
+                        origin.reposted_by_user = bool(reposted)
+                        if reposts is not None:
+                            origin.repost_count = int(reposts)
+                        origin._update_stats_widget()
+                    except Exception:
+                        try:
+                            origin.refresh()
+                        except Exception:
+                            pass
+            except Exception:
+                pass
+
+            try:
+                post_items = list(self.query(".post-item")) + list(self.query(PostItem))
+                for post_item in post_items:
+                    try:
+                        p = getattr(post_item, "post", None)
+                        if p and getattr(p, "id", None) == post_id:
+                            try:
+                                setattr(p, "reposted_by_user", bool(reposted))
+                            except Exception:
+                                pass
+                            try:
+                                post_item.reposted_by_user = bool(reposted)
+                                if reposts is not None:
+                                    post_item.repost_count = int(reposts)
+                            except Exception:
+                                try:
+                                    post_item.refresh()
+                                except Exception:
+                                    pass
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+        except Exception:
+            pass
+
     def on_mount(self) -> None:
         """App startup - decide which mode to show based on stored credentials."""
         import sys
@@ -6321,6 +6461,15 @@ class Proj101App(App):
                                                 post_item.liked_by_user = False
                                             except Exception:
                                                 pass
+                                            # Broadcast like update to mounted widgets
+                                            try:
+                                                likes = getattr(post_item, "like_count", None) or getattr(post, "likes", None)
+                                                self.post_message(LikeUpdated(post_id=post.id, liked=False, likes=likes, origin=post_item))
+                                            except Exception:
+                                                try:
+                                                    self.app.post_message(LikeUpdated(post_id=post.id, liked=False, likes=likes, origin=post_item))
+                                                except Exception:
+                                                    pass
                                             self.notify(
                                                 "Post unliked!", severity="success"
                                             )
@@ -6335,6 +6484,15 @@ class Proj101App(App):
                                                 post_item.liked_by_user = True
                                             except Exception:
                                                 pass
+                                            # Broadcast like update to mounted widgets
+                                            try:
+                                                likes = getattr(post_item, "like_count", None) or getattr(post, "likes", None)
+                                                self.post_message(LikeUpdated(post_id=post.id, liked=True, likes=likes, origin=post_item))
+                                            except Exception:
+                                                try:
+                                                    self.app.post_message(LikeUpdated(post_id=post.id, liked=True, likes=likes, origin=post_item))
+                                                except Exception:
+                                                    pass
                                             self.notify(
                                                 "Post liked!", severity="success"
                                             )
@@ -6370,6 +6528,14 @@ class Proj101App(App):
                                                 post_item.liked_by_user = False
                                             except Exception:
                                                 pass
+                                            try:
+                                                likes = getattr(post_item, "like_count", None) or getattr(post, "likes", None)
+                                                self.post_message(LikeUpdated(post_id=post.id, liked=False, likes=likes, origin=post_item))
+                                            except Exception:
+                                                try:
+                                                    self.app.post_message(LikeUpdated(post_id=post.id, liked=False, likes=likes, origin=post_item))
+                                                except Exception:
+                                                    pass
                                             self.notify(
                                                 "Post unliked!", severity="success"
                                             )
@@ -6384,6 +6550,14 @@ class Proj101App(App):
                                                 post_item.liked_by_user = True
                                             except Exception:
                                                 pass
+                                            try:
+                                                likes = getattr(post_item, "like_count", None) or getattr(post, "likes", None)
+                                                self.post_message(LikeUpdated(post_id=post.id, liked=True, likes=likes, origin=post_item))
+                                            except Exception:
+                                                try:
+                                                    self.app.post_message(LikeUpdated(post_id=post.id, liked=True, likes=likes, origin=post_item))
+                                                except Exception:
+                                                    pass
                                             self.notify(
                                                 "Post liked!", severity="success"
                                             )
@@ -6466,6 +6640,15 @@ class Proj101App(App):
                                                 post_item.reposted_by_user = False
                                             except Exception:
                                                 pass
+                                            # Broadcast repost update
+                                            try:
+                                                reposts = getattr(post_item, "repost_count", None) or getattr(post, "reposts", None)
+                                                self.post_message(RepostUpdated(post_id=post.id, reposted=False, reposts=reposts, origin=post_item))
+                                            except Exception:
+                                                try:
+                                                    self.app.post_message(RepostUpdated(post_id=post.id, reposted=False, reposts=reposts, origin=post_item))
+                                                except Exception:
+                                                    pass
                                             self.notify("Post unreposted!", severity="success")
                                         else:
                                             try:
@@ -6476,6 +6659,15 @@ class Proj101App(App):
                                                 post_item.reposted_by_user = True
                                             except Exception:
                                                 pass
+                                            # Broadcast repost update
+                                            try:
+                                                reposts = getattr(post_item, "repost_count", None) or getattr(post, "reposts", None)
+                                                self.post_message(RepostUpdated(post_id=post.id, reposted=True, reposts=reposts, origin=post_item))
+                                            except Exception:
+                                                try:
+                                                    self.app.post_message(RepostUpdated(post_id=post.id, reposted=True, reposts=reposts, origin=post_item))
+                                                except Exception:
+                                                    pass
                                             # Also insert a reposted copy at the top of the timeline for visibility
                                             from copy import deepcopy
 
@@ -6519,6 +6711,14 @@ class Proj101App(App):
                                                 post_item.reposted_by_user = False
                                             except Exception:
                                                 pass
+                                            try:
+                                                reposts = getattr(post_item, "repost_count", None) or getattr(post, "reposts", None)
+                                                self.post_message(RepostUpdated(post_id=post.id, reposted=False, reposts=reposts, origin=post_item))
+                                            except Exception:
+                                                try:
+                                                    self.app.post_message(RepostUpdated(post_id=post.id, reposted=False, reposts=reposts, origin=post_item))
+                                                except Exception:
+                                                    pass
                                             self.notify("Post unreposted!", severity="success")
                                         else:
                                             try:
@@ -6529,6 +6729,14 @@ class Proj101App(App):
                                                 post_item.reposted_by_user = True
                                             except Exception:
                                                 pass
+                                            try:
+                                                reposts = getattr(post_item, "repost_count", None) or getattr(post, "reposts", None)
+                                                self.post_message(RepostUpdated(post_id=post.id, reposted=True, reposts=reposts, origin=post_item))
+                                            except Exception:
+                                                try:
+                                                    self.app.post_message(RepostUpdated(post_id=post.id, reposted=True, reposts=reposts, origin=post_item))
+                                                except Exception:
+                                                    pass
                                             self.notify("Post reposted!", severity="success")
                                     except Exception:
                                         logging.exception("Error toggling repost")
