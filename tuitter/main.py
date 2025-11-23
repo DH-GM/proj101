@@ -3486,19 +3486,56 @@ class ChatView(VerticalScroll):
 
     def watch_cursor_position(self, old_position: int, new_position: int) -> None:
         """Update the cursor when position changes"""
+        messages = list(self.query(".chat-message"))
+
         # Remove cursor from old position
-        messages = self.query(".chat-message")
-        if old_position < len(messages):
-            old_msg = messages[old_position]
-            if "vim-cursor" in old_msg.classes:
-                old_msg.remove_class("vim-cursor")
+        try:
+            if old_position < len(messages):
+                old_msg = messages[old_position]
+                if "vim-cursor" in old_msg.classes:
+                    old_msg.remove_class("vim-cursor")
+            elif old_position == len(messages):
+                # old position was the input - remove visual indicator
+                try:
+                    inp = self.query_one("#message-input", Input)
+                    inp.remove_class("vim-cursor")
+                    # Only blur if input is not actively in insert mode
+                    if inp.has_focus and not self.input_active:
+                        try:
+                            inp.blur()
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
+        except Exception:
+            pass
 
         # Add cursor to new position
-        if new_position < len(messages):
-            new_msg = messages[new_position]
-            new_msg.add_class("vim-cursor")
-
-            self.scroll_to_widget(new_msg)
+        try:
+            if new_position < len(messages):
+                new_msg = messages[new_position]
+                new_msg.add_class("vim-cursor")
+                # Scroll message into view
+                self.scroll_to_widget(new_msg)
+            elif new_position == len(messages):
+                # Select the input (visual indicator) but do NOT enter insert mode.
+                try:
+                    inp = self.query_one("#message-input", Input)
+                    inp.add_class("vim-cursor")
+                    # Ensure ChatView retains focus so vim keys are handled here
+                    try:
+                        self.focus()
+                    except Exception:
+                        pass
+                    # Ensure input area is visible at the bottom
+                    try:
+                        self.scroll_end(animate=False)
+                    except Exception:
+                        pass
+                except Exception:
+                    pass
+        except Exception:
+            pass
 
     def focus_last_message(self) -> None:
         """Focus and select the last message in the chat after messages have mounted."""
@@ -3597,8 +3634,43 @@ class ChatView(VerticalScroll):
         """Vim-style go to bottom"""
         if self.app.command_mode:
             return
-        messages = self.query(".chat-message")
-        self.cursor_position = max(0, len(messages) - 1)
+        # Move cursor to the input (position after the last message)
+        messages = list(self.query(".chat-message"))
+        self.cursor_position = len(messages)
+
+    def on_key(self, event) -> None:
+        """Handle Escape from the input so we remain in vim-navigation state."""
+        if self.app.command_mode:
+            return
+
+        if event.key == "escape":
+            try:
+                inp = self.query_one("#message-input", Input)
+                # If input has focus, blur it and set vim cursor to the input
+                if getattr(inp, "has_focus", False):
+                    try:
+                        inp.blur()
+                    except Exception:
+                        pass
+                    # Mark input as not in active insert mode
+                    self.input_active = False
+                    # Move cursor to input index so it's visually selected and navigatable
+                    msgs = list(self.query(".chat-message"))
+                    self.cursor_position = len(msgs)
+                    try:
+                        # Keep focus on ChatView so vim keys work
+                        self.focus()
+                    except Exception:
+                        pass
+                    # Stop propagation so parent handlers don't also act
+                    try:
+                        event.prevent_default()
+                        event.stop()
+                    except Exception:
+                        pass
+                    return
+            except Exception:
+                pass
 
 
 class MessagesScreen(Container):
@@ -5322,7 +5394,7 @@ class Proj101App(App):
 
             def mount_new_screen():
                 current_screen.mount(ScreenClass(id="screen-container", **kwargs))
-            
+
             self.call_after_refresh(mount_new_screen)
 
             def update_ui():
@@ -5361,9 +5433,9 @@ class Proj101App(App):
                         sidebar.update_active(screen_name)
                 except Exception:
                     pass
-                
+
                 self.current_screen_name = screen_name
-                
+
                 # Focus the main content area after screen switch
                 self._focus_main_content_for_screen(screen_name)
 
@@ -5490,6 +5562,34 @@ class Proj101App(App):
                 panel = self.query_one(target_id)
                 panel.add_class("vim-mode-active")
                 panel.focus()
+
+                # Special-case for messages: move cursor to input (bottom)
+                try:
+                    if self.current_screen_name == "messages" and target_id == "#chat":
+                        def _focus_chat_input():
+                            try:
+                                chat = self.query_one("#chat", ChatView)
+                                msgs = list(chat.query(".chat-message"))
+                                # position after last message selects the input
+                                chat.cursor_position = len(msgs)
+                                # ensure chat retains focus so vim navigation works
+                                try:
+                                    chat.focus()
+                                except Exception:
+                                    pass
+                            except Exception:
+                                pass
+
+                        # schedule after refresh so messages are present
+                        try:
+                            self.call_after_refresh(_focus_chat_input)
+                        except Exception:
+                            try:
+                                self.set_timer(0.02, _focus_chat_input)
+                            except Exception:
+                                _focus_chat_input()
+                except Exception:
+                    pass
 
         except Exception:
             pass
