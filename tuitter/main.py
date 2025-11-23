@@ -1658,7 +1658,7 @@ class Sidebar(VerticalScroll):
             elif self.current_screen in ("timeline", "discover"):
                 yield CommandItem(":n", "new post", classes="command-item")
                 yield CommandItem(":l", "like", classes="command-item")
-                yield CommandItem(":rt", "repost", classes="command-item")
+                yield CommandItem(":rp", "repost", classes="command-item")
                 yield CommandItem("<Enter>", "comments", classes="command-item")
             elif self.current_screen == "notifications":
                 yield CommandItem(":m", "mark read", classes="command-item")
@@ -5894,8 +5894,11 @@ class Proj101App(App):
                             discover_feed = self.query_one("#discover-feed")
                             items = list(discover_feed.query(".post-item"))
                             idx = getattr(discover_feed, "cursor_position", 0)
-                            if 0 <= idx < len(items):
-                                post_item = items[idx]
+                            # Discover feed includes a search input at position 0,
+                            # so posts start at cursor_position == 1. Adjust index accordingly.
+                            post_idx = idx - 1
+                            if 0 <= post_idx < len(items):
+                                post_item = items[post_idx]
                                 post = getattr(post_item, "post", None)
                                 if post:
                                     try:
@@ -5966,8 +5969,9 @@ class Proj101App(App):
                             logging.debug(
                                 f"discover_feed.cursor_position={idx}, items={len(items)}"
                             )
-                            if 0 <= idx < len(items):
-                                post_item = items[idx]
+                            post_idx = idx - 1
+                            if 0 <= post_idx < len(items):
+                                post_item = items[post_idx]
                                 post = getattr(post_item, "post", None)
                                 logging.debug(
                                     f"Opening comment screen for post id={getattr(post, 'id', None)} author={getattr(post, 'author', None)}"
@@ -5978,7 +5982,7 @@ class Proj101App(App):
                                 logging.debug("Invalid cursor position for :c command")
                         except Exception as e:
                             logging.exception("Exception in :c command:")
-                elif command == "rt":
+                elif command == "rp":
                     # Repost the currently focused post in timeline or discover
                     if self.current_screen_name == "timeline":
                         try:
@@ -6042,8 +6046,10 @@ class Proj101App(App):
                             discover_feed = self.query_one("#discover-feed")
                             items = list(discover_feed.query(".post-item"))
                             idx = getattr(discover_feed, "cursor_position", 0)
-                            if 0 <= idx < len(items):
-                                post_item = items[idx]
+                            # Adjust for search input at position 0
+                            post_idx = idx - 1
+                            if 0 <= post_idx < len(items):
+                                post_item = items[post_idx]
                                 post = getattr(post_item, "post", None)
                                 if post:
                                     try:
