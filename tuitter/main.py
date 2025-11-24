@@ -1676,11 +1676,42 @@ class TopNav(Horizontal):
         """Compatibility method used by the App to set the active screen."""
         self.current = screen_name
         try:
-            if getattr(self, "tabs", None) is not None:
-                self.tabs.active = self._screen_to_tab_id(screen_name)
-            else:
-                tabs = self.query_one("#top-tabs", Tabs)
-                tabs.active = self._screen_to_tab_id(screen_name)
+            # If showing the Drafts screen, explicitly clear any active Tab
+            # and also remove active widget classes from the Tab widgets so
+            # the visual highlight (background) is removed across Textual
+            # versions that may retain the class even when `tabs.active` is
+            # cleared.
+            tabs = getattr(self, "tabs", None) or self.query_one("#top-tabs", Tabs)
+            if screen_name == "drafts":
+                try:
+                    tabs.active = None
+                except Exception:
+                    try:
+                        tabs.active = ""
+                    except Exception:
+                        pass
+
+                # Force-remove active classes from child Tab widgets
+                try:
+                    for tab in tabs.query(Tab):
+                        try:
+                            tab.remove_class("-active")
+                        except Exception:
+                            pass
+                        try:
+                            tab.remove_class("active")
+                        except Exception:
+                            pass
+                        try:
+                            tab.refresh()
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
+                return
+
+            # Normal behavior: activate the corresponding tab
+            tabs.active = self._screen_to_tab_id(screen_name)
 
         except Exception:
             pass
