@@ -369,6 +369,26 @@ DraftsScreen {
     text-style: bold;
 }
 
+/* Ensure vim-cursor on a draft box forces the action buttons to reflect
+   the cursor highlight. This selector is intentionally very specific so
+   it overrides other button/variant rules and keeps keyboard navigation
+   visually consistent. */
+.draft-box.vim-cursor .draft-action-btn.action-selected,
+.draft-box.vim-cursor .draft-action-btn-delete.action-selected {
+    background: $primary-dark;
+    border: heavy $primary;
+    color: $text-primary;
+    text-style: bold;
+}
+
+/* Also ensure a vim-cursor draft box gives a subtle focused border to
+   both action buttons so the cursor presence is obvious even when the
+   selected action isn't focused by the widget-level focus state. */
+.draft-box.vim-cursor .draft-action-btn,
+.draft-box.vim-cursor .draft-action-btn-delete {
+    border: solid $border-hover;
+}
+
 /* Dialog button states */
 /* Dialog buttons */
 #dialog-container #action-buttons Button {

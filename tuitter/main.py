@@ -5136,6 +5136,21 @@ class DraftsPanel(VerticalScroll):
 
         # Reset cursor position
         self.cursor_position = 0
+        # Ensure visual highlights are applied and that the first Open
+        # button is focused so keyboard users can continue interacting
+        # immediately after a refresh (for example, after deleting a draft).
+        try:
+            # Update visuals
+            self._update_cursor()
+            self._update_action_highlight()
+            open_buttons = list(self.query(".draft-action-btn"))
+            if open_buttons:
+                try:
+                    open_buttons[0].focus()
+                except Exception:
+                    pass
+        except Exception:
+            pass
 
 
 class DraftsScreen(Container):
