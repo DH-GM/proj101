@@ -1385,7 +1385,7 @@ Input:focus {
 }
 
 .profile-center-container {
-    width: 70;
+    width: 100%;
     height: auto;
     align: center top;
     layout: vertical;

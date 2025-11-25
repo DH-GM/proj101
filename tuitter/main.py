@@ -4565,8 +4565,10 @@ class ProfileView(VerticalScroll):
 
         profile_container = Container(classes="profile-center-container")
         with profile_container:
-            yield Static(self.profile.get("ascii_pic", "No profile picture available"), classes="profile-avatar-large")
-            yield Static(self.profile.get("display_name", ""), classes="profile-name-large")
+            ascii_pic = self.profile.get("ascii_pic", "")
+            if ascii_pic.strip() == "":
+                ascii_pic = "No profile picture available"
+            yield Static(ascii_pic, classes="profile-avatar-large")
             yield Static(f"@{username}", classes="profile-username-display")
 
             stats_row = Container(classes="profile-stats-row")
@@ -4579,7 +4581,10 @@ class ProfileView(VerticalScroll):
             bio_container = Container(classes="profile-bio-container")
             bio_container.border_title = "Bio"
             with bio_container:
-                yield Static(self.profile.get("bio", "No bio available"), classes="profile-bio-display")
+                bio = self.profile.get("bio", "")
+                if bio.strip() == "":
+                    bio = "No bio available"
+                yield Static(bio, classes="profile-bio-display")
             yield bio_container
 
             if self.actions:
