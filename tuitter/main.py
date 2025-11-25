@@ -1854,13 +1854,16 @@ class Sidebar(VerticalScroll):
                 yield CommandItem(":n", "new post", classes="command-item")
                 yield CommandItem(":l", "like", classes="command-item")
                 yield CommandItem(":rp", "repost", classes="command-item")
-                yield CommandItem("<Enter>", "comments", classes="command-item")
+                yield CommandItem("[Enter]", "comments", classes="command-item")
             elif self.current_screen == "notifications":
                 yield CommandItem(":m", "mark read", classes="command-item")
                 yield CommandItem(":ma", "mark all", classes="command-item")
             elif self.current_screen == "profile":
-                yield CommandItem(":e", "edit", classes="command-item")
                 yield CommandItem(":f", "follow", classes="command-item")
+                # Allow liking/reposting directly from profile posts
+                yield CommandItem(":l", "like", classes="command-item")
+                yield CommandItem(":rp", "repost", classes="command-item")
+                yield CommandItem("[Enter]", "comments", classes="command-item")
             elif self.current_screen == "settings":
                 yield CommandItem(":w", "save", classes="command-item")
                 yield CommandItem(":e", "edit", classes="command-item")
@@ -7396,6 +7399,144 @@ class Proj101App(App):
                                         logging.exception("Error toggling like")
                         except Exception:
                             pass
+                    elif self.current_screen_name == "profile":
+                        try:
+                            # Find the mounted ProfileView and determine selected row
+                            try:
+                                profile_view = self.query_one("#profile-view", ProfileView)
+                            except Exception:
+                                try:
+                                    profile_panel = self.query_one("#profile-panel")
+                                    profile_view = profile_panel.query_one(ProfileView)
+                                except Exception:
+                                    profile_view = None
+                            if profile_view is not None:
+                                try:
+                                    rows = profile_view._rows()
+                                    r = getattr(profile_view, "cursor_row", 0)
+                                    if 0 <= r < len(rows):
+                                        cols = rows[r]
+                                        if cols:
+                                            target = cols[0]
+                                            try:
+                                                post_item = target
+                                                post = getattr(post_item, "post", None)
+                                                if post:
+                                                    currently_liked = bool(
+                                                        getattr(post_item, "liked_by_user", False)
+                                                        or getattr(post, "liked_by_user", False)
+                                                    )
+                                                    if currently_liked:
+                                                        try:
+                                                            api.unlike_post(post.id)
+                                                        except Exception:
+                                                            logging.exception("api.unlike_post failed")
+                                                        try:
+                                                            post_item.liked_by_user = False
+                                                        except Exception:
+                                                            pass
+                                                        try:
+                                                            likes = getattr(post_item, "like_count", None) or getattr(post, "likes", None)
+                                                            self.post_message(LikeUpdated(post_id=post.id, liked=False, likes=likes, origin=post_item))
+                                                        except Exception:
+                                                            try:
+                                                                self.app.post_message(LikeUpdated(post_id=post.id, liked=False, likes=likes, origin=post_item))
+                                                            except Exception:
+                                                                pass
+                                                        self.notify("Post unliked!", severity="success")
+                                                    else:
+                                                        try:
+                                                            api.like_post(post.id)
+                                                        except Exception:
+                                                            logging.exception("api.like_post failed")
+                                                        try:
+                                                            post_item.liked_by_user = True
+                                                        except Exception:
+                                                            pass
+                                                        try:
+                                                            likes = getattr(post_item, "like_count", None) or getattr(post, "likes", None)
+                                                            self.post_message(LikeUpdated(post_id=post.id, liked=True, likes=likes, origin=post_item))
+                                                        except Exception:
+                                                            try:
+                                                                self.app.post_message(LikeUpdated(post_id=post.id, liked=True, likes=likes, origin=post_item))
+                                                            except Exception:
+                                                                pass
+                                                        self.notify("Post liked!", severity="success")
+                                            except Exception:
+                                                pass
+                                except Exception:
+                                    pass
+                        except Exception:
+                            pass
+                    elif self.current_screen_name == "user_profile":
+                        try:
+                            # Same as profile but target the user-profile-view
+                            try:
+                                profile_view = self.query_one("#user-profile-view", ProfileView)
+                            except Exception:
+                                try:
+                                    profile_panel = self.query_one("#user-profile-panel")
+                                    profile_view = profile_panel.query_one(ProfileView)
+                                except Exception:
+                                    profile_view = None
+                            if profile_view is not None:
+                                try:
+                                    rows = profile_view._rows()
+                                    r = getattr(profile_view, "cursor_row", 0)
+                                    if 0 <= r < len(rows):
+                                        cols = rows[r]
+                                        if cols:
+                                            target = cols[0]
+                                            try:
+                                                post_item = target
+                                                post = getattr(post_item, "post", None)
+                                                if post:
+                                                    currently_liked = bool(
+                                                        getattr(post_item, "liked_by_user", False)
+                                                        or getattr(post, "liked_by_user", False)
+                                                    )
+                                                    if currently_liked:
+                                                        try:
+                                                            api.unlike_post(post.id)
+                                                        except Exception:
+                                                            logging.exception("api.unlike_post failed")
+                                                        try:
+                                                            post_item.liked_by_user = False
+                                                        except Exception:
+                                                            pass
+                                                        try:
+                                                            likes = getattr(post_item, "like_count", None) or getattr(post, "likes", None)
+                                                            self.post_message(LikeUpdated(post_id=post.id, liked=False, likes=likes, origin=post_item))
+                                                        except Exception:
+                                                            try:
+                                                                self.app.post_message(LikeUpdated(post_id=post.id, liked=False, likes=likes, origin=post_item))
+                                                            except Exception:
+                                                                pass
+                                                        self.notify("Post unliked!", severity="success")
+                                                    else:
+                                                        try:
+                                                            api.like_post(post.id)
+                                                        except Exception:
+                                                            logging.exception("api.like_post failed")
+                                                        try:
+                                                            post_item.liked_by_user = True
+                                                        except Exception:
+                                                            pass
+                                                        try:
+                                                            likes = getattr(post_item, "like_count", None) or getattr(post, "likes", None)
+                                                            self.post_message(LikeUpdated(post_id=post.id, liked=True, likes=likes, origin=post_item))
+                                                        except Exception:
+                                                            try:
+                                                                self.app.post_message(LikeUpdated(post_id=post.id, liked=True, likes=likes, origin=post_item))
+                                                            except Exception:
+                                                                pass
+                                                        self.notify("Post liked!", severity="success")
+                                            except Exception:
+                                                pass
+                                except Exception:
+                                    pass
+                        except Exception:
+                            pass
                     elif self.current_screen_name == "discover":
                         try:
                             discover_feed = self.query_one("#discover-feed")
@@ -7530,6 +7671,140 @@ class Proj101App(App):
                                             self.notify("Post reposted!", severity="success")
                                     except Exception:
                                         logging.exception("Error toggling repost")
+                        except Exception:
+                            pass
+                    elif self.current_screen_name == "profile":
+                        try:
+                            try:
+                                profile_view = self.query_one("#profile-view", ProfileView)
+                            except Exception:
+                                try:
+                                    profile_panel = self.query_one("#profile-panel")
+                                    profile_view = profile_panel.query_one(ProfileView)
+                                except Exception:
+                                    profile_view = None
+                            if profile_view is not None:
+                                try:
+                                    rows = profile_view._rows()
+                                    r = getattr(profile_view, "cursor_row", 0)
+                                    if 0 <= r < len(rows):
+                                        cols = rows[r]
+                                        if cols:
+                                            post_item = cols[0]
+                                            post = getattr(post_item, "post", None)
+                                            if post:
+                                                try:
+                                                    currently_reposted = bool(
+                                                        getattr(post_item, "reposted_by_user", False)
+                                                        or getattr(post, "reposted_by_user", False)
+                                                    )
+                                                    if currently_reposted:
+                                                        try:
+                                                            api.unrepost(post.id)
+                                                        except Exception:
+                                                            logging.exception("api.unrepost failed")
+                                                        try:
+                                                            post_item.reposted_by_user = False
+                                                        except Exception:
+                                                            pass
+                                                        try:
+                                                            reposts = getattr(post_item, "repost_count", None) or getattr(post, "reposts", None)
+                                                            self.post_message(RepostUpdated(post_id=post.id, reposted=False, reposts=reposts, origin=post_item))
+                                                        except Exception:
+                                                            try:
+                                                                self.app.post_message(RepostUpdated(post_id=post.id, reposted=False, reposts=reposts, origin=post_item))
+                                                            except Exception:
+                                                                pass
+                                                        self.notify("Post unreposted!", severity="success")
+                                                    else:
+                                                        try:
+                                                            api.repost(post.id)
+                                                        except Exception:
+                                                            logging.exception("api.repost failed")
+                                                        try:
+                                                            post_item.reposted_by_user = True
+                                                        except Exception:
+                                                            pass
+                                                        try:
+                                                            reposts = getattr(post_item, "repost_count", None) or getattr(post, "reposts", None)
+                                                            self.post_message(RepostUpdated(post_id=post.id, reposted=True, reposts=reposts, origin=post_item))
+                                                        except Exception:
+                                                            try:
+                                                                self.app.post_message(RepostUpdated(post_id=post.id, reposted=True, reposts=reposts, origin=post_item))
+                                                            except Exception:
+                                                                pass
+                                                        self.notify("Post reposted!", severity="success")
+                                                except Exception:
+                                                    logging.exception("Error toggling repost")
+                                except Exception:
+                                    pass
+                        except Exception:
+                            pass
+                    elif self.current_screen_name == "user_profile":
+                        try:
+                            try:
+                                profile_view = self.query_one("#user-profile-view", ProfileView)
+                            except Exception:
+                                try:
+                                    profile_panel = self.query_one("#user-profile-panel")
+                                    profile_view = profile_panel.query_one(ProfileView)
+                                except Exception:
+                                    profile_view = None
+                            if profile_view is not None:
+                                try:
+                                    rows = profile_view._rows()
+                                    r = getattr(profile_view, "cursor_row", 0)
+                                    if 0 <= r < len(rows):
+                                        cols = rows[r]
+                                        if cols:
+                                            post_item = cols[0]
+                                            post = getattr(post_item, "post", None)
+                                            if post:
+                                                try:
+                                                    currently_reposted = bool(
+                                                        getattr(post_item, "reposted_by_user", False)
+                                                        or getattr(post, "reposted_by_user", False)
+                                                    )
+                                                    if currently_reposted:
+                                                        try:
+                                                            api.unrepost(post.id)
+                                                        except Exception:
+                                                            logging.exception("api.unrepost failed")
+                                                        try:
+                                                            post_item.reposted_by_user = False
+                                                        except Exception:
+                                                            pass
+                                                        try:
+                                                            reposts = getattr(post_item, "repost_count", None) or getattr(post, "reposts", None)
+                                                            self.post_message(RepostUpdated(post_id=post.id, reposted=False, reposts=reposts, origin=post_item))
+                                                        except Exception:
+                                                            try:
+                                                                self.app.post_message(RepostUpdated(post_id=post.id, reposted=False, reposts=reposts, origin=post_item))
+                                                            except Exception:
+                                                                pass
+                                                        self.notify("Post unreposted!", severity="success")
+                                                    else:
+                                                        try:
+                                                            api.repost(post.id)
+                                                        except Exception:
+                                                            logging.exception("api.repost failed")
+                                                        try:
+                                                            post_item.reposted_by_user = True
+                                                        except Exception:
+                                                            pass
+                                                        try:
+                                                            reposts = getattr(post_item, "repost_count", None) or getattr(post, "reposts", None)
+                                                            self.post_message(RepostUpdated(post_id=post.id, reposted=True, reposts=reposts, origin=post_item))
+                                                        except Exception:
+                                                            try:
+                                                                self.app.post_message(RepostUpdated(post_id=post.id, reposted=True, reposts=reposts, origin=post_item))
+                                                            except Exception:
+                                                                pass
+                                                        self.notify("Post reposted!", severity="success")
+                                                except Exception:
+                                                    logging.exception("Error toggling repost")
+                                except Exception:
+                                    pass
                         except Exception:
                             pass
                     elif self.current_screen_name == "discover":
