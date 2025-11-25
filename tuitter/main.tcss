@@ -1459,6 +1459,34 @@ Input:focus {
     width: 100%;
 }
 
+/* Profile focus styles for vim navigation */
+.profile-avatar-large.vim-cursor,
+.profile-avatar-large.vim-row-focus {
+    background: $primary-dark;
+    color: $text-primary;
+    border: solid $border-hover;
+}
+
+.profile-username-display.vim-cursor,
+.profile-username-display.vim-row-focus {
+    background: $bg-highlight;
+    color: $text-primary;
+    border: solid $border-hover;
+}
+
+.profile-bio-display.vim-cursor,
+.profile-bio-display.vim-row-focus {
+    background: $bg-highlight;
+    color: $text-primary;
+    border: solid $border-subtle;
+}
+
+/* Ensure post rows show a clear row-focus if selected */
+.post-item.vim-row-focus {
+    background: $bg-dark;
+    border: solid $border-hover;
+}
+
 /* Profile Action Buttons */
 .profile-action-buttons {
     layout: horizontal;

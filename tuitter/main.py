@@ -4554,6 +4554,9 @@ class ProfileView(VerticalScroll):
     """
     reposted_posts = reactive([])
     scroll_y = reactive(0)
+    # Row/column cursor for vim-like navigation
+    cursor_row = reactive(0)
+    cursor_col = reactive(-1)  # -1 = row-focused, >=0 = child column focused
     _all_posts = []
     _displayed_count = 20
     _batch_size = 20
@@ -4636,6 +4639,19 @@ class ProfileView(VerticalScroll):
             for i, post in enumerate(self._all_posts[: self._displayed_count]):
                 post_item = PostItem(post, classes="post-item", id=f"post-{i}")
                 self.mount(post_item)
+
+            # Ensure initial cursor/focus state: avatar auto-focused (row 0)
+            try:
+                # Give the view focus so key handlers are active
+                self.focus()
+            except Exception:
+                pass
+            try:
+                self.cursor_row = 0
+                self.cursor_col = 0
+                self._update_cursor()
+            except Exception:
+                pass
         except Exception:
             pass
 
@@ -4672,6 +4688,196 @@ class ProfileView(VerticalScroll):
                 self._load_more_posts()
         except Exception:
             pass
+
+    # ----------------- Vim-style navigation (row/col) -----------------
+    def _rows(self) -> list:
+        """Return a list of rows where each row is a list of widgets (columns).
+
+        Row order: avatar, username, stats (3 cols), bio, then one row per PostItem.
+        """
+        rows = []
+        try:
+            avatar = self.query_one(".profile-avatar-large", Static)
+            rows.append([avatar])
+        except Exception:
+            rows.append([])
+
+        try:
+            username = self.query_one(".profile-username-display", Static)
+            rows.append([username])
+        except Exception:
+            rows.append([])
+
+        try:
+            stats = list(self.query(".profile-stat-item"))
+            if stats:
+                rows.append(stats)
+            else:
+                rows.append([])
+        except Exception:
+            rows.append([])
+
+        try:
+            bio = self.query_one(".profile-bio-display", Static)
+            rows.append([bio])
+        except Exception:
+            rows.append([])
+
+        # Posts: each PostItem is its own row (single column)
+        try:
+            posts = list(self.query(PostItem))
+            for p in posts:
+                rows.append([p])
+        except Exception:
+            pass
+
+        return rows
+
+    def _update_cursor(self) -> None:
+        """Apply visual cursor classes based on cursor_row/cursor_col."""
+        try:
+            rows = self._rows()
+
+            # Clear all highlights first
+            for w in self.query(".vim-cursor, .vim-row-focus"):
+                try:
+                    w.remove_class("vim-cursor")
+                except Exception:
+                    pass
+                try:
+                    w.remove_class("vim-row-focus")
+                except Exception:
+                    pass
+
+            # Normalize row index
+            if self.cursor_row < 0:
+                self.cursor_row = 0
+            if self.cursor_row >= len(rows):
+                self.cursor_row = max(0, len(rows) - 1)
+
+            cols = rows[self.cursor_row] if 0 <= self.cursor_row < len(rows) else []
+
+            # If no columns or user prefers row-focus (-1), highlight row container
+            if self.cursor_col is None or self.cursor_col < 0 or len(cols) == 0:
+                # Row-level focus: add vim-row-focus to each element in the row
+                for item in cols:
+                    try:
+                        item.add_class("vim-row-focus")
+                    except Exception:
+                        pass
+                # Scroll to the first widget in the row for visibility
+                if cols:
+                    try:
+                        self.scroll_to_widget(cols[0], top=True)
+                    except Exception:
+                        pass
+                return
+
+            # Column-focused: ensure column index in range
+            col_idx = max(0, min(self.cursor_col, len(cols) - 1))
+            try:
+                target = cols[col_idx]
+                target.add_class("vim-cursor")
+                try:
+                    self.scroll_to_widget(target, top=True)
+                except Exception:
+                    pass
+            except Exception:
+                pass
+        except Exception:
+            pass
+
+    # Key handlers
+    def key_j(self) -> None:
+        if self.app.command_mode:
+            return
+        rows = self._rows()
+        if self.cursor_row < len(rows) - 1:
+            self.cursor_row += 1
+            # reset column focus to row-level when moving vertically
+            self.cursor_col = -1
+            self._update_cursor()
+
+    def key_k(self) -> None:
+        if self.app.command_mode:
+            return
+        if self.cursor_row > 0:
+            self.cursor_row -= 1
+            self.cursor_col = -1
+            self._update_cursor()
+
+    def key_h(self) -> None:
+        if self.app.command_mode:
+            return
+        rows = self._rows()
+        cols = rows[self.cursor_row] if 0 <= self.cursor_row < len(rows) else []
+        if not cols:
+            return
+        # If currently row-focused, move to rightmost column
+        if self.cursor_col is None or self.cursor_col < 0:
+            self.cursor_col = len(cols) - 1
+            self._update_cursor()
+            return
+        if self.cursor_col > 0:
+            self.cursor_col -= 1
+            self._update_cursor()
+
+    def key_l(self) -> None:
+        if self.app.command_mode:
+            return
+        rows = self._rows()
+        cols = rows[self.cursor_row] if 0 <= self.cursor_row < len(rows) else []
+        if not cols:
+            return
+        # If row-focused, move to first column
+        if self.cursor_col is None or self.cursor_col < 0:
+            self.cursor_col = 0
+            self._update_cursor()
+            return
+        if self.cursor_col < len(cols) - 1:
+            self.cursor_col += 1
+            self._update_cursor()
+
+    def key_g(self) -> None:
+        if self.app.command_mode:
+            return
+        now = time.time()
+        if hasattr(self, "last_g_time") and now - self.last_g_time < 0.5:
+            # go to top
+            self.cursor_row = 0
+            self.cursor_col = -1
+            self._update_cursor()
+            try:
+                delattr(self, "last_g_time")
+            except Exception:
+                pass
+        else:
+            self.last_g_time = now
+
+    def key_G(self) -> None:
+        if self.app.command_mode:
+            return
+        rows = self._rows()
+        self.cursor_row = max(0, len(rows) - 1)
+        self.cursor_col = -1
+        self._update_cursor()
+
+    def key_ctrl_d(self) -> None:
+        if self.app.command_mode:
+            return
+        rows = self._rows()
+        # half page down ~ 5 rows
+        self.cursor_row = min(len(rows) - 1, self.cursor_row + 5)
+        self.cursor_col = -1
+        self._update_cursor()
+
+    def key_ctrl_u(self) -> None:
+        if self.app.command_mode:
+            return
+        # half page up ~ 5 rows
+        self.cursor_row = max(0, self.cursor_row - 5)
+        self.cursor_col = -1
+        self._update_cursor()
 
     def _load_more_posts(self) -> None:
         """Load the next batch of posts from cache"""
@@ -4778,84 +4984,178 @@ class ProfilePanel(VerticalScroll):
             return None
 
     def key_j(self) -> None:
-        """Scroll down with j key"""
+        """Delegate down to inner view or scroll as fallback."""
         if self.app.command_mode:
             return
         v = self._inner_view()
-        if v:
-            v.scroll_down()
-        else:
-            self.scroll_down()
-
-    def key_k(self) -> None:
-        """Scroll up with k key"""
-        if self.app.command_mode:
-            return
-        v = self._inner_view()
-        if v:
-            v.scroll_up()
-        else:
-            self.scroll_up()
-
-    def key_g(self) -> None:
-        """Go to top with gg"""
-        if self.app.command_mode:
-            return
-        pass  # Handled in on_key for double-press
-
-    def key_G(self) -> None:
-        """Go to bottom with G"""
-        if self.app.command_mode:
-            return
-        v = self._inner_view()
-        if v:
-            v.scroll_end(animate=False)
-        else:
-            self.scroll_end(animate=False)
-
-    def key_ctrl_d(self) -> None:
-        """Half page down"""
-        v = self._inner_view()
-        if v:
-            v.scroll_page_down()
-        else:
-            self.scroll_page_down()
-
-    def key_ctrl_u(self) -> None:
-        """Half page up"""
-        v = self._inner_view()
-        if v:
-            v.scroll_page_up()
-        else:
-            self.scroll_page_up()
-
-    def on_key(self, event) -> None:
-        """Handle g+g key combination for top and escape from input"""
-        if event.key == "escape":
-            # If message input has focus, unfocus it and return focus to chat
+        if v and hasattr(v, "key_j"):
             try:
-                msg_input = self.query_one("#message-input", Input)
-                if msg_input.has_focus:
-                    self.focus()
-                    event.prevent_default()
-                    event.stop()
-                    return
+                v.key_j()
+                return
             except Exception:
                 pass
-            # Otherwise prevent escape from unfocusing the chat view
-            event.prevent_default()
-            event.stop()
+        if v and hasattr(v, "scroll_down"):
+            try:
+                v.scroll_down()
+                return
+            except Exception:
+                pass
+        self.scroll_down()
+
+    def key_k(self) -> None:
+        """Delegate up to inner view or scroll as fallback."""
+        if self.app.command_mode:
             return
+        v = self._inner_view()
+        if v and hasattr(v, "key_k"):
+            try:
+                v.key_k()
+                return
+            except Exception:
+                pass
+        if v and hasattr(v, "scroll_up"):
+            try:
+                v.scroll_up()
+                return
+            except Exception:
+                pass
+        self.scroll_up()
+
+    def key_h(self) -> None:
+        """Delegate left to inner view when present."""
+        if self.app.command_mode:
+            return
+        v = self._inner_view()
+        if v and hasattr(v, "key_h"):
+            try:
+                v.key_h()
+                return
+            except Exception:
+                pass
+
+    def key_l(self) -> None:
+        """Delegate right to inner view when present."""
+        if self.app.command_mode:
+            return
+        v = self._inner_view()
+        if v and hasattr(v, "key_l"):
+            try:
+                v.key_l()
+                return
+            except Exception:
+                pass
+
+    def key_g(self) -> None:
+        """Handle gg at panel level by deferring to inner view's key_g."""
+        if self.app.command_mode:
+            return
+        now = time.time()
+        if hasattr(self, "last_g_time") and now - self.last_g_time < 0.5:
+            v = self._inner_view()
+            if v and hasattr(v, "key_g"):
+                try:
+                    v.key_g()
+                    return
+                except Exception:
+                    pass
+            # Fallback to panel scroll_home
+            try:
+                self.scroll_home(animate=False)
+            except Exception:
+                pass
+            try:
+                delattr(self, "last_g_time")
+            except Exception:
+                pass
+        else:
+            self.last_g_time = now
+
+    def key_G(self) -> None:
+        """Delegate G to inner view or scroll to end."""
+        if self.app.command_mode:
+            return
+        v = self._inner_view()
+        if v and hasattr(v, "key_G"):
+            try:
+                v.key_G()
+                return
+            except Exception:
+                pass
+        if v and hasattr(v, "scroll_end"):
+            try:
+                v.scroll_end(animate=False)
+                return
+            except Exception:
+                pass
+        self.scroll_end(animate=False)
+
+    def key_ctrl_d(self) -> None:
+        """Delegate half-page down to inner view or panel scroll."""
+        if self.app.command_mode:
+            return
+        v = self._inner_view()
+        if v and hasattr(v, "key_ctrl_d"):
+            try:
+                v.key_ctrl_d()
+                return
+            except Exception:
+                pass
+        if v and hasattr(v, "scroll_page_down"):
+            try:
+                v.scroll_page_down()
+                return
+            except Exception:
+                pass
+        self.scroll_page_down()
+
+    def key_ctrl_u(self) -> None:
+        """Delegate half-page up to inner view or panel scroll."""
+        if self.app.command_mode:
+            return
+        v = self._inner_view()
+        if v and hasattr(v, "key_ctrl_u"):
+            try:
+                v.key_ctrl_u()
+                return
+            except Exception:
+                pass
+        if v and hasattr(v, "scroll_page_up"):
+            try:
+                v.scroll_page_up()
+                return
+            except Exception:
+                pass
+        self.scroll_page_up()
+
+    def on_key(self, event) -> None:
+        """Handle double-g for gg and escape passthrough at panel level."""
+        if event.key == "escape":
+            # Prevent escape from unfocusing important widgets inside panel
+            try:
+                event.prevent_default()
+                event.stop()
+            except Exception:
+                pass
+            return
+
         if event.key == "g":
             now = time.time()
             if hasattr(self, "last_g_time") and now - self.last_g_time < 0.5:
                 v = self._inner_view()
-                if v:
-                    v.scroll_home(animate=False)
-                else:
+                if v and hasattr(v, "key_g"):
+                    try:
+                        v.key_g()
+                        event.prevent_default()
+                        delattr(self, "last_g_time")
+                        return
+                    except Exception:
+                        pass
+                try:
                     self.scroll_home(animate=False)
-                event.prevent_default()
-                delattr(self, "last_g_time")
+                    event.prevent_default()
+                    delattr(self, "last_g_time")
+                except Exception:
+                    pass
             else:
                 self.last_g_time = now
 
@@ -4914,54 +5214,129 @@ class UserProfileViewPanel(VerticalScroll):
         if self.app.command_mode:
             return
         v = self._inner_view()
-        if v:
-            v.scroll_down()
-        else:
-            self.scroll_down()
+        if v and hasattr(v, "key_j"):
+            try:
+                v.key_j()
+                return
+            except Exception:
+                pass
+        if v and hasattr(v, "scroll_down"):
+            try:
+                v.scroll_down()
+                return
+            except Exception:
+                pass
+        self.scroll_down()
 
     def key_k(self) -> None:
         if self.app.command_mode:
             return
         v = self._inner_view()
-        if v:
-            v.scroll_up()
-        else:
-            self.scroll_up()
+        if v and hasattr(v, "key_k"):
+            try:
+                v.key_k()
+                return
+            except Exception:
+                pass
+        if v and hasattr(v, "scroll_up"):
+            try:
+                v.scroll_up()
+                return
+            except Exception:
+                pass
+        self.scroll_up()
+
+    def key_h(self) -> None:
+        if self.app.command_mode:
+            return
+        v = self._inner_view()
+        if v and hasattr(v, "key_h"):
+            try:
+                v.key_h()
+                return
+            except Exception:
+                pass
+
+    def key_l(self) -> None:
+        if self.app.command_mode:
+            return
+        v = self._inner_view()
+        if v and hasattr(v, "key_l"):
+            try:
+                v.key_l()
+                return
+            except Exception:
+                pass
 
     def key_G(self) -> None:
         if self.app.command_mode:
             return
         v = self._inner_view()
-        if v:
-            v.scroll_end(animate=False)
-        else:
-            self.scroll_end(animate=False)
+        if v and hasattr(v, "key_G"):
+            try:
+                v.key_G()
+                return
+            except Exception:
+                pass
+        if v and hasattr(v, "scroll_end"):
+            try:
+                v.scroll_end(animate=False)
+                return
+            except Exception:
+                pass
+        self.scroll_end(animate=False)
 
     def key_ctrl_d(self) -> None:
         v = self._inner_view()
-        if v:
-            v.scroll_page_down()
-        else:
-            self.scroll_page_down()
+        if v and hasattr(v, "key_ctrl_d"):
+            try:
+                v.key_ctrl_d()
+                return
+            except Exception:
+                pass
+        if v and hasattr(v, "scroll_page_down"):
+            try:
+                v.scroll_page_down()
+                return
+            except Exception:
+                pass
+        self.scroll_page_down()
 
     def key_ctrl_u(self) -> None:
         v = self._inner_view()
-        if v:
-            v.scroll_page_up()
-        else:
-            self.scroll_page_up()
+        if v and hasattr(v, "key_ctrl_u"):
+            try:
+                v.key_ctrl_u()
+                return
+            except Exception:
+                pass
+        if v and hasattr(v, "scroll_page_up"):
+            try:
+                v.scroll_page_up()
+                return
+            except Exception:
+                pass
+        self.scroll_page_up()
 
     def on_key(self, event) -> None:
         if event.key == "g":
             now = time.time()
             if hasattr(self, "last_g_time") and now - self.last_g_time < 0.5:
                 v = self._inner_view()
-                if v:
-                    v.scroll_home(animate=False)
-                else:
+                if v and hasattr(v, "key_g"):
+                    try:
+                        v.key_g()
+                        event.prevent_default()
+                        delattr(self, "last_g_time")
+                        return
+                    except Exception:
+                        pass
+                try:
                     self.scroll_home(animate=False)
-                event.prevent_default()
-                delattr(self, "last_g_time")
+                    event.prevent_default()
+                    delattr(self, "last_g_time")
+                except Exception:
+                    pass
             else:
                 self.last_g_time = now
 
