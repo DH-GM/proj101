@@ -4545,60 +4545,117 @@ class SettingsScreen(Container):
             pass
 
 
-class ProfilePanel(VerticalScroll):
-    cursor_position = reactive(0)
+class ProfileView(VerticalScroll):
+    """Reusable read-only profile view component.
+
+    Accepts a `profile` dict with keys: username, display_name, bio, ascii_pic,
+    followers, following, posts_count. Optionally accepts `posts` (list of Post)
+    and `actions` (bool) to show Follow/Message buttons.
+    """
+
+    def __init__(self, profile: dict, posts: list | None = None, actions: bool = False, **kwargs):
+        super().__init__(**kwargs)
+        self.profile = profile or {}
+        self.posts = posts or []
+        self.actions = actions
 
     def compose(self) -> ComposeResult:
-        self.border_title = "Profile"
-        user = api.get_current_user()
-        settings = api.get_user_settings()
-
-        yield Static("profile | @yourname | line 1", classes="panel-header")
+        username = self.profile.get("username", "")
+        yield Static(f"profile | @{username}", classes="panel-header")
 
         profile_container = Container(classes="profile-center-container")
-
         with profile_container:
-            yield Static(settings.ascii_pic, classes="profile-avatar-large")
-            username = get_username()
-            if username is None:
-                username = settings.username
+            yield Static(self.profile.get("ascii_pic", "No profile picture available"), classes="profile-avatar-large")
+            yield Static(self.profile.get("display_name", ""), classes="profile-name-large")
             yield Static(f"@{username}", classes="profile-username-display")
 
             stats_row = Container(classes="profile-stats-row")
             with stats_row:
-                yield Static(f"{user.posts_count}\nPosts", classes="profile-stat-item")
-                yield Static(
-                    f"{user.following}\nFollowing", classes="profile-stat-item"
-                )
-                yield Static(
-                    f"{user.followers}\nFollowers", classes="profile-stat-item"
-                )
+                yield Static(f"{self.profile.get('posts_count', 0)}\nPosts", classes="profile-stat-item")
+                yield Static(f"{self.profile.get('following', 0)}\nFollowing", classes="profile-stat-item")
+                yield Static(f"{self.profile.get('followers', 0)}\nFollowers", classes="profile-stat-item")
             yield stats_row
 
             bio_container = Container(classes="profile-bio-container")
             bio_container.border_title = "Bio"
             with bio_container:
-                yield Static(f"{settings.bio}", classes="profile-bio-display")
+                yield Static(self.profile.get("bio", "No bio available"), classes="profile-bio-display")
             yield bio_container
 
+            if self.actions:
+                buttons_container = Container(classes="profile-action-buttons")
+                with buttons_container:
+                    follow_btn = Button("👥 Follow", id="follow-user-btn", classes="profile-action-btn")
+                    yield follow_btn
+                    yield Button("Message", id="message-user-btn", classes="profile-action-btn")
+                yield buttons_container
+
         yield profile_container
-        yield Static(
-            "\n[j/k] Navigate  [:e] Edit Profile  [Esc] Back",
-            classes="help-text",
-            markup=False,
-        )
+
+        if self.posts:
+            yield Static("\n→ Recent Posts", classes="section-header")
+            for post in self.posts:
+                yield PostItem(post, classes="post-item")
+            yield Static("\n[Esc] Back", classes="help-text", markup=False)
+
+
+class ProfilePanel(VerticalScroll):
+    cursor_position = reactive(0)
+
+    def compose(self) -> ComposeResult:
+        # Compose a read-only profile view for the current user
+        self.border_title = "Profile"
+        user = api.get_current_user()
+        settings = api.get_user_settings()
+
+        profile = {
+            "username": getattr(user, "username", getattr(user, "handle", "")),
+            "display_name": getattr(user, "display_name", ""),
+            "bio": getattr(settings, "bio", getattr(user, "bio", "")),
+            "ascii_pic": getattr(settings, "ascii_pic", getattr(user, "ascii_pic", "")),
+            "followers": getattr(user, "followers", 0),
+            "following": getattr(user, "following", 0),
+            "posts_count": getattr(user, "posts_count", 0),
+        }
+
+        yield ProfileView(profile=profile, id="profile-view")
+
+    def on_mount(self) -> None:
+        """Focus the inner ProfileView so scrolling/keys work as expected."""
+        try:
+            view = self.query_one("#profile-view", ProfileView)
+            try:
+                view.focus()
+            except Exception:
+                pass
+        except Exception:
+            pass
+
+    def _inner_view(self):
+        try:
+            return self.query_one("#profile-view", ProfileView)
+        except Exception:
+            return None
 
     def key_j(self) -> None:
         """Scroll down with j key"""
         if self.app.command_mode:
             return
-        self.scroll_down()
+        v = self._inner_view()
+        if v:
+            v.scroll_down()
+        else:
+            self.scroll_down()
 
     def key_k(self) -> None:
         """Scroll up with k key"""
         if self.app.command_mode:
             return
-        self.scroll_up()
+        v = self._inner_view()
+        if v:
+            v.scroll_up()
+        else:
+            self.scroll_up()
 
     def key_g(self) -> None:
         """Go to top with gg"""
@@ -4610,15 +4667,27 @@ class ProfilePanel(VerticalScroll):
         """Go to bottom with G"""
         if self.app.command_mode:
             return
-        self.scroll_end(animate=False)
+        v = self._inner_view()
+        if v:
+            v.scroll_end(animate=False)
+        else:
+            self.scroll_end(animate=False)
 
     def key_ctrl_d(self) -> None:
         """Half page down"""
-        self.scroll_page_down()
+        v = self._inner_view()
+        if v:
+            v.scroll_page_down()
+        else:
+            self.scroll_page_down()
 
     def key_ctrl_u(self) -> None:
         """Half page up"""
-        self.scroll_page_up()
+        v = self._inner_view()
+        if v:
+            v.scroll_page_up()
+        else:
+            self.scroll_page_up()
 
     def on_key(self, event) -> None:
         """Handle g+g key combination for top and escape from input"""
@@ -4640,7 +4709,11 @@ class ProfilePanel(VerticalScroll):
         if event.key == "g":
             now = time.time()
             if hasattr(self, "last_g_time") and now - self.last_g_time < 0.5:
-                self.scroll_home(animate=False)
+                v = self._inner_view()
+                if v:
+                    v.scroll_home(animate=False)
+                else:
+                    self.scroll_home(animate=False)
                 event.prevent_default()
                 delattr(self, "last_g_time")
             else:
@@ -4664,61 +4737,93 @@ class UserProfileViewPanel(VerticalScroll):
 
     def compose(self) -> ComposeResult:
         self.border_title = f"@{self.username}"
-
-        # Get user data from the dummy users or generate fake data
+        # Use the same reusable ProfileView for other users (read-only)
         user_data = self._get_user_data()
-
-        yield Static(f"profile | @{self.username} | line 1", classes="panel-header")
-
-        profile_container = Container(classes="profile-center-container")
-
-        with profile_container:
-            yield Static(user_data["ascii_pic"], classes="profile-avatar-large")
-            yield Static(f"{user_data['display_name']}", classes="profile-name-large")
-            yield Static(f"@{self.username}", classes="profile-username-display")
-
-            stats_row = Container(classes="profile-stats-row")
-            with stats_row:
-                yield Static(
-                    f"{user_data['posts_count']}\nPosts", classes="profile-stat-item"
-                )
-                yield Static(
-                    f"{user_data['following']}\nFollowing", classes="profile-stat-item"
-                )
-                yield Static(
-                    f"{user_data['followers']}\nFollowers", classes="profile-stat-item"
-                )
-            yield stats_row
-
-            bio_container = Container(classes="profile-bio-container")
-            bio_container.border_title = "Bio"
-            with bio_container:
-                yield Static(f"{user_data['bio']}", classes="profile-bio-display")
-            yield bio_container
-
-            # Action buttons
-            buttons_container = Container(classes="profile-action-buttons")
-            with buttons_container:
-                follow_btn = Button(
-                    "👥 Follow", id="follow-user-btn", classes="profile-action-btn"
-                )
-                yield follow_btn
-                yield Button(
-                    "Message", id="message-user-btn", classes="profile-action-btn"
-                )
-            yield buttons_container
-
-        yield profile_container
-
-        # Recent posts section
-        yield Static("\n→ Recent Posts", classes="section-header")
         posts = self._get_user_posts()
-        for post in posts:
-            yield PostItem(post, classes="post-item")
 
-        yield Static(
-            "\n[Esc] Back  [:f] Follow  [:m] Message", classes="help-text", markup=False
-        )
+        profile = {
+            "username": self.username,
+            "display_name": user_data.get("display_name", self.username),
+            "bio": user_data.get("bio", ""),
+            "ascii_pic": user_data.get("ascii_pic", ""),
+            "followers": user_data.get("followers", 0),
+            "following": user_data.get("following", 0),
+            "posts_count": user_data.get("posts_count", 0),
+        }
+
+        yield ProfileView(profile=profile, posts=posts, actions=True, id="user-profile-view")
+
+    def on_mount(self) -> None:
+        """Focus inner ProfileView for correct key handling."""
+        try:
+            view = self.query_one("#user-profile-view", ProfileView)
+            try:
+                view.focus()
+            except Exception:
+                pass
+        except Exception:
+            pass
+
+    def _inner_view(self):
+        try:
+            return self.query_one("#user-profile-view", ProfileView)
+        except Exception:
+            return None
+
+    def key_j(self) -> None:
+        if self.app.command_mode:
+            return
+        v = self._inner_view()
+        if v:
+            v.scroll_down()
+        else:
+            self.scroll_down()
+
+    def key_k(self) -> None:
+        if self.app.command_mode:
+            return
+        v = self._inner_view()
+        if v:
+            v.scroll_up()
+        else:
+            self.scroll_up()
+
+    def key_G(self) -> None:
+        if self.app.command_mode:
+            return
+        v = self._inner_view()
+        if v:
+            v.scroll_end(animate=False)
+        else:
+            self.scroll_end(animate=False)
+
+    def key_ctrl_d(self) -> None:
+        v = self._inner_view()
+        if v:
+            v.scroll_page_down()
+        else:
+            self.scroll_page_down()
+
+    def key_ctrl_u(self) -> None:
+        v = self._inner_view()
+        if v:
+            v.scroll_page_up()
+        else:
+            self.scroll_page_up()
+
+    def on_key(self, event) -> None:
+        if event.key == "g":
+            now = time.time()
+            if hasattr(self, "last_g_time") and now - self.last_g_time < 0.5:
+                v = self._inner_view()
+                if v:
+                    v.scroll_home(animate=False)
+                else:
+                    self.scroll_home(animate=False)
+                event.prevent_default()
+                delattr(self, "last_g_time")
+            else:
+                self.last_g_time = now
 
     def _get_user_data(self) -> Dict:
         """Get or generate user data."""

@@ -628,5 +628,15 @@ class RealAPI(APIInterface):
 # Global api selection: prefer real backend when BACKEND_URL is set
 _BACKEND_URL = "https://voqbyhcnqe.execute-api.us-east-2.amazonaws.com"
 
+# Initialize global `api` client. Prefer the saved username from auth_storage
+# (keyring) when available so requests that rely on `api.handle` use the
+# correct account rather than the literal default "yourname".
 if _BACKEND_URL:
-    api = RealAPI(base_url=_BACKEND_URL)
+    try:
+        # get_username was imported earlier from auth_storage when available
+        initial_handle = "None"
+        initial_handle = get_username()
+    except Exception:
+        pass
+
+    api = RealAPI(base_url=_BACKEND_URL, handle=initial_handle)
