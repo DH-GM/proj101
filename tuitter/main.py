@@ -4062,38 +4062,50 @@ class SettingsPanel(VerticalScroll):
         username = get_username()
         if username is None and settings:
             username = getattr(settings, "username", "yourname")
-        yield Static(f"  Username:\n  @{username}", classes="settings-field")
+        # Make the existing Static username selectable
+        yield Static(f"  Username:\n  @{username}", classes="settings-field settings-field-selectable")
+
+        # Bio: show label and an editable TextArea (vim-selectable). Keep
+        # the same container styling as the profile bio so visual size is
+        # similar to the previous Static widget.
+        bio_text = ""
         if settings:
-            yield Static(
-                f"\n  Display Name:\n  {settings.display_name}",
-                classes="settings-field",
-            )
-            yield Static(f"\n  Bio:\n  {settings.bio}", classes="settings-field")
-        else:
-            yield Static("\n  Display Name:\n  (loading)", classes="settings-field")
-            yield Static("\n  Bio:\n  (loading)", classes="settings-field")
+            bio_text = getattr(settings, "bio", "") or ""
+
+        yield Static("  Bio:", classes="settings-section-header")
+        # Include both `settings-field` and `settings-field-selectable`
+        # so existing selectable query (which looks for `.settings-field`)
+        # will find this TextArea. The `settings-bio` class provides
+        # TextArea-specific styling in the stylesheet.
+        yield TextArea(bio_text, id="settings-bio", classes="settings-field settings-field-selectable settings-bio profile-bio-display")
+        # Small hint showing how to enter input mode and exit back to navigation
+        yield Static(
+            "\n\\[i] edit | \\[esc] navigate",
+            id="settings-bio-hints",
+            classes="vim-hints",
+        )
 
         # OAuth connections - use Buttons so they are navigable
         yield Static("\n→ OAuth Connections", classes="settings-section-header")
         github_status = (
             "Connected"
             if settings and getattr(settings, "github_connected", False)
-            else "[:c] Connect"
+            else "[Enter] Connect"
         )
         gitlab_status = (
             "Connected"
             if settings and getattr(settings, "gitlab_connected", False)
-            else "[:c] Connect"
+            else "[Enter] Connect"
         )
         google_status = (
             "Connected"
             if settings and getattr(settings, "google_connected", False)
-            else "[:c] Connect"
+            else "[Enter] Connect"
         )
         discord_status = (
             "Connected"
             if settings and getattr(settings, "discord_connected", False)
-            else "[:c] Connect"
+            else "[Enter] Connect"
         )
         yield Button(
             f"  GitHub                                              {github_status}",
@@ -4181,6 +4193,7 @@ class SettingsPanel(VerticalScroll):
             try:
                 selectable_classes = [
                     ".upload-profile-picture",
+                    ".settings-field",
                     ".oauth-item",
                     ".checkbox-item",
                     ".danger",
@@ -4242,6 +4255,7 @@ class SettingsPanel(VerticalScroll):
         # We'll consider settings items that can be selected for cursor movement:
         selectable_classes = [
             ".upload-profile-picture",
+            ".settings-field",
             ".oauth-item",
             ".checkbox-item",
             ".danger",
@@ -4290,6 +4304,7 @@ class SettingsPanel(VerticalScroll):
             return
         selectable_classes = [
             ".upload-profile-picture",
+            ".settings-field",
             ".oauth-item",
             ".checkbox-item",
             ".danger",
@@ -4320,6 +4335,7 @@ class SettingsPanel(VerticalScroll):
             return
         selectable_classes = [
             ".upload-profile-picture",
+            ".settings-field",
             ".oauth-item",
             ".checkbox-item",
             ".danger",
@@ -4352,6 +4368,7 @@ class SettingsPanel(VerticalScroll):
             return
         selectable_classes = [
             ".upload-profile-picture",
+            ".settings-field",
             ".oauth-item",
             ".checkbox-item",
             ".danger",
@@ -4367,6 +4384,16 @@ class SettingsPanel(VerticalScroll):
                 if hasattr(item, "press"):
                     item.press()
                 else:
+                    # If the item is a TextArea, enter edit mode by focusing it
+                    try:
+                        from textual.widgets import TextArea
+
+                        if isinstance(item, TextArea):
+                            item.focus()
+                            return
+                    except Exception:
+                        pass
+
                     # Fallback: try to call on_click or simulate a button press event
                     try:
                         item.on_click()
@@ -4374,6 +4401,57 @@ class SettingsPanel(VerticalScroll):
                         pass
             except Exception:
                 pass
+
+    def key_i(self) -> None:
+        """Pressing 'i' while cursor is on a settings-field enters input mode.
+
+        If the currently-selected item is a TextArea (bio), focus it so the
+        user can edit. This mirrors vim-like insert behavior.
+        """
+        if self.app.command_mode:
+            return
+
+        selectable_classes = [
+            ".upload-profile-picture",
+            ".settings-field",
+            ".oauth-item",
+            ".checkbox-item",
+            ".danger",
+        ]
+        items = []
+        for cls in selectable_classes:
+            items.extend(list(self.query(cls)))
+
+        if 0 <= self.cursor_position < len(items):
+            item = items[self.cursor_position]
+            try:
+                from textual.widgets import TextArea
+
+                if isinstance(item, TextArea):
+                    item.focus()
+                    return
+            except Exception:
+                pass
+
+    def key_escape(self) -> None:
+        """When editing (TextArea focused), Escape returns focus to the panel.
+
+        This allows leaving 'input mode' and regaining vim-style navigation.
+        """
+        try:
+            focused = getattr(self.app, "focused", None)
+            from textual.widgets import TextArea
+
+            # If a TextArea is currently focused, move focus back to the panel
+            if isinstance(focused, TextArea):
+                try:
+                    # Restore focus to the settings panel so j/k work again
+                    self.focus()
+                except Exception:
+                    pass
+                return
+        except Exception:
+            pass
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         btn_id = getattr(event.button, "id", "")

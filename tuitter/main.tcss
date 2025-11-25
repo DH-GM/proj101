@@ -119,6 +119,105 @@ $follow-bg-hover: #3a5a3a;
 $follow-border: #5aaa5a;
 $follow-text-2: #aaffaa;
 
+/* ---------------- Profile & Settings Focus Styles ---------------- */
+/* These ensure the username/bio in Settings behave and highlight like
+   the Profile view. They intentionally provide both class and ID
+   selectors because the Python code may use either. */
+
+.profile-username-display,
+#settings-username {
+    color: $primary;
+    text-style: bold;
+    text-align: center;
+    width: 100%;
+    margin-bottom: 1;
+    padding: 1 2;
+    background: $bg-dark;
+}
+
+.profile-bio-container,
+.settings-bio-container {
+    width: 100%;
+    height: auto;
+    border: solid $border-subtle;
+    padding: 1 2;
+    background: $bg-dark;
+}
+
+.profile-bio-display,
+#settings-bio,
+.settings-bio {
+    color: $text-muted;
+    text-align: left;
+    width: 100%;
+}
+
+/* Settings-specific selectable base style */
+.settings-field-selectable {
+    color: $text-content;
+    padding: 1 2;
+    background: $bg-dark;
+    border: solid $border-subtle;
+}
+
+/* Focus variants applied when vim navigation is active */
+.profile-username-display.vim-cursor,
+.profile-username-display.vim-row-focus,
+#settings-username.vim-cursor,
+#settings-username.vim-row-focus,
+.settings-field-selectable.vim-cursor,
+.settings-field-selectable.vim-row-focus,
+.settings-bio.vim-cursor,
+.settings-bio.vim-row-focus,
+.profile-bio-container.vim-cursor,
+.profile-bio-container.vim-row-focus {
+    background: $bg-highlight;
+    color: $text-primary;
+    border: solid $border-hover;
+}
+
+/* Ensure TextArea (settings-bio) shows caret/text clearly */
+#settings-bio textarea,
+.settings-bio textarea {
+    color: $text-primary;
+    background: transparent;
+}
+
+/* Ensure the TextArea widget itself has an explicit box so its text
+   is visible even when there's no outer container. Keep styling
+   minimal to avoid changing the layout. */
+TextArea#settings-bio {
+    background: $bg-darker;
+    color: $text-primary;
+    padding: 1 2;
+    width: 100%;
+    height: 8;
+    border: solid $border-subtle;
+}
+
+/* Small helper so the settings username container can itself be highlighted */
+.settings-username-container.vim-cursor,
+.settings-username-container.vim-row-focus {
+    background: $bg-highlight;
+    border: solid $border-hover;
+}
+
+/* Stronger specificity: widget-type + class/id selectors so highlights
+   cannot be overridden by other rules. These target the Static/TextArea
+   widgets used for username and bio in Settings. */
+Static.settings-field-selectable.vim-cursor,
+Static.settings-field-selectable.vim-row-focus,
+Static#settings-username.vim-cursor,
+Static#settings-username.vim-row-focus,
+TextArea#settings-bio.vim-cursor,
+TextArea#settings-bio.vim-row-focus,
+Container.settings-bio-container.vim-cursor,
+Container.settings-bio-container.vim-row-focus {
+    background: $bg-highlight;
+    color: $text-primary;
+    border: solid $border-hover;
+}
+
 /* User-card hover */
 $user-card-username-hover: #2a3a4a;
 
