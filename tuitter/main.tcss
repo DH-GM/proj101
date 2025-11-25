@@ -937,6 +937,13 @@ TimelineFeed:focus, DiscoverFeed:focus, NotificationsFeed:focus, ChatView:focus,
     border: solid $border-hover;
 }
 
+/* Ensure rendered post text and the post editor textarea share padding and color */
+.post-text, #post-textarea {
+    /* padding: <top> <right> <bottom> <left> */
+    padding: 1 0 1 3;
+    color: $text-content;
+}
+
 /* Scrollbar */
 #timeline-feed VerticalScroll {
     scrollbar-color: $scrollbar;
