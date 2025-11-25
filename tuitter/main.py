@@ -4718,10 +4718,15 @@ class ProfileView(VerticalScroll):
             rows.append([])
 
         try:
-            bio = self.query_one(".profile-bio-display", Static)
-            rows.append([bio])
+            # Prefer the bio container so the whole boxed area can be focused
+            bio_container = self.query_one(".profile-bio-container", Container)
+            rows.append([bio_container])
         except Exception:
-            rows.append([])
+            try:
+                bio = self.query_one(".profile-bio-display", Static)
+                rows.append([bio])
+            except Exception:
+                rows.append([])
 
         # Posts: each PostItem is its own row (single column)
         try:
@@ -4756,9 +4761,15 @@ class ProfileView(VerticalScroll):
                 self.cursor_row = max(0, len(rows) - 1)
 
             cols = rows[self.cursor_row] if 0 <= self.cursor_row < len(rows) else []
+            # If this is the stats row (multiple .profile-stat-item children)
+            # and no specific column is selected, default to the first stat
+            try:
+                is_stats_row = any("profile-stat-item" in (getattr(c, "classes", []) or []) for c in cols)
+            except Exception:
+                is_stats_row = False
 
             # If no columns or user prefers row-focus (-1), highlight row container
-            if self.cursor_col is None or self.cursor_col < 0 or len(cols) == 0:
+            if (self.cursor_col is None or self.cursor_col < 0 or len(cols) == 0) and not is_stats_row:
                 # Row-level focus: add vim-row-focus to each element in the row
                 for item in cols:
                     try:
@@ -4772,6 +4783,13 @@ class ProfileView(VerticalScroll):
                     except Exception:
                         pass
                 return
+
+            # If stats row and no column selected, default to the first stat (Posts)
+            if is_stats_row and (self.cursor_col is None or self.cursor_col < 0):
+                try:
+                    self.cursor_col = 0
+                except Exception:
+                    pass
 
             # Column-focused: ensure column index in range
             col_idx = max(0, min(self.cursor_col, len(cols) - 1))

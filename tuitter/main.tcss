@@ -1481,10 +1481,40 @@ Input:focus {
     border: solid $border-subtle;
 }
 
+/* Ensure the entire Bio box highlights when focused */
+.profile-bio-container.vim-cursor,
+.profile-bio-container.vim-row-focus {
+    background: $bg-highlight;
+    color: $text-primary;
+    border: solid $border-hover;
+}
+
 /* Ensure post rows show a clear row-focus if selected */
 .post-item.vim-row-focus {
     background: $bg-dark;
     border: solid $border-hover;
+}
+
+/* Posts section header — accent left border + bold title */
+.profile-section-header {
+    width: 100%;
+    /* top right bottom left */
+    padding: 0 1 0 3;
+    margin-top: 1;
+    margin-bottom: 1;
+    color: $text-primary;
+    text-style: bold;
+    background: transparent;
+    /* subtle accent bar on the left */
+    border-left: heavy $primary;
+    content-align-horizontal: left;
+}
+
+.profile-section-header.vim-cursor,
+.profile-section-header.vim-row-focus {
+    background: $bg-highlight;
+    color: $text-primary;
+    border-left: heavy $primary-hover;
 }
 
 /* Profile Action Buttons */
