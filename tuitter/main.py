@@ -1462,6 +1462,30 @@ class PostItem(Static):
     def on_click(self) -> None:
         """Handle click to open comment screen"""
         try:
+            # If we're already inside a CommentScreen or an embedded CommentPanel,
+            # don't open another comments view (Enter logic avoids nesting).
+            try:
+                current_screen = getattr(self.app, "screen", None)
+            except Exception:
+                current_screen = None
+            try:
+                in_comment_screen = current_screen is not None and (
+                    current_screen.__class__.__name__ == "CommentScreen"
+                    or isinstance(current_screen, CommentScreen)
+                )
+            except Exception:
+                in_comment_screen = False
+
+            # Also check for an embedded comment panel mounted in the app
+            try:
+                has_comment_panel = bool(list(self.app.query("#comment-panel")))
+            except Exception:
+                has_comment_panel = False
+
+            if in_comment_screen or has_comment_panel:
+                # Do nothing on click when already viewing comments to avoid nesting.
+                return
+
             try:
                 # Prefer embedding the comment panel so TopNav/Sidebar remain visible
                 self.app.action_open_comment_panel(self.post, origin=self)
@@ -1471,6 +1495,27 @@ class PostItem(Static):
         except Exception:
             pass
 
+    def on_mount(self) -> None:
+        """Ensure the post item can receive focus so Enter works."""
+        try:
+            # Some Textual versions require explicit focusability
+            try:
+                self.can_focus = True
+            except Exception:
+                # Older Textual may use a different attribute
+                try:
+                    self.focusable = True
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+    def key_enter(self) -> None:
+        """Activate the post (open comments) when Enter is pressed."""
+        try:
+            self.on_click()
+        except Exception:
+            pass
 
 class NotificationItem(Static):
     def __init__(self, notification, **kwargs):
@@ -4897,6 +4942,37 @@ class ProfileView(VerticalScroll):
         self.cursor_col = -1
         self._update_cursor()
 
+    def key_enter(self) -> None:
+        """Activate the currently-selected PostItem (open comments) on Enter."""
+        try:
+            rows = self._rows()
+            if 0 <= self.cursor_row < len(rows):
+                cols = rows[self.cursor_row]
+                if cols:
+                    target = cols[0] if len(cols) == 1 else (cols[self.cursor_col] if (self.cursor_col is not None and self.cursor_col >= 0 and self.cursor_col < len(cols)) else cols[0])
+                    # If this is a PostItem, call its on_click to open comments
+                    try:
+                        from .main import PostItem
+                    except Exception:
+                        try:
+                            PostItem = globals().get("PostItem")
+                        except Exception:
+                            PostItem = None
+                    try:
+                        if PostItem is not None and isinstance(target, PostItem):
+                            target.on_click()
+                            return
+                    except Exception:
+                        pass
+                    # Fallback: if the widget has an on_click handler, call it
+                    try:
+                        if hasattr(target, "on_click") and callable(getattr(target, "on_click")):
+                            target.on_click()
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+
     def _load_more_posts(self) -> None:
         """Load the next batch of posts from cache"""
         if self._loading_more or self._displayed_count >= len(self._all_posts):
@@ -5039,6 +5115,33 @@ class ProfilePanel(VerticalScroll):
                 pass
         self.scroll_up()
 
+    def key_enter(self) -> None:
+        """Delegate Enter to the inner ProfileView so posts activate."""
+        if self.app.command_mode:
+            return
+        v = self._inner_view()
+        if v:
+            if hasattr(v, "key_enter"):
+                try:
+                    v.key_enter()
+                    return
+                except Exception:
+                    pass
+            # Fallback: if the view exposes a method to activate selection
+            if hasattr(v, "activate_selected"):
+                try:
+                    v.activate_selected()
+                    return
+                except Exception:
+                    pass
+
+    def key_space(self) -> None:
+        """Space acts like Enter to open posts."""
+        try:
+            self.key_enter()
+        except Exception:
+            pass
+
     def key_h(self) -> None:
         """Delegate left to inner view when present."""
         if self.app.command_mode:
@@ -5062,6 +5165,33 @@ class ProfilePanel(VerticalScroll):
                 return
             except Exception:
                 pass
+
+    def key_enter(self) -> None:
+        """Delegate Enter to the inner ProfileView so posts activate."""
+        if self.app.command_mode:
+            return
+        v = self._inner_view()
+        if v:
+            if hasattr(v, "key_enter"):
+                try:
+                    v.key_enter()
+                    return
+                except Exception:
+                    pass
+            # Fallback: if the view exposes a method to activate selection
+            if hasattr(v, "activate_selected"):
+                try:
+                    v.activate_selected()
+                    return
+                except Exception:
+                    pass
+
+    def key_space(self) -> None:
+        """Space acts like Enter to open posts."""
+        try:
+            self.key_enter()
+        except Exception:
+            pass
 
     def key_g(self) -> None:
         """Handle gg at panel level by deferring to inner view's key_g."""
@@ -5263,6 +5393,32 @@ class UserProfileViewPanel(VerticalScroll):
             except Exception:
                 pass
         self.scroll_up()
+
+    def key_enter(self) -> None:
+        """Delegate Enter to the inner ProfileView so posts activate."""
+        if self.app.command_mode:
+            return
+        v = self._inner_view()
+        if v:
+            if hasattr(v, "key_enter"):
+                try:
+                    v.key_enter()
+                    return
+                except Exception:
+                    pass
+            if hasattr(v, "activate_selected"):
+                try:
+                    v.activate_selected()
+                    return
+                except Exception:
+                    pass
+
+    def key_space(self) -> None:
+        """Space acts like Enter to open posts."""
+        try:
+            self.key_enter()
+        except Exception:
+            pass
 
     def key_h(self) -> None:
         if self.app.command_mode:
