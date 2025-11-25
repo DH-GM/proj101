@@ -140,6 +140,8 @@ class APIInterface:
     def mark_notification_read(self, notification_id: int) -> bool: ...
     def get_user_settings(self) -> UserSettings: ...
     def update_user_settings(self, settings: UserSettings) -> bool: ...
+    def get_user_posts(self, handle: str, limit: int = 50) -> List[Post]: ...
+    def get_user_comments(self, handle: str, limit: int = 100) -> List[Dict[str, Any]]: ...
     def create_post(self, content: str) -> bool: ...
     def like_post(self, post_id: int) -> bool: ...
     def unlike_post(self, post_id: int) -> bool: ...
@@ -322,6 +324,15 @@ class RealAPI(APIInterface):
     def update_user_settings(self, settings: UserSettings) -> bool:
         self._post("/settings", json_payload=settings.__dict__)
         return True
+
+    def get_user_posts(self, handle: str, limit: int = 50) -> List[Post]:
+        data = self._get("/posts", params={"handle": handle, "limit": limit})
+        # Expect list of post dicts
+        return [Post(**self._convert_post(p)) for p in data]
+
+    def get_user_comments(self, handle: str, limit: int = 100) -> List[Dict[str, Any]]:
+        data = self._get("/comments", params={"handle": handle, "limit": limit})
+        return data
 
     def create_post(self, content: str) -> Post:
         # Check if content is JSON string containing attachments
@@ -626,7 +637,8 @@ class RealAPI(APIInterface):
             return False
 
 # Global api selection: prefer real backend when BACKEND_URL is set
-_BACKEND_URL = "https://voqbyhcnqe.execute-api.us-east-2.amazonaws.com"
+# Allow overriding backend URL via environment for local development
+_BACKEND_URL = os.getenv("BACKEND_URL") or "https://voqbyhcnqe.execute-api.us-east-2.amazonaws.com"
 
 # Initialize global `api` client. Prefer the saved username from auth_storage
 # (keyring) when available so requests that rely on `api.handle` use the

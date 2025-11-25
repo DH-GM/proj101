@@ -4597,11 +4597,87 @@ class ProfileView(VerticalScroll):
 
         yield profile_container
 
+        # Posts header and slot (mounted inline into the profile view)
+        yield Static("\n", classes="panel-spacer")
+        yield Static("Posts", classes="profile-section-header")
+
+    def on_mount(self) -> None:
+        # If we were constructed with posts, render them initially
+        try:
+            if self.posts:
+                for post in self.posts:
+                    try:
+                        self.mount(PostItem(post, classes="post-item"))
+                    except Exception:
+                        try:
+                            self.mount(PostItem(post))
+                        except Exception:
+                            pass
+            else:
+                # trigger loading posts for this profile
+                self._load_posts()
+        except Exception:
+            pass
+
+
+    def _clear_tab_content(self):
+        # Remove previously-mounted PostItem widgets from this ProfileView
+        try:
+            for w in list(self.query(PostItem)):
+                try:
+                    w.remove()
+                except Exception:
+                    pass
+            # return self so callers can mount into the same container
+            return self
+        except Exception:
+            return None
+
+    def _render_posts(self):
+        content = self._clear_tab_content()
+        if content is None:
+            return
         if self.posts:
-            yield Static("\n→ Recent Posts", classes="section-header")
             for post in self.posts:
-                yield PostItem(post, classes="post-item")
-            yield Static("\n[Esc] Back", classes="help-text", markup=False)
+                content.mount(PostItem(post, classes="post-item"))
+            return
+        # Use explicit API method to fetch user posts
+        try:
+            posts = api.get_user_posts(self.profile.get("username"), limit=200)
+            for p in posts:
+                content.mount(PostItem(p, classes="post-item"))
+            return
+        except Exception:
+            pass
+
+        # If no posts or endpoint failed, show a muted message
+        try:
+            content.mount(Static("No posts available.", classes="muted"))
+        except Exception:
+            pass
+
+    # Comments removed: profile view focuses on Posts only
+
+    def _load_posts(self):
+        # helper to async-load posts; for now call synchronous methods
+        self._render_posts()
+
+    def _normalize_post_dict(self, p: dict) -> dict:
+        # convert API dict to constructor kwargs expected by Post dataclass
+        try:
+            converted = api._convert_post(p)
+            return converted
+        except Exception:
+            # best-effort mapping
+            return {
+                'id': str(p.get('id')),
+                'author': p.get('author') or p.get('author_handle') or p.get('username') or '',
+                'content': p.get('content') or p.get('text') or '',
+                'timestamp': p.get('timestamp') or datetime.now(),
+                'likes': int(p.get('likes') or 0),
+                'reposts': int(p.get('reposts') or 0),
+                'comments': int(p.get('comments') or 0),
+            }
 
 
 class ProfilePanel(VerticalScroll):
