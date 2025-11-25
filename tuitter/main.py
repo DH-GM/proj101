@@ -4552,12 +4552,24 @@ class ProfileView(VerticalScroll):
     followers, following, posts_count. Optionally accepts `posts` (list of Post)
     and `actions` (bool) to show Follow/Message buttons.
     """
+    reposted_posts = reactive([])
+    scroll_y = reactive(0)
+    _all_posts = []
+    _displayed_count = 20
+    _batch_size = 20
+    _loading_more = False
 
     def __init__(self, profile: dict, posts: list | None = None, actions: bool = False, **kwargs):
         super().__init__(**kwargs)
         self.profile = profile or {}
         self.posts = posts or []
         self.actions = actions
+        # incremental loading state (copy of TimelineFeed approach)
+        # (class-level reactive fields are declared above)
+        self._all_posts = []
+        self._displayed_count = 20
+        self._batch_size = 20
+        self._loading_more = False
 
     def compose(self) -> ComposeResult:
         username = self.profile.get("username", "")
@@ -4602,20 +4614,28 @@ class ProfileView(VerticalScroll):
         yield Static("Posts", classes="profile-section-header")
 
     def on_mount(self) -> None:
-        # If we were constructed with posts, render them initially
+        # If we were constructed with posts, render them initially; otherwise
+        # fetch posts for this profile and display the first batch.
         try:
+            # Watch scroll position to trigger incremental loading
+            try:
+                self.watch(self, "scroll_y", self._check_scroll_load)
+            except Exception:
+                pass
+
+            # Prepare cached posts list
             if self.posts:
-                for post in self.posts:
-                    try:
-                        self.mount(PostItem(post, classes="post-item"))
-                    except Exception:
-                        try:
-                            self.mount(PostItem(post))
-                        except Exception:
-                            pass
+                self._all_posts = list(self.posts)
             else:
-                # trigger loading posts for this profile
-                self._load_posts()
+                try:
+                    self._all_posts = api.get_user_posts(self.profile.get("username"), limit=200)
+                except Exception:
+                    self._all_posts = []
+
+            # Mount the initial batch
+            for i, post in enumerate(self._all_posts[: self._displayed_count]):
+                post_item = PostItem(post, classes="post-item", id=f"post-{i}")
+                self.mount(post_item)
         except Exception:
             pass
 
@@ -4632,6 +4652,45 @@ class ProfileView(VerticalScroll):
             return self
         except Exception:
             return None
+
+    def on_scroll(self, event) -> None:
+        """Update scroll position reactive when scrolling"""
+        try:
+            self.scroll_y = self.scroll_offset.y
+        except Exception:
+            pass
+
+    def _check_scroll_load(self) -> None:
+        """Check if we need to load more posts based on scroll position"""
+        try:
+            virtual_size = self.virtual_size.height
+            container_size = self.container_size.height
+            if (
+                virtual_size > 0
+                and self.scroll_y + container_size >= virtual_size - 100
+            ):
+                self._load_more_posts()
+        except Exception:
+            pass
+
+    def _load_more_posts(self) -> None:
+        """Load the next batch of posts from cache"""
+        if self._loading_more or self._displayed_count >= len(self._all_posts):
+            return
+
+        self._loading_more = True
+        try:
+            old_count = self._displayed_count
+            self._displayed_count = min(
+                self._displayed_count + self._batch_size, len(self._all_posts)
+            )
+
+            for i in range(old_count, self._displayed_count):
+                post = self._all_posts[i]
+                post_item = PostItem(post, classes="post-item", id=f"post-{i}")
+                self.mount(post_item)
+        finally:
+            self._loading_more = False
 
     def _render_posts(self):
         content = self._clear_tab_content()
