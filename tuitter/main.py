@@ -1682,7 +1682,9 @@ class TopNav(Horizontal):
             # versions that may retain the class even when `tabs.active` is
             # cleared.
             tabs = getattr(self, "tabs", None) or self.query_one("#top-tabs", Tabs)
-            if screen_name == "drafts":
+            # When showing non-main content like Drafts or Profile screens,
+            # clear the Tabs active state so no top-nav tab remains highlighted.
+            if screen_name in ("drafts", "profile", "user_profile"):
                 try:
                     tabs.active = None
                 except Exception:

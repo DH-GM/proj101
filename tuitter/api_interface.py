@@ -114,7 +114,10 @@ class Comment:
 
 @dataclass
 class UserSettings:
-    user_id: Optional[int] = None
+    # Match backend SettingsResponse schema
+    username: Optional[str] = None
+    display_name: Optional[str] = None
+    bio: Optional[str] = ""
     email_notifications: Optional[bool] = True
     show_online_status: Optional[bool] = True
     private_account: Optional[bool] = False
@@ -123,7 +126,6 @@ class UserSettings:
     google_connected: Optional[bool] = False
     discord_connected: Optional[bool] = False
     ascii_pic: Optional[str] = ""
-    updated_at: Optional[datetime] = None
 
 class APIInterface:
     def get_current_user(self) -> User: ...
