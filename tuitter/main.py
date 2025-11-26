@@ -1544,101 +1544,6 @@ class NotificationItem(Static):
             return f"{icon} @{n.actor} started following you • {t}"
         return f"{icon} @{n.actor} • {t}\n{n.content}"
 
-
-class UserProfileCard(Static):
-    """A user profile card for search results."""
-
-    def __init__(
-        self,
-        username: str,
-        display_name: str,
-        bio: str,
-        followers: int,
-        following: int,
-        ascii_pic: str,
-        **kwargs,
-    ):
-        super().__init__(**kwargs)
-        self.username = username
-        self.display_name = display_name
-        self.bio = bio
-        self.followers = followers
-        self.following = following
-        self.ascii_pic = ascii_pic
-
-    def compose(self) -> ComposeResult:
-        card_container = Container(classes="user-card-container")
-
-        with card_container:
-            pic_container = Container(classes="user-card-pic")
-            with pic_container:
-                yield Static(self.ascii_pic, classes="user-card-avatar")
-            yield pic_container
-
-            info_container = Container(classes="user-card-info")
-            with info_container:
-                yield Static(self.display_name, classes="user-card-name")
-                # Resolve current local username once (fall back to the profile's username)
-                current_user = get_username() or self.username
-                # Make username clickable as a button-like widget
-                yield Button(
-                    f"@{current_user}",
-                    id=f"username-{current_user}",
-                    classes="user-card-username-btn",
-                )
-
-                yield Static(self.bio, classes="user-card-bio")
-
-                stats_container = Container(classes="user-card-stats")
-                with stats_container:
-                    yield Static(
-                        f"{self.followers} Followers", classes="user-card-stat"
-                    )
-                    yield Static(
-                        f"{self.following} Following", classes="user-card-stat"
-                    )
-                yield stats_container
-
-                buttons_container = Container(classes="user-card-buttons")
-                with buttons_container:
-                    # Reuse the resolved current_user to avoid repeated keyring calls
-                    buttons_user = current_user
-                    yield Button(
-                        "Follow",
-                        id=f"follow-{buttons_user}",
-                        classes="user-card-button",
-                    )
-                    yield Button(
-                        "Message",
-                        id=f"message-{buttons_user}",
-                        classes="user-card-button",
-                    )
-                    yield Button(
-                        "View Profile",
-                        id=f"view-{buttons_user}",
-                        classes="user-card-button",
-                    )
-                yield buttons_container
-            yield info_container
-
-        yield card_container
-
-    def on_button_pressed(self, event: Button.Pressed) -> None:
-        """Handle button clicks."""
-        btn_id = event.button.id
-
-        if btn_id == f"view-{self.username}" or btn_id == f"username-{self.username}":
-            self.app.action_view_user_profile(self.username)
-        elif btn_id == f"follow-{self.username}":
-            try:
-                self.app.notify(f"✓ Following @{self.username}!", severity="success")
-            except:
-                pass
-        elif btn_id == f"message-{self.username}":
-            # Open messages screen with this user
-            self.app.action_open_dm(self.username)
-
-
 # ───────── Top Navbar ─────────
 
 
@@ -1776,48 +1681,6 @@ class Sidebar(VerticalScroll):
         self.show_nav = show_nav
 
     def compose(self) -> ComposeResult:
-        # Navigation box (optional, default hidden since we have top navbar)
-        if self.show_nav:
-            nav_container = Container(classes="navigation-box")
-            nav_container.border_title = "Navigation [N]"
-            with nav_container:
-                yield NavigationItem(
-                    "Timeline",
-                    "timeline",
-                    1,
-                    self.current_screen == "timeline",
-                    classes="nav-item",
-                )
-                yield NavigationItem(
-                    "Discover",
-                    "discover",
-                    2,
-                    self.current_screen == "discover",
-                    classes="nav-item",
-                )
-                yield NavigationItem(
-                    "Notifs",
-                    "notifications",
-                    3,
-                    self.current_screen == "notifications",
-                    classes="nav-item",
-                )
-                yield NavigationItem(
-                    "Messages",
-                    "messages",
-                    4,
-                    self.current_screen == "messages",
-                    classes="nav-item",
-                )
-                yield NavigationItem(
-                    "Settings",
-                    "settings",
-                    5,
-                    self.current_screen == "settings",
-                    classes="nav-item",
-                )
-            yield nav_container
-
         profile_container = Container(classes="profile-box")
         profile_container.border_title = "\\[p] Profile"
         with profile_container:
@@ -1868,9 +1731,12 @@ class Sidebar(VerticalScroll):
                 yield CommandItem(":w", "save", classes="command-item")
                 yield CommandItem(":e", "edit", classes="command-item")
 
-            # Common commands (limited to save space)
-            yield CommandItem("p", "profile", classes="command-item")
-            yield CommandItem("d", "drafts", classes="command-item")
+            # Spacing
+            yield Static("", classes="command-item")
+            # Global profile commands (always visible)
+            yield CommandItem(":@user", "profile", classes="command-item")
+            yield CommandItem(":@", "profile (under cursor)", classes="command-item")
+
         yield commands_container
 
     def update_active(self, screen_name: str):
@@ -3549,7 +3415,6 @@ class ConversationsList(VerticalScroll):
                     pass
         except Exception:
             pass
-
 
 
 class ChatView(VerticalScroll):
@@ -5357,6 +5222,51 @@ class ProfilePanel(VerticalScroll):
     def compose(self) -> ComposeResult:
         # Compose a read-only profile view for the current user
         self.border_title = "Profile"
+        # If the parent screen requested a specific username, render a
+        # minimal profile dict for that user and let ProfileView.fetch posts.
+        requested_username = None
+        try:
+            # Parent may be the ProfileScreen instance; prefer that attr
+            parent_screen = getattr(self, "parent", None)
+            if parent_screen is not None:
+                requested_username = getattr(parent_screen, "username", None)
+        except Exception:
+            requested_username = None
+
+        if requested_username:
+            # Prefer authoritative backend lookup for the requested user.
+            try:
+                user_obj = api.get_user_profile(requested_username)
+                profile = {
+                    "username": getattr(user_obj, "username", getattr(user_obj, "handle", requested_username)),
+                    "display_name": getattr(user_obj, "display_name", requested_username),
+                    "bio": getattr(user_obj, "bio", ""),
+                    "ascii_pic": getattr(user_obj, "ascii_pic", ""),
+                    "followers": getattr(user_obj, "followers", 0),
+                    "following": getattr(user_obj, "following", 0),
+                    "posts_count": getattr(user_obj, "posts_count", 0),
+                }
+                yield ProfileView(profile=profile, id="profile-view")
+                return
+            except Exception as e:
+                # If user not found or API failure, notify and fall back to local minimal profile
+                try:
+                    self.app.notify(f"No such user: @{requested_username}", severity="error")
+                except Exception:
+                    pass
+                profile = {
+                    "username": requested_username,
+                    "display_name": requested_username,
+                    "bio": "",
+                    "ascii_pic": "",
+                    "followers": 0,
+                    "following": 0,
+                    "posts_count": 0,
+                }
+                yield ProfileView(profile=profile, id="profile-view")
+                return
+
+        # Default: show the current user's profile
         user = api.get_current_user()
         settings = api.get_user_settings()
 
@@ -5619,309 +5529,10 @@ class ProfilePanel(VerticalScroll):
             else:
                 self.last_g_time = now
 
-
 class ProfileScreen(Container):
     def compose(self) -> ComposeResult:
         yield Sidebar(current="profile", id="sidebar")
         yield ProfilePanel(id="profile-panel")
-
-
-class UserProfileViewPanel(VerticalScroll):
-    """Panel for viewing another user's profile."""
-
-    is_following = reactive(False)
-
-    def __init__(self, username: str, **kwargs):
-        super().__init__(**kwargs)
-        self.username = username
-
-    def compose(self) -> ComposeResult:
-        self.border_title = f"@{self.username}"
-        # Use the same reusable ProfileView for other users (read-only)
-        user_data = self._get_user_data()
-        posts = self._get_user_posts()
-
-        profile = {
-            "username": self.username,
-            "display_name": user_data.get("display_name", self.username),
-            "bio": user_data.get("bio", ""),
-            "ascii_pic": user_data.get("ascii_pic", ""),
-            "followers": user_data.get("followers", 0),
-            "following": user_data.get("following", 0),
-            "posts_count": user_data.get("posts_count", 0),
-        }
-
-        yield ProfileView(profile=profile, posts=posts, actions=True, id="user-profile-view")
-
-    def on_mount(self) -> None:
-        """Focus inner ProfileView for correct key handling."""
-        try:
-            view = self.query_one("#user-profile-view", ProfileView)
-            try:
-                view.focus()
-            except Exception:
-                pass
-        except Exception:
-            pass
-
-    def _inner_view(self):
-        try:
-            return self.query_one("#user-profile-view", ProfileView)
-        except Exception:
-            return None
-
-    def key_j(self) -> None:
-        if self.app.command_mode:
-            return
-        v = self._inner_view()
-        if v and hasattr(v, "key_j"):
-            try:
-                v.key_j()
-                return
-            except Exception:
-                pass
-        if v and hasattr(v, "scroll_down"):
-            try:
-                v.scroll_down()
-                return
-            except Exception:
-                pass
-        self.scroll_down()
-
-    def key_k(self) -> None:
-        if self.app.command_mode:
-            return
-        v = self._inner_view()
-        if v and hasattr(v, "key_k"):
-            try:
-                v.key_k()
-                return
-            except Exception:
-                pass
-        if v and hasattr(v, "scroll_up"):
-            try:
-                v.scroll_up()
-                return
-            except Exception:
-                pass
-        self.scroll_up()
-
-    def key_enter(self) -> None:
-        """Delegate Enter to the inner ProfileView so posts activate."""
-        if self.app.command_mode:
-            return
-        v = self._inner_view()
-        if v:
-            if hasattr(v, "key_enter"):
-                try:
-                    v.key_enter()
-                    return
-                except Exception:
-                    pass
-            if hasattr(v, "activate_selected"):
-                try:
-                    v.activate_selected()
-                    return
-                except Exception:
-                    pass
-
-    def key_space(self) -> None:
-        """Space acts like Enter to open posts."""
-        try:
-            self.key_enter()
-        except Exception:
-            pass
-
-    def key_h(self) -> None:
-        if self.app.command_mode:
-            return
-        v = self._inner_view()
-        if v and hasattr(v, "key_h"):
-            try:
-                v.key_h()
-                return
-            except Exception:
-                pass
-
-    def key_l(self) -> None:
-        if self.app.command_mode:
-            return
-        v = self._inner_view()
-        if v and hasattr(v, "key_l"):
-            try:
-                v.key_l()
-                return
-            except Exception:
-                pass
-
-    def key_G(self) -> None:
-        if self.app.command_mode:
-            return
-        v = self._inner_view()
-        if v and hasattr(v, "key_G"):
-            try:
-                v.key_G()
-                return
-            except Exception:
-                pass
-        if v and hasattr(v, "scroll_end"):
-            try:
-                v.scroll_end(animate=False)
-                return
-            except Exception:
-                pass
-        self.scroll_end(animate=False)
-
-    def key_ctrl_d(self) -> None:
-        v = self._inner_view()
-        if v and hasattr(v, "key_ctrl_d"):
-            try:
-                v.key_ctrl_d()
-                return
-            except Exception:
-                pass
-        if v and hasattr(v, "scroll_page_down"):
-            try:
-                v.scroll_page_down()
-                return
-            except Exception:
-                pass
-        self.scroll_page_down()
-
-    def key_ctrl_u(self) -> None:
-        v = self._inner_view()
-        if v and hasattr(v, "key_ctrl_u"):
-            try:
-                v.key_ctrl_u()
-                return
-            except Exception:
-                pass
-        if v and hasattr(v, "scroll_page_up"):
-            try:
-                v.scroll_page_up()
-                return
-            except Exception:
-                pass
-        self.scroll_page_up()
-
-    def on_key(self, event) -> None:
-        if event.key == "g":
-            now = time.time()
-            if hasattr(self, "last_g_time") and now - self.last_g_time < 0.5:
-                v = self._inner_view()
-                if v and hasattr(v, "key_g"):
-                    try:
-                        v.key_g()
-                        event.prevent_default()
-                        delattr(self, "last_g_time")
-                        return
-                    except Exception:
-                        pass
-                try:
-                    self.scroll_home(animate=False)
-                    event.prevent_default()
-                    delattr(self, "last_g_time")
-                except Exception:
-                    pass
-            else:
-                self.last_g_time = now
-
-    def _get_user_data(self) -> Dict:
-        """Get or generate user data."""
-        # Check if this is one of our dummy users
-        try:
-            discover_feed = self.app.query_one("#discover-feed", DiscoverFeed)
-
-            for name, data in discover_feed._dummy_users.items():
-                if data["username"] == self.username:
-                    return {
-                        "display_name": data["display_name"],
-                        "bio": data["bio"],
-                        "followers": data["followers"],
-                        "following": data["following"],
-                        "ascii_pic": data["ascii_pic"],
-                        "posts_count": 42,  # Fake post count
-                    }
-        except:
-            pass
-
-        # Generate fake data for other users
-        return {
-            "display_name": self.username.replace("_", " ").title(),
-            "bio": f"Hi! I'm {self.username}. Welcome to my profile! 👋",
-            "followers": 156,
-            "following": 89,
-            "ascii_pic": "  [👀]\n  |◠ ◡ ◠|\n  |▓███▓|",
-            "posts_count": 28,
-        }
-
-    def _get_user_posts(self) -> List:
-        """Get fake posts from this user."""
-        from .api_interface import Post
-
-        # Generate 3 fake posts
-        posts = []
-        for i in range(3):
-            post = Post(
-                id=f"fake-{self.username}-{i}",
-                author=self.username,
-                content=f"This is a sample post from @{self.username}! Post #{i + 1}",
-                timestamp=datetime.now(),
-                likes=10 + i * 5,
-                reposts=2 + i,
-                comments=3 + i,
-                liked_by_user=False,
-                reposted_by_user=False,
-            )
-            posts.append(post)
-
-        return posts
-
-    def on_button_pressed(self, event: Button.Pressed) -> None:
-        """Handle button presses."""
-        btn_id = event.button.id
-
-        if btn_id == "follow-user-btn":
-            # Toggle follow state
-            self.is_following = not self.is_following
-
-            # Update button text and styling
-            try:
-                follow_btn = self.query_one("#follow-user-btn", Button)
-                if self.is_following:
-                    follow_btn.label = "✓ Following"
-                    follow_btn.add_class("following")
-                    # Increment following count in user profile
-                    current_user = api.get_current_user()
-                    current_user.following += 1
-                    self.app.notify(
-                        f"✓ Following @{self.username}!", severity="success"
-                    )
-                else:
-                    follow_btn.label = "👥 Follow"
-                    follow_btn.remove_class("following")
-                    # Decrement following count in user profile
-                    current_user = api.get_current_user()
-                    current_user.following -= 1
-                    self.app.notify(f"Unfollowed @{self.username}", severity="info")
-            except:
-                pass
-        elif btn_id == "message-user-btn":
-            # Open DM with this user
-            self.app.action_open_dm(self.username)
-
-
-class UserProfileViewScreen(Container):
-    """Screen for viewing another user's profile."""
-
-    def __init__(self, username: str, **kwargs):
-        super().__init__(**kwargs)
-        self.username = username
-
-    def compose(self) -> ComposeResult:
-        yield Sidebar(current="discover", id="sidebar")
-        yield UserProfileViewPanel(username=self.username, id="user-profile-panel")
-
 
 class DraftsPanel(VerticalScroll):
     """Main panel for viewing all drafts."""
@@ -6794,10 +6405,6 @@ class Proj101App(App):
                 DraftsScreen,
                 "[1-5] Screens [p] Profile [j/k] Navigate [h/l] Select [Enter] Execute [:q] Quit",
             ),
-            "user_profile": (
-                UserProfileViewScreen,
-                "[1-5] Screens [p] Profile [d] Drafts [:m] Message [:q] Quit",
-            ),
         }
         if screen_name in screen_map:
             self._switching = True  # Set flag to prevent concurrent switches
@@ -6808,7 +6415,25 @@ class Proj101App(App):
             ScreenClass, footer_text = screen_map[screen_name]
 
             def mount_new_screen():
-                current_screen.mount(ScreenClass(id="screen-container", **kwargs))
+                # Instantiate the screen without passing unknown kwargs to the
+                # constructor (some Screen classes don't accept arbitrary args).
+                try:
+                    screen_instance = ScreenClass(id="screen-container")
+                except Exception:
+                    # Fallback to calling with kwargs if constructor accepts them
+                    screen_instance = ScreenClass(id="screen-container", **kwargs)
+
+                # Set any provided kwargs as attributes on the screen instance
+                try:
+                    for k, v in kwargs.items():
+                        try:
+                            setattr(screen_instance, k, v)
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
+
+                current_screen.mount(screen_instance)
 
                 # After mounting, schedule the UI update to run after the next refresh
                 try:
@@ -6822,7 +6447,9 @@ class Proj101App(App):
             def update_ui():
                 try:
                     header = current_screen.query_one("#app-header", Static)
-                    if screen_name == "user_profile" and "username" in kwargs:
+                    # If switching to profile with a username provided,
+                    # show that user's handle in the header.
+                    if screen_name == "profile" and "username" in kwargs:
                         header.update(f"tuitter [@{kwargs['username']}] @yourname")
                     elif screen_name == "messages" and "username" in kwargs:
                         header.update(f"tuitter [dm:@{kwargs['username']}] @yourname")
@@ -6846,8 +6473,9 @@ class Proj101App(App):
                 # Update sidebar (if it exists)
                 try:
                     sidebar = current_screen.query_one("#sidebar", Sidebar)
-                    # For user profile view, highlight discover in sidebar
-                    if screen_name == "user_profile":
+                    # For viewing another user's profile, highlight discover
+                    # in the sidebar while still using the `profile` screen.
+                    if screen_name == "profile" and "username" in kwargs:
                         sidebar.update_active("discover")
                     elif screen_name == "messages":
                         sidebar.update_active("messages")
@@ -6885,7 +6513,8 @@ class Proj101App(App):
                 "profile": "#profile-panel",
                 "settings": "#settings-panel",
                 "drafts": "#drafts-panel",
-                "user_profile": "#user-profile-panel",
+                # Backwards-compat: treat any legacy 'user_profile' key as profile panel
+                "user_profile": "#profile-panel",
             }
 
             if screen_name in content_map:
@@ -6957,7 +6586,63 @@ class Proj101App(App):
 
     def action_view_user_profile(self, username: str) -> None:
         """View another user's profile."""
-        self.switch_screen("user_profile", username=username)
+        # Before switching, do a best-effort existence check. We use
+        # get_user_posts / get_user_comments as lightweight probes; if the
+        # user has neither posts nor comments and is not the current user,
+        # assume the handle does not exist and show a toast.
+        try:
+            handle = (username or "").strip()
+            if not handle:
+                try:
+                    self.notify("No username provided", severity="error")
+                except Exception:
+                    pass
+                return
+
+            # Consider the current logged-in handle as existing
+            current = get_username() or getattr(api, "handle", None)
+            if current and handle.lower() == current.lower():
+                self.switch_screen("profile", username=handle)
+                return
+
+            exists = False
+            try:
+                posts = api.get_user_posts(handle, limit=1)
+                if posts:
+                    exists = True
+            except Exception:
+                # Ignore errors here and try comments probe
+                posts = []
+
+            if not exists:
+                try:
+                    comments = api.get_user_comments(handle, limit=1)
+                    if comments:
+                        exists = True
+                except Exception:
+                    comments = []
+
+            if not exists:
+                try:
+                    self.notify(f"No such user: @{handle}", severity="error")
+                except Exception:
+                    pass
+                return
+
+            # User exists (best-effort): switch to profile with username context
+            self.switch_screen("profile", username=handle)
+            return
+        except Exception:
+            # On unexpected failures, fallback to switching to profile but also
+            # notify the user of the error.
+            try:
+                self.notify("Failed to open profile (network error)", severity="error")
+            except Exception:
+                pass
+            try:
+                self.switch_screen("profile", username=username)
+            except Exception:
+                pass
 
     def action_open_dm(self, username: str) -> None:
         """Open a DM with a specific user."""
@@ -7241,7 +6926,8 @@ class Proj101App(App):
                         "profile": "#profile-panel",
                         "settings": "#settings-panel",
                         "drafts": "#drafts-panel",
-                        "user_profile": "#user-profile-panel",
+                        # Backwards-compat: treat any legacy 'user_profile' key as profile panel
+                        "user_profile": "#profile-panel",
                     }
                     feed_id = content_map.get(self.current_screen_name)
 
@@ -7641,6 +7327,136 @@ class Proj101App(App):
                             pass
                 elif command.upper() == "D":
                     self.action_show_drafts()
+                # Only support @ commands:
+                # - :@username  -> view profile of <username>
+                # - :@          -> view profile of the currently-cursored user
+                elif command.startswith("@"):
+                    handle = command[1:].strip()
+                    if handle:
+                        try:
+                            self.action_view_user_profile(handle)
+                        except Exception:
+                            pass
+                    else:
+                        # No handle provided: attempt to resolve the username
+                        # from the currently focused/cursored widget (post/comment/message)
+                        def _try_view(h):
+                            if h:
+                                try:
+                                    self.action_view_user_profile(h)
+                                    return True
+                                except Exception:
+                                    return False
+                            return False
+
+                        viewed = False
+                        try:
+                            # Timeline
+                            if not viewed and self.current_screen_name == "timeline":
+                                try:
+                                    timeline_feed = self.query_one("#timeline-feed")
+                                    items = list(timeline_feed.query(".post-item"))
+                                    idx = getattr(timeline_feed, "cursor_position", 0)
+                                    if 0 <= idx < len(items):
+                                        post_item = items[idx]
+                                        post = getattr(post_item, "post", None)
+                                        author = getattr(post, "author", None)
+                                        viewed = _try_view(author)
+                                except Exception:
+                                    pass
+
+                            # Discover (posts offset by search input)
+                            if not viewed and self.current_screen_name == "discover":
+                                try:
+                                    discover_feed = self.query_one("#discover-feed")
+                                    items = list(discover_feed.query(".post-item"))
+                                    idx = getattr(discover_feed, "cursor_position", 0)
+                                    post_idx = idx - 1
+                                    if 0 <= post_idx < len(items):
+                                        post_item = items[post_idx]
+                                        post = getattr(post_item, "post", None)
+                                        author = getattr(post, "author", None)
+                                        viewed = _try_view(author)
+                                except Exception:
+                                    pass
+
+                            # Profile / User profile grids
+                            if not viewed and self.current_screen_name in ("profile", "user_profile"):
+                                try:
+                                    try:
+                                        profile_view = self.query_one("#profile-view", ProfileView)
+                                    except Exception:
+                                        try:
+                                            profile_panel = self.query_one("#profile-panel")
+                                            profile_view = profile_panel.query_one(ProfileView)
+                                        except Exception:
+                                            profile_view = None
+                                    if profile_view is not None:
+                                        rows = profile_view._rows()
+                                        r = getattr(profile_view, "cursor_row", 0)
+                                        if 0 <= r < len(rows):
+                                            cols = rows[r]
+                                            if cols:
+                                                target = cols[0]
+                                                post = getattr(target, "post", None)
+                                                author = getattr(post, "author", None)
+                                                viewed = _try_view(author)
+                                except Exception:
+                                    pass
+
+                            # Messages: Conversations list
+                            if not viewed and self.current_screen_name == "messages":
+                                try:
+                                    try:
+                                        convs = self.query_one("#conversations", ConversationsList)
+                                    except Exception:
+                                        try:
+                                            convs = self.query_one(ConversationsList)
+                                        except Exception:
+                                            convs = None
+                                    if convs is not None:
+                                        items = list(convs.query(".conversation-item"))
+                                        idx = getattr(convs, "cursor_position", 0)
+                                        if 0 <= idx < len(items):
+                                            conv_item = items[idx]
+                                            current_user = get_username() or "yourname"
+                                            other_parts = [h for h in conv_item.conversation.participant_handles if h != current_user]
+                                            username = (
+                                                other_parts[0]
+                                                if other_parts
+                                                else conv_item.conversation.participant_handles[0]
+                                                if conv_item.conversation.participant_handles
+                                                else None
+                                            )
+                                            viewed = _try_view(username)
+                                except Exception:
+                                    pass
+
+                            # Messages: ChatView focused message sender
+                            if not viewed:
+                                try:
+                                    try:
+                                        chat_view = self.query_one("#chat", ChatView)
+                                    except Exception:
+                                        try:
+                                            chat_view = self.query_one(ChatView)
+                                        except Exception:
+                                            chat_view = None
+                                    if chat_view is not None:
+                                        msgs = list(chat_view.query(".chat-message"))
+                                        idx = getattr(chat_view, "cursor_position", 0)
+                                        if 0 <= idx < len(msgs):
+                                            msg_widget = msgs[idx]
+                                            sender = getattr(msg_widget, "message", None)
+                                            if sender is not None:
+                                                sender_handle = getattr(sender, "sender", None) or getattr(sender, "sender_handle", None)
+                                                viewed = _try_view(sender_handle)
+                                except Exception:
+                                    pass
+                        except Exception:
+                            pass
+                # Note: explicit username-only commands are not supported.
+                # Only @ commands (e.g. :@username or :@) will open profiles.
                 elif command == "l":
                     # Like the currently focused post in timeline or discover
                     if self.current_screen_name == "timeline":
@@ -7708,6 +7524,7 @@ class Proj101App(App):
                                         logging.exception("Error toggling like")
                         except Exception:
                             pass
+
                     elif self.current_screen_name == "profile":
                         try:
                             # Find the mounted ProfileView and determine selected row
@@ -8049,73 +7866,6 @@ class Proj101App(App):
                                     pass
                         except Exception:
                             pass
-                    elif self.current_screen_name == "user_profile":
-                        try:
-                            try:
-                                profile_view = self.query_one("#user-profile-view", ProfileView)
-                            except Exception:
-                                try:
-                                    profile_panel = self.query_one("#user-profile-panel")
-                                    profile_view = profile_panel.query_one(ProfileView)
-                                except Exception:
-                                    profile_view = None
-                            if profile_view is not None:
-                                try:
-                                    rows = profile_view._rows()
-                                    r = getattr(profile_view, "cursor_row", 0)
-                                    if 0 <= r < len(rows):
-                                        cols = rows[r]
-                                        if cols:
-                                            post_item = cols[0]
-                                            post = getattr(post_item, "post", None)
-                                            if post:
-                                                try:
-                                                    currently_reposted = bool(
-                                                        getattr(post_item, "reposted_by_user", False)
-                                                        or getattr(post, "reposted_by_user", False)
-                                                    )
-                                                    if currently_reposted:
-                                                        try:
-                                                            api.unrepost(post.id)
-                                                        except Exception:
-                                                            logging.exception("api.unrepost failed")
-                                                        try:
-                                                            post_item.reposted_by_user = False
-                                                        except Exception:
-                                                            pass
-                                                        try:
-                                                            reposts = getattr(post_item, "repost_count", None) or getattr(post, "reposts", None)
-                                                            self.post_message(RepostUpdated(post_id=post.id, reposted=False, reposts=reposts, origin=post_item))
-                                                        except Exception:
-                                                            try:
-                                                                self.app.post_message(RepostUpdated(post_id=post.id, reposted=False, reposts=reposts, origin=post_item))
-                                                            except Exception:
-                                                                pass
-                                                        self.notify("Post unreposted!", severity="success")
-                                                    else:
-                                                        try:
-                                                            api.repost(post.id)
-                                                        except Exception:
-                                                            logging.exception("api.repost failed")
-                                                        try:
-                                                            post_item.reposted_by_user = True
-                                                        except Exception:
-                                                            pass
-                                                        try:
-                                                            reposts = getattr(post_item, "repost_count", None) or getattr(post, "reposts", None)
-                                                            self.post_message(RepostUpdated(post_id=post.id, reposted=True, reposts=reposts, origin=post_item))
-                                                        except Exception:
-                                                            try:
-                                                                self.app.post_message(RepostUpdated(post_id=post.id, reposted=True, reposts=reposts, origin=post_item))
-                                                            except Exception:
-                                                                pass
-                                                        self.notify("Post reposted!", severity="success")
-                                                except Exception:
-                                                    logging.exception("Error toggling repost")
-                                except Exception:
-                                    pass
-                        except Exception:
-                            pass
                     elif self.current_screen_name == "discover":
                         try:
                             discover_feed = self.query_one("#discover-feed")
@@ -8191,6 +7941,15 @@ class Proj101App(App):
             elif event.key == "backspace":
                 if len(self.command_text) > 1:
                     self.command_text = self.command_text[:-1]
+            elif event.key == "space" or event.key == " ":
+                # Some terminals/textual versions report the space key as
+                # the string "space" rather than a literal ' '. Handle both.
+                self.command_text += " "
+            elif event.key in ("@", "at", "shift+2", "Shift+2"):
+                # Some terminals report the '@' key in different ways
+                # (literal '@', the word 'at', or shift+2 tokens). Accept
+                # common representations and append a single '@'.
+                self.command_text += "@"
             elif len(event.key) == 1 and event.key.isprintable():
                 self.command_text += event.key
             # All other keys are already stopped at the top of command_mode block

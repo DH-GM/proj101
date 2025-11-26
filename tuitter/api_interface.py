@@ -348,6 +348,15 @@ class RealAPI(APIInterface):
         data = self._get("/comments", params={"handle": handle, "limit": limit})
         return data
 
+    def get_user_profile(self, handle: str) -> User:
+        """Fetch canonical user profile from backend.
+
+        Raises requests.HTTPError on non-2xx (404 will be raised by _request).
+        """
+        data = self._get(f"/users/{handle}")
+        # Backend returns fields compatible with User dataclass
+        return User(**data)
+
     def create_post(self, content: str) -> Post:
         # Check if content is JSON string containing attachments
         try:

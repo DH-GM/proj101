@@ -912,7 +912,8 @@ TimelineFeed:focus, DiscoverFeed:focus, NotificationsFeed:focus, ChatView:focus,
 
 /* Sidebar */
 #sidebar {
-    width: 25;
+    /* Increased width to give more room for command/help text */
+    width: 34;
     background: $bg-lighter;
     height: 100%;
     dock: left;
