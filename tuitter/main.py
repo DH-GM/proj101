@@ -4043,19 +4043,37 @@ class SettingsPanel(VerticalScroll):
         yield Static("settings.profile | line 1", classes="panel-header")
 
         # Profile Picture section
-        yield Static("\n→ Profile Picture (ASCII)", classes="settings-section-header")
-        yield Static("Make ASCII Profile Picture from image file")
+
+        # Display current ascii avatar if available. Wrap it in a container
+        # so it appears boxed in Settings like in the profile view. If
+        # ascii_pic is empty, show a helpful placeholder so the user knows
+        # there's no profile picture yet.
+        avatar_text = getattr(settings, "ascii_pic", "") if settings else "(not available)"
+        if not avatar_text or (isinstance(avatar_text, str) and avatar_text.strip() == ""):
+            avatar_text = "No profile picture available"
+
+        avatar_container = Container(classes="profile-avatar-container")
+        try:
+            avatar_container.border_title = "Profile Picture"
+        except Exception:
+            pass
+        with avatar_container:
+            yield Static(avatar_text, id="profile-picture-display", classes="ascii-avatar")
+        yield avatar_container
+
+        # Upload and Delete buttons placed below the profile picture.
+        # Render as separate rows (vertical) so navigation is simple.
         yield Button(
             "Upload file",
             id="upload-profile-picture",
-            classes="upload-profile-picture",
+            classes="upload-profile-picture save-changes-btn",
         )
 
-        # Display current ascii avatar if available
-        avatar_text = (
-            getattr(settings, "ascii_pic", "") if settings else "(not available)"
+        yield Button(
+            "Remove file",
+            id="delete-profile-picture",
+            classes="delete-profile-picture danger save-changes-btn",
         )
-        yield Static(avatar_text, id="profile-picture-display", classes="ascii-avatar")
 
         # Account information
         yield Static("\n→ Account Information", classes="settings-section-header")
@@ -4084,6 +4102,10 @@ class SettingsPanel(VerticalScroll):
             id="settings-bio-hints",
             classes="vim-hints",
         )
+
+        # Profile changes section (Save button for bio/other profile edits)
+        yield Static("\n→ Profile Changes", classes="settings-section-header")
+        yield Button("Save Changes", id="settings-save-changes", variant="primary", classes="save-changes-btn")
 
         # OAuth connections - use Buttons so they are navigable
         yield Static("\n→ OAuth Connections", classes="settings-section-header")
@@ -4172,7 +4194,10 @@ class SettingsPanel(VerticalScroll):
                 # If compose used a placeholder, update widgets now
                 try:
                     avatar = self.query_one("#profile-picture-display", Static)
-                    avatar.update(getattr(latest, "ascii_pic", ""))
+                    new_avatar = getattr(latest, "ascii_pic", "")
+                    if not new_avatar or (isinstance(new_avatar, str) and new_avatar.strip() == ""):
+                        new_avatar = "No profile picture available"
+                    avatar.update(new_avatar)
                 except Exception:
                     pass
             except Exception:
@@ -4192,15 +4217,24 @@ class SettingsPanel(VerticalScroll):
             # Ensure first selectable item shows the cursor visually
             try:
                 selectable_classes = [
+                    ".profile-avatar-container",
                     ".upload-profile-picture",
+                    ".delete-profile-picture",
                     ".settings-field",
+                    ".save-changes-btn",
                     ".oauth-item",
                     ".checkbox-item",
                     ".danger",
                 ]
                 items = []
+                seen = set()
                 for cls in selectable_classes:
-                    items.extend(list(self.query(cls)))
+                    for w in list(self.query(cls)):
+                        ident = getattr(w, "id", None) or id(w)
+                        if ident in seen:
+                            continue
+                        seen.add(ident)
+                        items.append(w)
                 if items:
                     first = items[0]
                     first.add_class("vim-cursor")
@@ -4254,16 +4288,25 @@ class SettingsPanel(VerticalScroll):
         """Update the cursor when position changes"""
         # We'll consider settings items that can be selected for cursor movement:
         selectable_classes = [
+            ".profile-avatar-container",
             ".upload-profile-picture",
+            ".delete-profile-picture",
             ".settings-field",
+            ".save-changes-btn",
             ".oauth-item",
             ".checkbox-item",
             ".danger",
         ]
 
         items = []
+        seen = set()
         for cls in selectable_classes:
-            items.extend(list(self.query(cls)))
+            for w in list(self.query(cls)):
+                ident = getattr(w, "id", None) or id(w)
+                if ident in seen:
+                    continue
+                seen.add(ident)
+                items.append(w)
 
         # Remove cursor from old position
         if old_position < len(items):
@@ -4303,15 +4346,24 @@ class SettingsPanel(VerticalScroll):
         if self.app.command_mode:
             return
         selectable_classes = [
+            ".profile-avatar-container",
             ".upload-profile-picture",
+            ".delete-profile-picture",
             ".settings-field",
+            ".save-changes-btn",
             ".oauth-item",
             ".checkbox-item",
             ".danger",
         ]
         items = []
+        seen = set()
         for cls in selectable_classes:
-            items.extend(list(self.query(cls)))
+            for w in list(self.query(cls)):
+                ident = getattr(w, "id", None) or id(w)
+                if ident in seen:
+                    continue
+                seen.add(ident)
+                items.append(w)
 
         if self.cursor_position < len(items) - 1:
             self.cursor_position += 1
@@ -4334,15 +4386,24 @@ class SettingsPanel(VerticalScroll):
         if self.app.command_mode:
             return
         selectable_classes = [
+            ".profile-avatar-container",
             ".upload-profile-picture",
+            ".delete-profile-picture",
             ".settings-field",
+            ".save-changes-btn",
             ".oauth-item",
             ".checkbox-item",
             ".danger",
         ]
         items = []
+        seen = set()
         for cls in selectable_classes:
-            items.extend(list(self.query(cls)))
+            for w in list(self.query(cls)):
+                ident = getattr(w, "id", None) or id(w)
+                if ident in seen:
+                    continue
+                seen.add(ident)
+                items.append(w)
         self.cursor_position = max(0, len(items) - 1)
 
     def on_focus(self) -> None:
@@ -4367,15 +4428,24 @@ class SettingsPanel(VerticalScroll):
         if self.app.command_mode:
             return
         selectable_classes = [
+            ".profile-avatar-container",
             ".upload-profile-picture",
+            ".delete-profile-picture",
             ".settings-field",
+            ".save-changes-btn",
             ".oauth-item",
             ".checkbox-item",
             ".danger",
         ]
         items = []
+        seen = set()
         for cls in selectable_classes:
-            items.extend(list(self.query(cls)))
+            for w in list(self.query(cls)):
+                ident = getattr(w, "id", None) or id(w)
+                if ident in seen:
+                    continue
+                seen.add(ident)
+                items.append(w)
 
         if 0 <= self.cursor_position < len(items):
             item = items[self.cursor_position]
@@ -4402,6 +4472,8 @@ class SettingsPanel(VerticalScroll):
             except Exception:
                 pass
 
+
+
     def key_i(self) -> None:
         """Pressing 'i' while cursor is on a settings-field enters input mode.
 
@@ -4412,15 +4484,24 @@ class SettingsPanel(VerticalScroll):
             return
 
         selectable_classes = [
+            ".profile-avatar-container",
             ".upload-profile-picture",
+            ".delete-profile-picture",
             ".settings-field",
+            ".save-changes-btn",
             ".oauth-item",
             ".checkbox-item",
             ".danger",
         ]
         items = []
+        seen = set()
         for cls in selectable_classes:
-            items.extend(list(self.query(cls)))
+            for w in list(self.query(cls)):
+                ident = getattr(w, "id", None) or id(w)
+                if ident in seen:
+                    continue
+                seen.add(ident)
+                items.append(w)
 
         if 0 <= self.cursor_position < len(items):
             item = items[self.cursor_position]
@@ -4525,6 +4606,26 @@ class SettingsPanel(VerticalScroll):
                         pass
             except Exception:
                 pass
+        # Delete profile picture
+        elif btn_id == "delete-profile-picture":
+            try:
+                settings = api.get_user_settings()
+                setattr(settings, "ascii_pic", "")
+                api.update_user_settings(settings)
+                try:
+                    avatar = self.query_one("#profile-picture-display", Static)
+                    avatar.update("No profile picture available")
+                except Exception:
+                    pass
+                try:
+                    self.app.notify("Profile picture deleted", severity="info")
+                except Exception:
+                    pass
+            except Exception:
+                try:
+                    self.app.notify("Failed to delete profile picture", severity="error")
+                except Exception:
+                    pass
 
         # Sign out
         elif btn_id == "settings-signout":
@@ -4706,10 +4807,19 @@ class ProfileView(VerticalScroll):
 
         profile_container = Container(classes="profile-center-container")
         with profile_container:
-            ascii_pic = self.profile.get("ascii_pic", "")
-            if ascii_pic.strip() == "":
-                ascii_pic = "No profile picture available"
-            yield Static(ascii_pic, classes="profile-avatar-large")
+            # Profile avatar wrapped in its own container so it appears boxed
+            avatar_container = Container(classes="profile-avatar-container")
+            try:
+                avatar_container.border_title = "Profile Picture"
+            except Exception:
+                pass
+            with avatar_container:
+                ascii_pic = self.profile.get("ascii_pic", "")
+                if ascii_pic.strip() == "":
+                    ascii_pic = "No profile picture available"
+                yield Static(ascii_pic, classes="profile-avatar-large ascii-avatar")
+            # expose the avatar container (boxed appearance)
+            yield avatar_container
             yield Static(f"@{username}", classes="profile-username-display")
 
             stats_row = Container(classes="profile-stats-row")

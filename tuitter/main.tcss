@@ -135,6 +135,47 @@ $follow-text-2: #aaffaa;
     background: $bg-dark;
 }
 
+/* Profile avatar box and content */
+.profile-avatar-container {
+    width: 1fr;
+    height: auto;
+    min-height: 12;
+    padding: 1 2;
+    margin-bottom: 1;
+    background: $bg-dark;
+    border: solid $border-subtle;
+    align: left middle;
+    content-align: center middle;
+}
+
+/* Hover and focus on the avatar should highlight the container box
+   instead of highlighting the inner ascii text. This makes the
+   interaction feel like a card focus rather than text selection. */
+.profile-avatar-container:hover,
+.profile-avatar-container.vim-cursor,
+.profile-avatar-container.vim-row-focus {
+    background: $bg-highlight;
+    border: solid $border-hover;
+    color: $text-primary;
+}
+
+/* When the container is hovered/focused, ensure the inner ascii text
+   stays visually centered but does not receive separate hover styling
+   (prevent text-only highlighting). */
+.profile-avatar-container:hover .ascii-avatar,
+.profile-avatar-container.vim-cursor .ascii-avatar,
+.profile-avatar-container.vim-row-focus .ascii-avatar {
+    color: $text-primary;
+    background: transparent;
+}
+
+.profile-avatar-large,
+.ascii-avatar {
+    color: $text-content;
+    text-align: center;
+    padding: 0 1;
+}
+
 .profile-bio-container,
 .settings-bio-container {
     width: 100%;
@@ -496,6 +537,31 @@ DraftsScreen {
     min-width: 15;
     height: 5;
     padding: 1 2;
+}
+
+/* Save Changes button: keep neutral appearance until selected/focused */
+.save-changes-btn, Button.save-changes-btn {
+    background: $bg-darker;
+    color: $text-primary;
+    border: solid $border-subtle;
+    padding: 1 4;
+    margin: 1 2;
+    min-width: 12;
+    content-align: center middle;
+    text-align: center;
+    text-style: bold;
+}
+
+.save-changes-btn.-primary, Button.save-changes-btn.-primary, .save-changes-btn.-primary:focus {
+    background: $bg-darker;
+    border: solid $border-subtle;
+    color: $text-primary;
+}
+
+.save-changes-btn.action-selected, Button.save-changes-btn.action-selected, .save-changes-btn.vim-cursor {
+    background: $primary-dark;
+    border: heavy $primary;
+    color: $text-primary;
 }
 
 /* Cancel button styles */
@@ -992,7 +1058,6 @@ TimelineFeed:focus, DiscoverFeed:focus, NotificationsFeed:focus, ChatView:focus,
 }
 
 .upload-profile-picture:hover {
-    margin-top: 1;
     background: $muted-hover-bg;
     color: $muted-hover-color;
 }
@@ -1005,6 +1070,81 @@ TimelineFeed:focus, DiscoverFeed:focus, NotificationsFeed:focus, ChatView:focus,
     margin-top: 1;
     background: $upload-profile-bg;
     color: $upload-profile-color;
+    padding: 0 2;
+    min-width: 12;
+}
+
+.delete-profile-picture {
+    margin-top: 1;
+    background: $danger-bg;
+    color: $danger-text;
+    padding: 0 2;
+    min-width: 12;
+    border: solid $danger-border;
+}
+
+/* Make Button widgets for upload/delete share exact sizing so they match visually */
+Button.upload-profile-picture,
+Button.delete-profile-picture {
+    /* Match Save Changes sizing to ensure visual parity and centering */
+    background: $bg-darker;
+    color: $text-primary;
+    border: solid $border-subtle;
+    padding: 1 4;
+    margin: 1 2;
+    min-width: 12;
+    content-align: center middle;
+    text-align: center;
+    text-style: bold;
+}
+
+/* Ensure delete button keeps danger colors while using the shared sizing */
+Button.delete-profile-picture.danger {
+    border: solid $danger-border;
+    color: $danger-text;
+    background: $danger-bg;
+}
+
+/* Explicit vim-cursor visuals for these two buttons so focus highlight is visible */
+Button.upload-profile-picture.vim-cursor,
+.upload-profile-picture.vim-cursor {
+    background: $primary-dark;
+    color: $text-primary;
+    border-left: $primary;
+    border-right: $primary;
+}
+
+Button.delete-profile-picture.vim-cursor,
+.delete-profile-picture.vim-cursor,
+Button.delete-profile-picture.vim-row-focus,
+.delete-profile-picture.vim-row-focus {
+    background: $danger-bg-hover;
+    color: $text-primary;
+    border-left: $accent-red-hover;
+    border-right: $accent-red-hover;
+}
+
+/* Hover states for mouse interactions */
+Button.save-changes-btn:hover, .save-changes-btn:hover,
+Button.save-changes-btn.-primary:hover {
+    background: $bg-highlight;
+    border: solid $border-hover;
+    color: $text-primary;
+}
+
+Button.upload-profile-picture:hover,
+.upload-profile-picture:hover {
+    background: $muted-hover-bg;
+    color: $muted-hover-color;
+    border: solid $border-hover;
+}
+
+Button.delete-profile-picture:hover,
+.delete-profile-picture:hover,
+Button.delete-profile-picture.danger:hover {
+    background: $danger-bg-hover;
+    color: $text-primary;
+    border: solid $accent-red-hover;
 }
 
 /* Timeline Feed Container */
@@ -1400,6 +1540,11 @@ TimelineFeed:focus, DiscoverFeed:focus, NotificationsFeed:focus, ChatView:focus,
     padding: 1 2;
     background: $bg-dark;
     border: solid $border-subtle;
+    /* Left-align the oauth status text for clearer reading */
+    text-align: left;
+    /* Align content to the left middle for better layout */
+    content-align: left middle;
+    width: 100%;
 }
 
 .checkbox-item {
@@ -1407,6 +1552,9 @@ TimelineFeed:focus, DiscoverFeed:focus, NotificationsFeed:focus, ChatView:focus,
     margin-left: 2;
     margin-bottom: 1;
     padding: 1 2;
+    width: 100%;
+    text-align: left;
+    content-align: left middle;
 }
 
 .settings-actions {
@@ -1841,7 +1989,7 @@ Button {
 
 Button:hover {
     background: $bg-highlight;
-    border: heavy $accent-cyan;
+    border: solid $accent-cyan;
     color: $text-primary;
 }
 
