@@ -393,9 +393,9 @@ DraftsScreen {
     background: $bg-dark;
     padding: 2 4;
     height: 100%;
-    border: round $color-lime;
+    border: round $color-orange;
     border-title-align: center;
-    border-title-color: $color-lime;
+    border-title-color: $color-orange;
     border-title-style: bold;
 }
 
@@ -406,8 +406,8 @@ DraftsScreen {
     margin: 0 0 2 0;
     padding: 2;
     background: $bg-dark;
-    border: round $border-green;
-    border-title-color: $color-green;
+    border: round $border-orange;
+    border-title-color: $color-orange;
     border-title-style: bold;
 }
 
@@ -619,8 +619,8 @@ DraftsScreen {
     padding: 1 1;
     margin: 0 0 1 0;
     background: $bg-dark;
-    border: round $chat-received;
-    border-title-color: $primary;
+    border: round $border-hover;
+    border-title-color: $border-hover;
     border-title-style: bold;
     height: auto;
 }
@@ -1638,9 +1638,9 @@ Input:focus {
     padding: 2 4;
     height: 100%;
     align: center top;
-    border: round $color-lime;
+    border: round $color-magenta;
     border-title-align: center;
-    border-title-color: $color-lime;
+    border-title-color: $color-magenta;
     border-title-style: bold;
 }
 
