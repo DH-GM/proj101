@@ -3972,79 +3972,79 @@ class SettingsPanel(VerticalScroll):
         yield Static("\n→ Profile Changes", classes="settings-section-header")
         yield Button("Save Changes", id="settings-save-changes", variant="primary", classes="save-changes-btn")
 
-        # OAuth connections - use Buttons so they are navigable
-        yield Static("\n→ OAuth Connections", classes="settings-section-header")
-        github_status = (
-            "Connected"
-            if settings and getattr(settings, "github_connected", False)
-            else "[Enter] Connect"
-        )
-        gitlab_status = (
-            "Connected"
-            if settings and getattr(settings, "gitlab_connected", False)
-            else "[Enter] Connect"
-        )
-        google_status = (
-            "Connected"
-            if settings and getattr(settings, "google_connected", False)
-            else "[Enter] Connect"
-        )
-        discord_status = (
-            "Connected"
-            if settings and getattr(settings, "discord_connected", False)
-            else "[Enter] Connect"
-        )
-        yield Button(
-            f"  GitHub                                              {github_status}",
-            id="oauth-github",
-            classes="oauth-item",
-        )
-        yield Button(
-            f"  GitLab                                              {gitlab_status}",
-            id="oauth-gitlab",
-            classes="oauth-item",
-        )
-        yield Button(
-            f"  Google                                              {google_status}",
-            id="oauth-google",
-            classes="oauth-item",
-        )
-        yield Button(
-            f"  Discord                                             {discord_status}",
-            id="oauth-discord",
-            classes="oauth-item",
-        )
+        # # OAuth connections - use Buttons so they are navigable
+        # yield Static("\n→ OAuth Connections", classes="settings-section-header")
+        # github_status = (
+        #     "Connected"
+        #     if settings and getattr(settings, "github_connected", False)
+        #     else "[Enter] Connect"
+        # )
+        # gitlab_status = (
+        #     "Connected"
+        #     if settings and getattr(settings, "gitlab_connected", False)
+        #     else "[Enter] Connect"
+        # )
+        # google_status = (
+        #     "Connected"
+        #     if settings and getattr(settings, "google_connected", False)
+        #     else "[Enter] Connect"
+        # )
+        # discord_status = (
+        #     "Connected"
+        #     if settings and getattr(settings, "discord_connected", False)
+        #     else "[Enter] Connect"
+        # )
+        # yield Button(
+        #     f"  GitHub                                              {github_status}",
+        #     id="oauth-github",
+        #     classes="oauth-item",
+        # )
+        # yield Button(
+        #     f"  GitLab                                              {gitlab_status}",
+        #     id="oauth-gitlab",
+        #     classes="oauth-item",
+        # )
+        # yield Button(
+        #     f"  Google                                              {google_status}",
+        #     id="oauth-google",
+        #     classes="oauth-item",
+        # )
+        # yield Button(
+        #     f"  Discord                                             {discord_status}",
+        #     id="oauth-discord",
+        #     classes="oauth-item",
+        # )
 
-        # Preferences
-        yield Static("\n→ Preferences", classes="settings-section-header")
-        email_check = (
-            "✅"
-            if settings and getattr(settings, "email_notifications", False)
-            else "⬜"
-        )
-        online_check = (
-            "✅"
-            if settings and getattr(settings, "show_online_status", False)
-            else "⬜"
-        )
-        private_check = (
-            "✅" if settings and getattr(settings, "private_account", False) else "⬜"
-        )
-        yield Button(
-            f"  {email_check} Email notifications",
-            id="pref-email_notifications",
-            classes="checkbox-item",
-        )
-        yield Button(
-            f"  {online_check} Show online status",
-            id="pref-show_online_status",
-            classes="checkbox-item",
-        )
-        yield Button(
-            f"  {private_check} Private account",
-            id="pref-private_account",
-            classes="checkbox-item",
-        )
+        # # Preferences
+        # yield Static("\n→ Preferences", classes="settings-section-header")
+        # email_check = (
+        #     "✅"
+        #     if settings and getattr(settings, "email_notifications", False)
+        #     else "⬜"
+        # )
+        # online_check = (
+        #     "✅"
+        #     if settings and getattr(settings, "show_online_status", False)
+        #     else "⬜"
+        # )
+        # private_check = (
+        #     "✅" if settings and getattr(settings, "private_account", False) else "⬜"
+        # )
+        # yield Button(
+        #     f"  {email_check} Email notifications",
+        #     id="pref-email_notifications",
+        #     classes="checkbox-item",
+        # )
+        # yield Button(
+        #     f"  {online_check} Show online status",
+        #     id="pref-show_online_status",
+        #     classes="checkbox-item",
+        # )
+        # yield Button(
+        #     f"  {private_check} Private account",
+        #     id="pref-private_account",
+        #     classes="checkbox-item",
+        # )
 
         # Session / Sign out
         yield Static("\n→ Session", classes="settings-section-header")
