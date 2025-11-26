@@ -4320,6 +4320,18 @@ class SettingsPanel(VerticalScroll):
                         old_item.remove_class("action-selected")
                 except Exception:
                     pass
+                # If this was the avatar inner Static, also remove the class
+                try:
+                    ident = getattr(old_item, "id", None)
+                    if ident == "profile-picture-display":
+                        try:
+                            parent = old_item.parent
+                            if parent and "profile-avatar-container" in (getattr(parent, "classes", []) or []):
+                                parent.remove_class("vim-cursor")
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
 
         # Add cursor to new position
         if new_position < len(items):
@@ -4331,6 +4343,19 @@ class SettingsPanel(VerticalScroll):
                 # and other Buttons show the expected focus state.
                 if isinstance(new_item, Button):
                     new_item.add_class("action-selected")
+            except Exception:
+                pass
+            # If this is the avatar inner Static, also mark its container so
+            # the CSS rules targeting the container receive the focus style.
+            try:
+                ident = getattr(new_item, "id", None)
+                if ident == "profile-picture-display":
+                    try:
+                        parent = new_item.parent
+                        if parent and "profile-avatar-container" in (getattr(parent, "classes", []) or []):
+                            parent.add_class("vim-cursor")
+                    except Exception:
+                        pass
             except Exception:
                 pass
             # Scroll so the selected item is visible and keep focus on the panel
@@ -4880,21 +4905,24 @@ class ProfileView(VerticalScroll):
         username = self.profile.get("username", "")
         yield Static(f"profile | @{username}", classes="panel-header")
 
+        # Display the avatar first (match Settings layout: avatar boxed at top-level)
+        avatar_text = self.profile.get("ascii_pic", "")
+        if not avatar_text or (isinstance(avatar_text, str) and avatar_text.strip() == ""):
+            avatar_text = "No profile picture available"
+
+        avatar_container = Container(classes="profile-avatar-container")
+        try:
+            avatar_container.border_title = "Profile Picture"
+        except Exception:
+            pass
+        with avatar_container:
+            yield Static(avatar_text, id="profile-picture-display", classes="ascii-avatar", markup=False)
+        yield avatar_container
+
+        # Then render the profile details in a centered container (username, stats, bio, actions)
         profile_container = Container(classes="profile-center-container")
         with profile_container:
-            # Profile avatar wrapped in its own container so it appears boxed
-            avatar_container = Container(classes="profile-avatar-container")
-            try:
-                avatar_container.border_title = "Profile Picture"
-            except Exception:
-                pass
-            with avatar_container:
-                ascii_pic = self.profile.get("ascii_pic", "")
-                if ascii_pic.strip() == "":
-                    ascii_pic = "No profile picture available"
-                yield Static(ascii_pic, classes="profile-avatar-large ascii-avatar")
-            # expose the avatar container (boxed appearance)
-            yield avatar_container
+            # expose the username (boxed appearance handled by CSS)
             yield Static(f"@{username}", classes="profile-username-display")
 
             stats_row = Container(classes="profile-stats-row")
@@ -5008,7 +5036,12 @@ class ProfileView(VerticalScroll):
         """
         rows = []
         try:
-            avatar = self.query_one(".profile-avatar-large", Static)
+            # The avatar is inside a Container; prefer the displayed Static
+            avatar_container = self.query_one(".profile-avatar-container", Container)
+            try:
+                avatar = avatar_container.query_one("#profile-picture-display", Static)
+            except Exception:
+                avatar = avatar_container
             rows.append([avatar])
         except Exception:
             rows.append([])
@@ -5085,6 +5118,19 @@ class ProfileView(VerticalScroll):
                 for item in cols:
                     try:
                         item.add_class("vim-row-focus")
+                    except Exception:
+                        pass
+                    # If this item is the inner avatar Static, also mark its container
+                    try:
+                        ident = getattr(item, "id", None)
+                        classes = getattr(item, "classes", []) or []
+                        if ident == "profile-picture-display" or "ascii-avatar" in classes:
+                            try:
+                                parent = getattr(item, "parent", None)
+                                if parent and "profile-avatar-container" in (getattr(parent, "classes", []) or []):
+                                    parent.add_class("vim-row-focus")
+                            except Exception:
+                                pass
                     except Exception:
                         pass
                 # Scroll to the first widget in the row for visibility
