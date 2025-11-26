@@ -1768,7 +1768,7 @@ class Sidebar(VerticalScroll):
                     )
             else:
                 drafts_container.mount(
-                    Static("No drafts\n\nPress :n to create", classes="no-drafts-text")
+                    Static("No drafts\n\nSave a post to see it here.", classes="no-drafts-text")
                 )
         except Exception as e:
             print(f"Error refreshing drafts: {e}")
@@ -5553,7 +5553,7 @@ class DraftsPanel(VerticalScroll):
 
         if not drafts:
             yield Static(
-                "\n📝 No drafts saved yet\n\nPress :n to create a new post",
+                "\nNo drafts saved yet",
                 classes="no-drafts-message",
             )
         else:
@@ -5564,12 +5564,6 @@ class DraftsPanel(VerticalScroll):
                 if i == 0:
                     box.add_class("vim-cursor")
                 yield box
-
-        yield Static(
-            "\n[j/k] Navigate [h/l] Select Action [Enter] Execute [:o#/:x#] Direct [Esc] Back",
-            classes="help-text",
-            markup=False,
-        )
 
     def on_mount(self) -> None:
         """Watch for cursor position changes"""
@@ -5832,7 +5826,7 @@ class DraftsPanel(VerticalScroll):
         if not drafts:
             self.mount(
                 Static(
-                    "\n📝 No drafts saved yet\n\nPress :n to create a new post",
+                    "\nNo drafts saved yet",
                     classes="no-drafts-message",
                 )
             )
@@ -5844,14 +5838,6 @@ class DraftsPanel(VerticalScroll):
                 if i == 0:
                     box.add_class("vim-cursor")
                 self.mount(box)
-
-        self.mount(
-            Static(
-                "\n[j/k] Navigate [h/l] Select Action [Enter] Execute [:o#/:x#] Direct [Esc] Back",
-                classes="help-text",
-                markup=False,
-            )
-        )
 
         # Reset cursor position
         self.cursor_position = 0

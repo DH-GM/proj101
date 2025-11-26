@@ -46,6 +46,8 @@ $border-subtle: #4B4E6D;
 $border-hover: $dracula-comment;
 $border-green: $dracula-green;
 $border-green-hover: $dracula-green;
+$border-red: $dracula-red;
+$border-orange: $dracula-orange;
 $border-drafts: $dracula-current-line;
 
 /* Text Colors */
@@ -68,6 +70,8 @@ $color-magenta: $dracula-pink;
 $color-green: $dracula-green;
 $color-yellow: $dracula-yellow;
 $color-lime: $dracula-green;
+$color-red: $dracula-red;
+$color-orange: $dracula-orange;
 
 /* Danger Colors (using Dracula Red) */
 $danger-border: $dracula-red;
@@ -914,11 +918,12 @@ TimelineFeed:focus, DiscoverFeed:focus, NotificationsFeed:focus, ChatView:focus,
 #sidebar {
     /* Increased width to give more room for command/help text */
     width: 34;
-    background: $bg-lighter;
+    background: $bg-dark;
     height: 100%;
     dock: left;
     layout: vertical;
     padding: 0 0 0 0;
+    margin-right: 2;
     overflow: auto;
 }
 
@@ -963,11 +968,11 @@ TimelineFeed:focus, DiscoverFeed:focus, NotificationsFeed:focus, ChatView:focus,
     margin: 0;
 }
 
-/* Drafts Section Box - Green */
+/* Drafts Section Box - Red */
 .drafts-box {
-    border: round $color-green;
+    border: round $color-orange;
     border-title-align: left;
-    border-title-color: $color-green;
+    border-title-color: $color-orange;
     border-title-style: bold;
     padding: 0 1;
     margin: 0 0 1 0;
