@@ -44,7 +44,7 @@ $bg-hover: #3B3F5C;
 $border-default: $dracula-current-line;
 $border-subtle: #4B4E6D;
 $border-hover: $dracula-comment;
-$border-green: #3C9A5F;
+$border-green: $dracula-green;
 $border-green-hover: $dracula-green;
 $border-drafts: $dracula-current-line;
 
@@ -85,7 +85,7 @@ $notif-unread-hover: $dracula-comment;
 $chat-sent: #18583a; /* deep muted green */
 $chat-sent-border: $border-green;
 /* Received/other messages: muted indigo/purple to contrast sent */
-$chat-received: #2b3150; /* muted indigo/slate */
+$chat-received: #3a2a4a; /* muted indigo/slate */
 $chat-received-border: $dracula-purple;
 /* New message emphasis - gentle highlight */
 $chat-new: #2f5d3b;
@@ -1427,11 +1427,11 @@ Button.delete-profile-picture.danger:hover {
 */
 
 .chat-message.sent {
-    background: #3a2a4a;
+    background: $chat-sent;
     color: $text-primary;
     align: right top;
     margin-left: 20;
-    border: solid $dracula-purple;
+    border: solid $chat-sent-border;
     text-align: right;
     margin-top: 1;
     margin-bottom: 1;
@@ -1441,11 +1441,11 @@ Button.delete-profile-picture.danger:hover {
    after the sender-* rules so per-sender backgrounds don't override
    the intended received palette. */
 .chat-message.received {
-    background: #2a3a2a;
+    background: $chat-received;
     color: $text-primary;
     align: left top;
     margin-right: 20;
-    border: solid $dracula-green;
+    border: solid $chat-received-border;
     text-align: left;
     margin-top: 1;
     margin-bottom: 1;
