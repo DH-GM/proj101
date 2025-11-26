@@ -191,6 +191,9 @@ class RealAPI(APIInterface):
     def _post(self, path: str, json_payload: Dict[str, Any] | None = None, params: Dict[str, Any] | None = None) -> Any:
         return self._request("POST", path, params=params, json_payload=json_payload)
 
+    def _patch(self, path: str, json_payload: Dict[str, Any] | None = None, params: Dict[str, Any] | None = None) -> Any:
+        return self._request("PATCH", path, params=params, json_payload=json_payload)
+
     def _request(self, method: str, path: str, params: Dict[str, Any] | None = None, json_payload: Dict[str, Any] | None = None, retry: bool = True) -> Any:
         """Internal request helper that will attempt a single refresh+retry on 401.
 
@@ -204,10 +207,16 @@ class RealAPI(APIInterface):
         url = f"{self.base_url}/{path.lstrip('/')}"
 
         try:
-            if method.upper() == "GET":
+            m = method.upper()
+            if m == "GET":
                 resp = self.session.get(url, params=params, timeout=self.timeout)
-            else:
+            elif m == "POST":
                 resp = self.session.post(url, params=params, json=json_payload, timeout=self.timeout)
+            elif m == "PATCH":
+                resp = self.session.patch(url, params=params, json=json_payload, timeout=self.timeout)
+            else:
+                # Fallback to requests.request for other verbs
+                resp = self.session.request(m, url, params=params, json=json_payload, timeout=self.timeout)
 
             # If we received an auth-related response (400/401/403), try centralized restore once
             if resp.status_code in (400, 401, 403) and retry:
@@ -322,7 +331,12 @@ class RealAPI(APIInterface):
         return UserSettings(**data)
 
     def update_user_settings(self, settings: UserSettings) -> bool:
-        self._post("/settings", json_payload=settings.__dict__)
+        # Use PATCH for partial updates. Only send fields that are not None
+        try:
+            payload = {k: v for k, v in settings.__dict__.items() if v is not None}
+        except Exception:
+            payload = settings.__dict__
+        self._patch("/settings", json_payload=payload)
         return True
 
     def get_user_posts(self, handle: str, limit: int = 50) -> List[Post]:

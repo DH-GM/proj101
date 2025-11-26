@@ -4058,7 +4058,7 @@ class SettingsPanel(VerticalScroll):
         except Exception:
             pass
         with avatar_container:
-            yield Static(avatar_text, id="profile-picture-display", classes="ascii-avatar")
+            yield Static(avatar_text, id="profile-picture-display", classes="ascii-avatar", markup=False)
         yield avatar_container
 
         # Upload and Delete buttons placed below the profile picture.
@@ -4544,86 +4544,97 @@ class SettingsPanel(VerticalScroll):
                 root.withdraw()
                 file_path = filedialog.askopenfilename(
                     title="Select an Image",
-                    filetypes=[("Image files", "*.png *.jpg *.jpeg")],
+                    filetypes=[("Image files", "*.png *.jpg *.jpeg *.gif *.bmp")],
                 )
                 root.destroy()
 
                 if not file_path:
                     return
 
-                script_path = Path("asciifer/asciifer.py")
-                if not script_path.exists():
+                # Inline PIL-based ASCII conversion (reused from NewPostDialog)
+                try:
+                    img = Image.open(file_path).convert("L")
+                    # Desired character width
+                    width = 60
+                    aspect_ratio = img.height / img.width if img.width else 1
+                    height = int(width * aspect_ratio * 0.5)
+                    if height <= 0:
+                        height = 1
+                    img = img.resize((width, height))
+
+                    pixels = img.load()
+                    ascii_chars = [
+                        " ",
+                        ".",
+                        ",",
+                        ":",
+                        ";",
+                        "+",
+                        "*",
+                        "?",
+                        "%",
+                        "S",
+                        "#",
+                        "@",
+                    ]
+                    ascii_chars = ascii_chars[::-1]
+                    ascii_lines = []
+                    for y in range(height):
+                        line = ""
+                        for x in range(width):
+                            pixel_value = pixels[x, y]
+                            char_index = (pixel_value * (len(ascii_chars) - 1)) // 255
+                            line += ascii_chars[char_index]
+                        ascii_lines.append(line)
+                    ascii_art = "\n".join(ascii_lines)
+
+                except Exception:
+                    # Fallback: notify and abort if conversion fails
+                    try:
+                        self.app.notify("Failed to convert image to ASCII", severity="error")
+                    except Exception:
+                        pass
                     return
 
-                output_text = "output.txt"
-                output_image = "output.png"
-                font_path = "/System/Library/Fonts/Monaco.ttf"
+                # Store locally as a pending change and update preview in the panel
+                try:
+                    self._pending_ascii = ascii_art
+                except Exception:
+                    self._pending_ascii = ascii_art
 
-                cmd = [
-                    sys.executable,
-                    str(script_path),
-                    "--output-text",
-                    output_text,
-                    "--output-image",
-                    output_image,
-                    "--font",
-                    font_path,
-                    "--font-size",
-                    "24",
-                    file_path,
-                ]
-
-                result = subprocess.run(cmd, capture_output=True, text=True)
-                if result.returncode != 0:
-                    return
-
-                if Path(output_text).exists():
-                    with open(output_text, "r") as f:
-                        lines = f.read().splitlines()
-
-                    max_width = max((len(line) for line in lines), default=0)
-                    max_lines = int(max_width / 2)
-                    lines = lines[:max_lines]
-                    ascii_art = "\n".join(lines)
-
-                    settings = api.get_user_settings()
-                    settings.ascii_pic = ascii_art
-                    api.update_user_settings(settings)
-
+                try:
+                    avatar = self.query_one("#profile-picture-display", Static)
+                    avatar.update(ascii_art)
                     try:
-                        avatar = self.query_one("#profile-picture-display", Static)
-                        avatar.update(ascii_art)
-                        self.app.notify("Profile picture updated!", severity="success")
-                    except Exception as e:
-                        try:
-                            self.app.notify(f"Widget not found: {e}", severity="error")
-                        except Exception:
-                            pass
-                else:
+                        self.app.notify("Profile picture preview updated", severity="success")
+                    except Exception:
+                        pass
+                except Exception:
                     try:
-                        self.app.notify("Output file not generated", severity="error")
+                        self.app.notify("Profile widget not found to update preview", severity="error")
                     except Exception:
                         pass
             except Exception:
                 pass
-        # Delete profile picture
+        # Delete profile picture (clear pending preview)
         elif btn_id == "delete-profile-picture":
             try:
-                settings = api.get_user_settings()
-                setattr(settings, "ascii_pic", "")
-                api.update_user_settings(settings)
+                try:
+                    self._pending_ascii = ""
+                except Exception:
+                    self._pending_ascii = ""
                 try:
                     avatar = self.query_one("#profile-picture-display", Static)
                     avatar.update("No profile picture available")
                 except Exception:
                     pass
                 try:
-                    self.app.notify("Profile picture deleted", severity="info")
+                    self.app.notify("Profile picture preview cleared", severity="info")
                 except Exception:
                     pass
             except Exception:
                 try:
-                    self.app.notify("Failed to delete profile picture", severity="error")
+                    self.app.notify("Failed to clear profile picture preview", severity="error")
                 except Exception:
                     pass
 
@@ -4730,6 +4741,70 @@ class SettingsPanel(VerticalScroll):
             except Exception:
                 try:
                     self.app.notify("Failed to update preference", severity="error")
+                except Exception:
+                    pass
+
+        # Save profile changes (bio + pending ascii)
+        elif btn_id == "settings-save-changes":
+            from .api_interface import api
+
+            try:
+                settings = api.get_user_settings()
+            except Exception:
+                settings = None
+
+            if settings is None:
+                try:
+                    self.app.notify("Failed to load settings for save", severity="error")
+                except Exception:
+                    pass
+                return
+
+            # Apply pending ascii if present (allow empty string to clear)
+            try:
+                pending = getattr(self, "_pending_ascii", None)
+                if pending is not None:
+                    settings.ascii_pic = pending
+            except Exception:
+                pass
+
+            # Read bio from TextArea
+            try:
+                from textual.widgets import TextArea
+
+                bio_widget = self.query_one("#settings-bio", TextArea)
+                settings.bio = bio_widget.text
+            except Exception:
+                pass
+
+            # Persist via API
+            try:
+                api.update_user_settings(settings)
+                try:
+                    # Update avatar display to reflect saved ascii
+                    avatar = self.query_one("#profile-picture-display", Static)
+                    if getattr(settings, "ascii_pic", "") and isinstance(settings.ascii_pic, str) and settings.ascii_pic.strip() != "":
+                        avatar.update(Text("\n" + settings.ascii_pic))
+                    else:
+                        avatar.update("No profile picture available")
+                except Exception:
+                    pass
+                try:
+                    self.app.notify("Profile saved", severity="success")
+                except Exception:
+                    pass
+                try:
+                    # clear pending state
+                    if hasattr(self, "_pending_ascii"):
+                        delattr(self, "_pending_ascii")
+                except Exception:
+                    try:
+                        self._pending_ascii = None
+                    except Exception:
+                        pass
+            except Exception:
+                try:
+                    self.app.notify("Failed to save profile changes", severity="error")
                 except Exception:
                     pass
 
