@@ -622,7 +622,7 @@ DraftsScreen {
     border: round $border-hover;
     border-title-color: $border-hover;
     border-title-style: bold;
-    height: auto;
+    height: 6;
 }
 
 .draft-item:hover {
@@ -924,7 +924,8 @@ TimelineFeed:focus, DiscoverFeed:focus, NotificationsFeed:focus, ChatView:focus,
     layout: vertical;
     padding: 0 0 0 0;
     margin-right: 2;
-    overflow: auto;
+    /* Sidebar should not scroll; individual panels manage their sizing */
+    overflow: hidden;
 }
 
 /* ========== VIBRANT SECTION BOXES ========== */
@@ -976,7 +977,9 @@ TimelineFeed:focus, DiscoverFeed:focus, NotificationsFeed:focus, ChatView:focus,
     border-title-style: bold;
     padding: 0 1;
     margin: 0 0 1 0;
-    height: auto;
+    /* Make the drafts box flexible so it grows/shrinks with the sidebar. */
+    height: 1fr;
+    overflow: hidden;
 }
 
 .no-drafts-text {
@@ -985,6 +988,8 @@ TimelineFeed:focus, DiscoverFeed:focus, NotificationsFeed:focus, ChatView:focus,
     text-align: center;
     text-style: italic;
 }
+
+/* Summary shown when drafts cannot be displayed due to limited space */
 
 /* Modal dialog container styling - center dialogs on screen and provide consistent sizing */
 #dialog-container {

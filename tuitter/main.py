@@ -1788,6 +1788,7 @@ class Sidebar(VerticalScroll):
             pass
 
 
+
 # ───────── Modal Dialogs ─────────
 
 
