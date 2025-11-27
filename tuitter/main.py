@@ -2464,6 +2464,24 @@ class DeleteDraftDialog(ModalScreen):
                     pass
             except:
                 pass
+            # Ensure focus returns to the drafts panel after modal closes.
+            try:
+                try:
+                    # Prefer call_after_refresh so focus happens after UI updates.
+                    self.app.call_after_refresh(lambda: self.app._focus_main_content_for_screen("drafts"))
+                except Exception:
+                    # Fallback to a short timer
+                    try:
+                        self.app.set_timer(0.02, lambda: self.app._focus_main_content_for_screen("drafts"))
+                    except Exception:
+                        # Last resort: call directly (may be ignored if modal still present)
+                        try:
+                            self.app._focus_main_content_for_screen("drafts")
+                        except Exception:
+                            pass
+            except Exception:
+                pass
+
             self.dismiss(True)
         else:
             self.dismiss(False)
@@ -2499,6 +2517,21 @@ class DeleteDraftDialog(ModalScreen):
                     pass
             except:
                 pass
+            # Schedule refocus of drafts panel so keyboard bindings remain active.
+            try:
+                try:
+                    self.app.call_after_refresh(lambda: self.app._focus_main_content_for_screen("drafts"))
+                except Exception:
+                    try:
+                        self.app.set_timer(0.02, lambda: self.app._focus_main_content_for_screen("drafts"))
+                    except Exception:
+                        try:
+                            self.app._focus_main_content_for_screen("drafts")
+                        except Exception:
+                            pass
+            except Exception:
+                pass
+
             self.dismiss(True)
         elif btn_id == "cancel-delete":
             self.dismiss(False)
