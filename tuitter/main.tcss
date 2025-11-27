@@ -657,10 +657,9 @@ DraftsScreen {
 /* App Header */
 #app-header {
     dock: top;
-    height: 1;
+    height: 2;
     background: $bg-header;
     color: $text-primary;
-    padding: 0 2;
     content-align: left middle;
     text-style: bold;
 }
@@ -985,7 +984,7 @@ TimelineFeed:focus, DiscoverFeed:focus, NotificationsFeed:focus, ChatView:focus,
 .no-drafts-text {
     color: $text-subtle;
     padding: 1;
-    text-align: center;
+    text-align: left;
     text-style: italic;
 }
 
